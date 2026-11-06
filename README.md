@@ -4,8 +4,10 @@ Structural answers about a codebase — *what breaks if I change this*, *how doe
 A reach B*, *where is the important code* — from one deterministic graph, for
 humans and for coding agents.
 
-**Status: pre-alpha.** No graph engine exists yet; [`PLAN.md`](PLAN.md) is the
-specification (22 locked decisions, schema, CLI and MCP contracts, milestones).
+**Status: pre-alpha.** M0 works: `repath index` walks a repo, parses TypeScript
+and JavaScript definitions into SQLite, and `status` reports what it found.
+Relations (calls, imports, impact) are not built yet; [`PLAN.md`](PLAN.md) is the
+specification.
 
 ## Build
 
@@ -13,9 +15,11 @@ Requires Go 1.27+.
 
 ```sh
 make build
-./bin/repath version
-./bin/repath status --json
+./bin/repath status --json        # builds .repath/index.db on first run
+./bin/repath index --full         # rebuild from scratch
 ```
+
+Add `.repath/` to your own `.gitignore`.
 
 ## Shape
 
