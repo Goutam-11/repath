@@ -382,6 +382,13 @@ re-verify an unchanged tree, 5 parse failures (0.7%) — every one the same
 tree-sitter-typescript gap around `call<typeof import("...")>()`, reported in
 `status` rather than dropped.
 
+**M1 landed** (PR #4): import/alias-aware resolution with the confidence ladder,
+`find` and `callers`, and a fixture gate at precision 1.00 / recall 1.00 (9/9
+edges, 1 unresolved). On excalidraw: 6,447 `CALLS`, 2.1 s full index, 56 ms
+incremental. 9,248 references stay unresolved, dominated by member calls without
+typed receivers — the honest ceiling of tree-sitter resolution and the first
+target for the v1.1 adapter seam.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language
@@ -406,6 +413,7 @@ tree-sitter-typescript gap around `call<typeof import("...")>()`, reported in
 | Worktree seed cost | 300 MB copy per new worktree | `copy_file_range`/reflink when available, LRU to 5 commit DBs |
 | Scope creep (tests, entrypoints, UI) | new node kinds mid-milestone | non-goals list is binding until v1 ships |
 | Grammar rejects valid TS | files with `parse_ok=0` | surfaced in `status`; partial symbols kept; upgrade grammar, never hide the count |
+| Member-call precision | 0.6-rule edges dominate on real repos | rule id on every edge, `--min-confidence` 0.9 for import/this/local only; typed-receiver inference is the M4+ fix |
 
 ## 15. Non-goals for v1
 
@@ -417,18 +425,20 @@ ceiling and the first v1.1 candidate, together with entrypoint flows.
 
 ## 16. Deferred (revisit after v1)
 
-1. `repath check` (v1.1): import cycles, dead code, module-boundary violations,
+1. File and module nodes with `DEFINES`/`CONTAINS` edges, arriving with M2
+   impact rollups rather than as an empty shell in M1.
+2. `repath check` (v1.1): import cycles, dead code, module-boundary violations,
    fan-in/out hotspots, unresolved-rate per module — graph-native, CI exit codes.
-2. SARIF ingestion from tsc/pyright/ruff/rustc, findings attached to symbols
+3. SARIF ingestion from tsc/pyright/ruff/rustc, findings attached to symbols
    (bridge, don't rebuild).
-3. Entrypoint/flow detection (FastAPI, Express, pytest, `main`) — the "how it
+4. Entrypoint/flow detection (FastAPI, Express, pytest, `main`) — the "how it
    works" story needs it.
-4. Test-impact mapping ("which tests break").
-5. Adapter seam: SCIP/LSP facts merged for compiler-grade precision.
-6. Cross-language edges (TS `fetch` → route → Python handler, OpenAPI, gRPC).
-7. `repath serve` read-only HTTP for dashboards and shell-less clients.
-8. Watch mode / LSP server for editors.
-9. Distribution: goreleaser, Homebrew, `go install`, GitHub Action.
+5. Test-impact mapping ("which tests break").
+6. Adapter seam: SCIP/LSP facts merged for compiler-grade precision.
+7. Cross-language edges (TS `fetch` → route → Python handler, OpenAPI, gRPC).
+8. `repath serve` read-only HTTP for dashboards and shell-less clients.
+9. Watch mode / LSP server for editors.
+10. Distribution: goreleaser, Homebrew, `go install`, GitHub Action.
 
 ## 17. Decision log
 

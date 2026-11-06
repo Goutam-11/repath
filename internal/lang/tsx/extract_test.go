@@ -45,12 +45,12 @@ func byQName(symbols []Symbol) map[string]Symbol {
 }
 
 func TestExtractDefinitions(t *testing.T) {
-	symbols, ok, errMsg := New().Extract([]byte(sample), TypeScript)
-	if !ok {
-		t.Fatalf("parse failed: %s", errMsg)
+	result := New().Extract([]byte(sample), TypeScript)
+	if !result.OK {
+		t.Fatalf("parse failed: %s", result.Err)
 	}
 
-	got := byQName(symbols)
+	got := byQName(result.Symbols)
 	cases := []struct {
 		qname  string
 		kind   string
@@ -91,22 +91,67 @@ func TestExtractDefinitions(t *testing.T) {
 }
 
 func TestExtractReportsSyntaxError(t *testing.T) {
-	_, ok, errMsg := New().Extract([]byte("function broken( {\n  return 1;\n}\n"), TypeScript)
-	if ok {
-		t.Fatal("ok = true for a broken file")
+	result := New().Extract([]byte("function broken( {\n  return 1;\n}\n"), TypeScript)
+	if result.OK {
+		t.Fatal("OK = true for a broken file")
 	}
-	if !strings.Contains(errMsg, "syntax error") {
-		t.Fatalf("errMsg = %q, want a syntax error", errMsg)
+	if !strings.Contains(result.Err, "syntax error") {
+		t.Fatalf("Err = %q, want a syntax error", result.Err)
 	}
 }
 
 func TestExtractEmptyFile(t *testing.T) {
-	symbols, ok, _ := New().Extract(nil, TypeScript)
-	if !ok {
+	result := New().Extract(nil, TypeScript)
+	if !result.OK {
 		t.Fatal("empty file reported as broken")
 	}
-	if len(symbols) != 0 {
-		t.Fatalf("symbols = %d, want 0", len(symbols))
+	if len(result.Symbols) != 0 || len(result.Refs) != 0 || len(result.Imports) != 0 {
+		t.Fatalf("empty file produced %d symbols, %d refs, %d imports",
+			len(result.Symbols), len(result.Refs), len(result.Imports))
+	}
+}
+
+func TestExtractRefsAndImports(t *testing.T) {
+	src := `import { add } from "./util";
+import * as helpers from "./helpers";
+
+export class Calc {
+  run(a: number) {
+    return add(a, helpers.clamp(a));
+  }
+}
+
+export function total(n: number) {
+  return new Calc().run(n);
+}
+`
+	result := New().Extract([]byte(src), TypeScript)
+	if !result.OK {
+		t.Fatalf("parse failed: %s", result.Err)
+	}
+
+	if len(result.Imports) != 2 {
+		t.Fatalf("imports = %d, want 2: %+v", len(result.Imports), result.Imports)
+	}
+	if result.Imports[0].Local != "add" || result.Imports[0].Imported != "add" || result.Imports[0].Source != "./util" {
+		t.Fatalf("named import = %+v", result.Imports[0])
+	}
+	if result.Imports[1].Imported != "*" || result.Imports[1].Local != "helpers" {
+		t.Fatalf("namespace import = %+v", result.Imports[1])
+	}
+
+	found := map[string]Ref{}
+	for _, ref := range result.Refs {
+		found[ref.Name] = ref
+	}
+	if ref, ok := found["add"]; !ok || ref.Form != "ident" || ref.Enclosing != "Calc.run" {
+		t.Fatalf("add ref = %+v", found["add"])
+	}
+	if ref, ok := found["clamp"]; !ok || ref.Form != "member" || ref.Receiver != "helpers" {
+		t.Fatalf("clamp ref = %+v", found["clamp"])
+	}
+	if ref, ok := found["Calc"]; !ok || ref.Kind != "new" {
+		t.Fatalf("Calc ref = %+v", found["Calc"])
 	}
 }
 

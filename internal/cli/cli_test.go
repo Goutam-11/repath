@@ -141,3 +141,93 @@ func TestStatusNoRefreshSkipsIndexing(t *testing.T) {
 		t.Fatalf("files=%d nodes=%d, want 1/1", report.Files, report.Nodes)
 	}
 }
+
+func TestCallersAndFind(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.ts", "export function add(a: number, b: number): number {\n  return a + b;\n}\n")
+	writeFile(t, dir, "b.ts", "import { add } from \"./a\";\n\nexport function sum(): number {\n  return add(1, 2);\n}\n")
+
+	if code, _, errOut := run(t, "status", "--json", "--root", dir); code != 0 {
+		t.Fatalf("status exit = %d: %s", code, errOut)
+	}
+
+	code, out, errOut := run(t, "callers", "add", "--json", "--root", dir)
+	if code != 0 {
+		t.Fatalf("callers exit = %d: %s", code, errOut)
+	}
+
+	var callers struct {
+		Symbol struct {
+			QName string `json:"qname"`
+			Kind  string `json:"kind"`
+			File  string `json:"file"`
+		} `json:"symbol"`
+		Callers []struct {
+			QName      string  `json:"qname"`
+			Kind       string  `json:"kind"`
+			Confidence float64 `json:"confidence"`
+		} `json:"callers"`
+	}
+	if err := json.Unmarshal([]byte(out), &callers); err != nil {
+		t.Fatalf("callers output is not JSON: %v\n%s", err, out)
+	}
+	if callers.Symbol.QName != "add" {
+		t.Fatalf("symbol = %q, want add", callers.Symbol.QName)
+	}
+	if len(callers.Callers) != 1 {
+		t.Fatalf("callers = %d, want 1: %s", len(callers.Callers), out)
+	}
+	if callers.Callers[0].QName != "sum" || callers.Callers[0].Kind != "CALLS" {
+		t.Fatalf("caller = %+v, want sum/CALLS", callers.Callers[0])
+	}
+	if callers.Callers[0].Confidence < 0.99 {
+		t.Fatalf("import-resolved caller confidence = %.2f, want 1.0", callers.Callers[0].Confidence)
+	}
+
+	code, out, _ = run(t, "find", "add", "--json", "--root", dir)
+	if code != 0 {
+		t.Fatalf("find exit = %d", code)
+	}
+	var card struct {
+		Symbol  map[string]any `json:"symbol"`
+		Callers int            `json:"callers"`
+		Callees int            `json:"callees"`
+	}
+	if err := json.Unmarshal([]byte(out), &card); err != nil {
+		t.Fatalf("find output is not JSON: %v\n%s", err, out)
+	}
+	if card.Callers != 1 {
+		t.Fatalf("find callers = %d, want 1", card.Callers)
+	}
+}
+
+func TestFindMissingSymbol(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.ts", "export function add() {}\n")
+
+	code, _, errOut := run(t, "find", "nope", "--root", dir)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3 (not found)\n%s", code, errOut)
+	}
+}
+
+func TestFindAmbiguousSymbol(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.ts", "export function run(): void {}\n")
+	writeFile(t, dir, "b.ts", "export function run(): void {}\n")
+
+	code, out, _ := run(t, "find", "run", "--json", "--root", dir)
+	if code != 4 {
+		t.Fatalf("exit = %d, want 4 (ambiguous)", code)
+	}
+
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		t.Fatalf("ambiguous output is not JSON: %v\n%s", err, out)
+	}
+	if payload.Error != "ambiguous" {
+		t.Fatalf("error = %q, want ambiguous", payload.Error)
+	}
+}

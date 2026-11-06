@@ -1,0 +1,11 @@
+[
+  { "src": "src/math.ts:sum", "dst": "src/util.ts:add", "kind": "CALLS" },
+  { "src": "src/cart.ts:Cart.add", "dst": "src/util.ts:clamp", "kind": "CALLS" },
+  { "src": "src/cart.ts:Cart.total", "dst": "src/cart.ts:Cart.add", "kind": "CALLS" },
+  { "src": "src/checkout.ts:checkout", "dst": "src/cart.ts:Cart", "kind": "REFERENCES" },
+  { "src": "src/checkout.ts:checkout", "dst": "src/cart.ts:Cart.total", "kind": "CALLS" },
+  { "src": "src/circle.ts:Circle", "dst": "src/base.ts:Base", "kind": "EXTENDS" },
+  { "src": "src/circle.ts:Circle", "dst": "src/shape.ts:Shape", "kind": "IMPLEMENTS" },
+  { "src": "src/fmt.ts:print", "dst": "src/format.ts:format", "kind": "CALLS" },
+  { "src": "src/dup.ts:go", "dst": "src/dup-a.ts:run", "kind": "CALLS" }
+]
