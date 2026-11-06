@@ -25,6 +25,8 @@ type statusReport struct {
 	Nodes         int            `json:"nodes"`
 	NodesByKind   map[string]int `json:"nodes_by_kind"`
 	ParseFailures int            `json:"parse_failures"`
+	Edges         map[string]int `json:"edges"`
+	Unresolved    int            `json:"unresolved"`
 	LastIndexed   string         `json:"last_indexed,omitempty"`
 	GitHead       string         `json:"git_head,omitempty"`
 	Refresh       refreshReport  `json:"refresh"`
@@ -38,7 +40,7 @@ type refreshReport struct {
 }
 
 func statusCmd(args []string, stdout, stderr io.Writer) int {
-	opts, err := parseOptions(args)
+	opts, _, err := parseOptions(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n\n%s", err, usage)
 		return 2
@@ -78,6 +80,17 @@ func statusCmd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	edges, err := st.EdgeCounts(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "read edges: %v\n", err)
+		return 1
+	}
+	unresolved, err := st.CountPending(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "read pending: %v\n", err)
+		return 1
+	}
+
 	report := statusReport{
 		Root:          root,
 		Indexed:       counts.Files > 0,
@@ -87,6 +100,8 @@ func statusCmd(args []string, stdout, stderr io.Writer) int {
 		Nodes:         counts.Nodes,
 		NodesByKind:   counts.ByKind,
 		ParseFailures: counts.ParseFailures,
+		Edges:         edges,
+		Unresolved:    unresolved,
 		LastIndexed:   meta["indexed_at"],
 		GitHead:       meta["git_head"],
 		Refresh: refreshReport{
@@ -122,6 +137,19 @@ func printStatus(out io.Writer, r statusReport) {
 		fmt.Fprintf(out, "  %-10s %d\n", kind, r.NodesByKind[kind])
 	}
 
+	if len(r.Edges) > 0 {
+		kinds := make([]string, 0, len(r.Edges))
+		for kind := range r.Edges {
+			kinds = append(kinds, kind)
+		}
+		sort.Strings(kinds)
+		parts := make([]string, 0, len(kinds))
+		for _, kind := range kinds {
+			parts = append(parts, fmt.Sprintf("%s %d", kind, r.Edges[kind]))
+		}
+		fmt.Fprintf(out, "edges %s · unresolved %d\n", strings.Join(parts, " · "), r.Unresolved)
+	}
+
 	if r.LastIndexed != "" {
 		fmt.Fprintf(out, "indexed %s · +%d ~%d -%d in %dms\n",
 			r.LastIndexed, r.Refresh.FilesIndexed, r.Refresh.FilesSkipped,
@@ -130,7 +158,7 @@ func printStatus(out io.Writer, r statusReport) {
 }
 
 func indexCmd(args []string, stdout, stderr io.Writer) int {
-	opts, err := parseOptions(args)
+	opts, _, err := parseOptions(args)
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n\n%s", err, usage)
 		return 2
