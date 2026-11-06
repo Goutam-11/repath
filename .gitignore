@@ -1,0 +1,17 @@
+# runtime artifacts
+.repath/
+out/
+*.sqlite
+*.sqlite.zst
+
+# build
+bin/
+dist/
+
+# editors / os
+.DS_Store
+.idea/
+.vscode/
+
+# local tool cache (sandbox read-only home)
+.cache/
