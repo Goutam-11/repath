@@ -14,6 +14,7 @@ import (
 
 	"github.com/Goutam-11/repath/internal/lang"
 	"github.com/Goutam-11/repath/internal/lang/tsx"
+	"github.com/Goutam-11/repath/internal/resolve"
 	"github.com/Goutam-11/repath/internal/store"
 )
 
@@ -31,12 +32,14 @@ type Result struct {
 	Deleted       int
 	ParseFailures int
 	Nodes         int
+	Edges         int
+	Unresolved    int
 	Duration      time.Duration
 }
 
-// Run discovers files, parses the changed ones, and writes them in batches.
-// Parsing runs on a worker pool; every database write happens on the calling
-// goroutine, because SQLite has exactly one writer.
+// Run discovers files, parses the changed ones, writes them in batches, then
+// resolves the new references into edges. Parsing runs on a worker pool; every
+// database write happens on the calling goroutine.
 func Run(ctx context.Context, st *store.Store, root string, opts Options) (Result, error) {
 	start := time.Now()
 
@@ -63,7 +66,7 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	}
 
 	jobs := make(chan Source)
-	parsed := make(chan outcome, workers*2)
+	parsed := make(chan *outcome, workers*2)
 
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
@@ -93,7 +96,8 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	}()
 
 	res := Result{Files: len(sources)}
-	batch := make([]outcome, 0, 200)
+	batch := make([]*outcome, 0, 200)
+	var written []*outcome
 
 	flush := func() error {
 		if len(batch) == 0 {
@@ -121,13 +125,19 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 				_ = tx.Rollback()
 				return err
 			}
+			o.fileID = fileID
 			res.Indexed++
 			res.Nodes += len(o.symbols)
 			if !o.ok {
 				res.ParseFailures++
 			}
 		}
-		return tx.Commit()
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		written = append(written, batch...)
+		batch = batch[:0]
+		return nil
 	}
 
 	for o := range parsed {
@@ -140,7 +150,6 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 			if err := flush(); err != nil {
 				return res, err
 			}
-			batch = batch[:0]
 		}
 	}
 	if err := flush(); err != nil {
@@ -170,6 +179,29 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 		res.Deleted = len(deleted)
 	}
 
+	// Edges and pending rows that pointed at replaced or deleted nodes are now
+	// dangling; pruning is cheaper and safer than tracking every id.
+	if _, err := st.PruneEdges(ctx); err != nil {
+		return res, err
+	}
+	if _, err := st.PrunePending(ctx); err != nil {
+		return res, err
+	}
+
+	if len(written) > 0 {
+		if err := resolveChanges(ctx, st, root, written); err != nil {
+			return res, err
+		}
+	}
+
+	edgeCounts, err := st.EdgeCounts(ctx)
+	if err == nil {
+		for _, n := range edgeCounts {
+			res.Edges += n
+		}
+	}
+	res.Unresolved, _ = st.CountPending(ctx)
+
 	for key, value := range map[string]string{
 		"root":       root,
 		"indexed_at": time.Now().UTC().Format(time.RFC3339),
@@ -185,6 +217,107 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	return res, nil
 }
 
+// resolveChanges turns references into edges for the files just written, then
+// retries references that were waiting for a symbol to appear.
+func resolveChanges(ctx context.Context, st *store.Store, root string, written []*outcome) error {
+	ix, err := resolve.Build(ctx, st, root)
+	if err != nil {
+		return err
+	}
+
+	changed := make(map[int64]bool, len(written))
+	for _, o := range written {
+		changed[o.fileID] = true
+
+		imports := make(map[string]tsx.Import, len(o.imports))
+		for _, imp := range o.imports {
+			imports[imp.Local] = imp
+		}
+
+		ids, err := st.NodeIDsByFile(ctx, o.fileID)
+		if err != nil {
+			return err
+		}
+
+		var edges []store.Edge
+		var pending []store.PendingRef
+		for _, ref := range o.refs {
+			src, ok := ids[ref.Enclosing]
+			if !ok {
+				// Top-level references have no containing symbol to attach to.
+				continue
+			}
+
+			r := ix.Resolve(o.fileID, o.src.Path, ref, imports)
+			switch {
+			case r.External:
+			case r.Found && len(r.Candidates) > 0:
+				for _, candidate := range r.Candidates {
+					if candidate == src {
+						continue
+					}
+					edges = append(edges, store.Edge{
+						Src: src, Dst: candidate, Kind: edgeKind(ref.Kind),
+						Confidence: r.Confidence, Rule: r.Rule, Line: ref.Line,
+						Candidates: joinIDs(r.Candidates),
+					})
+				}
+			case r.Found:
+				if r.Dst == src {
+					continue
+				}
+				edges = append(edges, store.Edge{
+					Src: src, Dst: r.Dst, Kind: edgeKind(ref.Kind),
+					Confidence: r.Confidence, Rule: r.Rule, Line: ref.Line,
+				})
+			default:
+				pending = append(pending, store.PendingRef{
+					Name: ref.Name, FileID: o.fileID, Kind: ref.Kind, Line: ref.Line,
+				})
+			}
+		}
+
+		if _, err := st.InsertEdges(ctx, edges); err != nil {
+			return err
+		}
+		if err := st.ReplacePending(ctx, o.fileID, pending); err != nil {
+			return err
+		}
+	}
+
+	// A symbol added by this run can satisfy references from earlier runs.
+	rows, err := st.Pending(ctx)
+	if err != nil {
+		return err
+	}
+	var retried []store.Edge
+	for _, p := range rows {
+		if changed[p.FileID] {
+			continue
+		}
+		dst, ok := ix.ResolveName(p.Name)
+		if !ok {
+			continue
+		}
+		src, ok, err := st.EnclosingNode(ctx, p.FileID, p.Line)
+		if err != nil {
+			return err
+		}
+		if !ok || src == dst {
+			continue
+		}
+		retried = append(retried, store.Edge{
+			Src: src, Dst: dst, Kind: edgeKind(p.Kind),
+			Confidence: 0.60, Rule: "ts.global.unique", Line: p.Line,
+		})
+		if err := st.DeletePending(ctx, p); err != nil {
+			return err
+		}
+	}
+	_, err = st.InsertEdges(ctx, retried)
+	return err
+}
+
 // outcome is one file's parse result, ready to write.
 type outcome struct {
 	src     Source
@@ -193,13 +326,16 @@ type outcome struct {
 	ok      bool
 	errMsg  string
 	symbols []store.Node
+	refs    []tsx.Ref
+	imports []tsx.Import
 	skipped bool
+	fileID  int64
 }
 
-func parseOne(src Source, ex *tsx.Extractor, existing map[string]store.FileState, full bool) outcome {
+func parseOne(src Source, ex *tsx.Extractor, existing map[string]store.FileState, full bool) *outcome {
 	data, err := os.ReadFile(src.Abs)
 	if err != nil {
-		return outcome{src: src, ok: false, errMsg: err.Error()}
+		return &outcome{src: src, ok: false, errMsg: err.Error()}
 	}
 
 	sum := sha256.Sum256(data)
@@ -207,21 +343,30 @@ func parseOne(src Source, ex *tsx.Extractor, existing map[string]store.FileState
 
 	if !full {
 		if state, found := existing[src.Path]; found && state.Hash == hash {
-			return outcome{src: src, skipped: true}
+			return &outcome{src: src, skipped: true}
 		}
 	}
 
 	if isBinary(data) {
-		return outcome{src: src, hash: hash, ok: false, errMsg: "binary content"}
+		return &outcome{src: src, hash: hash, ok: false, errMsg: "binary content"}
 	}
 
 	dialect, langName, ok := lang.For(src.Path)
 	if !ok {
-		return outcome{src: src, hash: hash, ok: false, errMsg: "unsupported language"}
+		return &outcome{src: src, hash: hash, ok: false, errMsg: "unsupported language"}
 	}
 
-	symbols, parseOK, errMsg := ex.Extract(data, dialect)
-	return outcome{src: src, lang: langName, hash: hash, ok: parseOK, errMsg: errMsg, symbols: toNodes(symbols)}
+	result := ex.Extract(data, dialect)
+	return &outcome{
+		src:     src,
+		lang:    langName,
+		hash:    hash,
+		ok:      result.OK,
+		errMsg:  result.Err,
+		symbols: toNodes(result.Symbols),
+		refs:    result.Refs,
+		imports: result.Imports,
+	}
 }
 
 // toNodes converts extractor output into rows; the store must not depend on a
@@ -240,6 +385,28 @@ func toNodes(symbols []tsx.Symbol) []store.Node {
 		})
 	}
 	return nodes
+}
+
+func edgeKind(refKind string) string {
+	switch refKind {
+	case "call":
+		return "CALLS"
+	case "new":
+		return "REFERENCES"
+	case "extends":
+		return "EXTENDS"
+	case "implements":
+		return "IMPLEMENTS"
+	}
+	return "REFERENCES"
+}
+
+func joinIDs(ids []int64) string {
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, strconv.FormatInt(id, 10))
+	}
+	return strings.Join(parts, ",")
 }
 
 func isBinary(data []byte) bool {
