@@ -5,9 +5,9 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 )
 
 // version is set at build time:
@@ -18,12 +18,14 @@ var version = "dev"
 const usage = `repath — structural answers about a codebase
 
 Usage:
+  repath index  [--root DIR] [--full] [--json]
+  repath status [--root DIR] [--json] [--no-refresh]
   repath version
-  repath status [--json]
 
 Commands:
-  version   print the build version
-  status    report index state
+  index    build or update .repath/index.db
+  status   report index state, refreshing it first
+  version  print the build version
 
 Exit codes:
   0 ok   1 internal   2 usage   3 not found   4 ambiguous
@@ -44,49 +46,48 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "help", "--help", "-h":
 		fmt.Fprint(stdout, usage)
 		return 0
+	case "index":
+		return indexCmd(args[1:], stdout, stderr)
 	case "status":
-		return status(args[1:], stdout, stderr)
+		return statusCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
 }
 
-type statusReport struct {
-	Indexed       bool   `json:"indexed"`
-	SchemaVersion int    `json:"schema_version"`
-	Version       string `json:"version"`
-	Detail        string `json:"detail"`
+// options are the flags shared by index and status.
+type options struct {
+	root      string
+	json      bool
+	full      bool
+	noRefresh bool
 }
 
-func status(args []string, stdout, stderr io.Writer) int {
-	asJSON := false
-	for _, arg := range args {
-		if arg != "--json" {
-			fmt.Fprintf(stderr, "unknown flag %q for status\n", arg)
-			return 2
+func parseOptions(args []string) (options, error) {
+	var o options
+
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--json":
+			o.json = true
+		case arg == "--full":
+			o.full = true
+		case arg == "--no-refresh":
+			o.noRefresh = true
+		case arg == "--root":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--root needs a directory")
+			}
+			i++
+			o.root = args[i]
+		case strings.HasPrefix(arg, "--root="):
+			o.root = strings.TrimPrefix(arg, "--root=")
+		default:
+			return o, fmt.Errorf("unknown argument %q", arg)
 		}
-		asJSON = true
 	}
 
-	// M0 replaces this with a real read of .repath/index.db.
-	report := statusReport{
-		Indexed:       false,
-		SchemaVersion: 0,
-		Version:       version,
-		Detail:        "no index: graph engine lands in M0",
-	}
-
-	if asJSON {
-		enc := json.NewEncoder(stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(report); err != nil {
-			fmt.Fprintf(stderr, "encode status: %v\n", err)
-			return 1
-		}
-		return 0
-	}
-
-	fmt.Fprintf(stdout, "repath %s\nno index — the graph engine lands in M0\n", version)
-	return 0
+	return o, nil
 }
