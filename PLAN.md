@@ -66,7 +66,7 @@ Two hard constraints inherited from the field:
 | 12 | Ambiguity | Emit at low confidence with candidates + rule id | Complete answers; precision is the user's choice |
 | 13 | Languages | TypeScript/JS, Python, Rust | Modern web + AI + systems coverage |
 | 14 | Storage | Single SQLite file, recursive CTEs | Zero infra, incremental writes, one shippable file |
-| 15 | Stack | Go, pure-Go deps, static binary | No cgo, trivial cross-compile, fast iteration |
+| 15 | Stack | Go; cgo only for tree-sitter (amended in M0) | No maintained pure-Go tree-sitter exists; cgo is confined to `internal/lang/*` |
 | 16 | Freshness | Hash + git-diff incremental; <1s/10 files; 50k in <3 min | Monorepo-viable without a daemon |
 | 17 | Cold start | Lazy auto-index at `.repath/index.db` | An agent never has to know `index` exists |
 | 18 | v1 cut | Exactly this spec — no UI, no embeddings, no entrypoints | Ship something trustworthy |
@@ -111,7 +111,7 @@ CREATE INDEX nodes_loc ON nodes (file_id, start_line);
 CREATE TABLE pending (name TEXT, file_id INT, kind TEXT, line INT);
 ```
 
-**Node kinds:** `function, method, class, struct, trait, interface, const, file, module`.
+**Node kinds:** `function, method, class, struct, trait, interface, type, enum, const, file, module`.
 **Edge kinds:** `CALLS, REFERENCES, IMPORTS, EXTENDS, IMPLEMENTS, DEFINES, CONTAINS`.
 
 Invariants:
@@ -351,9 +351,16 @@ testdata/fixtures/{ts,py,rs}/{src,expected.edges.yaml}
 docs/         schema.md, resolution.md, mcp.md, sharing.md
 ```
 
-Dependencies (deliberately two): `github.com/alexaandru/go-sitter-forest`
-(pure-Go tree-sitter grammars) and `modernc.org/sqlite` (pure-Go driver).
-No cobra, no ORM, no MCP SDK — stdlib `flag`, handwritten SQL, handwritten JSON-RPC.
+Dependencies (deliberately two): the `go-sitter-forest` grammars with
+`go-tree-sitter-bare` (cgo, confined to `internal/lang/`) and `modernc.org/sqlite`
+(pure Go). No cobra, no ORM, no MCP SDK — stdlib flags, handwritten SQL,
+handwritten JSON-RPC.
+
+> **M0 amendment.** There is no maintained pure-Go tree-sitter runtime; the
+> grammars and binding are cgo. The cost is real: a C toolchain is required to
+> build, and cross-compilation needs the target toolchain (musl for a static
+> linux binary). The benefit is a real parser instead of a hand-rolled scanner,
+> so the trade was taken deliberately rather than silently.
 
 ## 12. Milestones
 
@@ -369,6 +376,11 @@ No cobra, no ORM, no MCP SDK — stdlib `flag`, handwritten SQL, handwritten JSO
 Order is deliberate: Rust (highest uncertainty) is staffed after the query
 engine is proven, but before MCP polish, so its ambiguity informs the output
 design rather than being discovered at the end.
+
+**M0 landed** (PR #3): 710 files / 3,497 nodes in 538 ms on excalidraw, 20 ms to
+re-verify an unchanged tree, 5 parse failures (0.7%) — every one the same
+tree-sitter-typescript gap around `call<typeof import("...")>()`, reported in
+`status` rather than dropped.
 
 ## 13. Evaluation harness
 
@@ -393,6 +405,7 @@ design rather than being discovered at the end.
 | Artifact/binary skew | old snapshot, new binary | `manifest.schema_version` gate, explicit refusal, one-line upgrade hint |
 | Worktree seed cost | 300 MB copy per new worktree | `copy_file_range`/reflink when available, LRU to 5 commit DBs |
 | Scope creep (tests, entrypoints, UI) | new node kinds mid-milestone | non-goals list is binding until v1 ships |
+| Grammar rejects valid TS | files with `parse_ok=0` | surfaced in `status`; partial symbols kept; upgrade grammar, never hide the count |
 
 ## 15. Non-goals for v1
 
