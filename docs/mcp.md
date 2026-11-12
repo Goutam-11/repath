@@ -112,14 +112,28 @@ tools/list, every tool, and the error paths through real `io.Pipe`s.
 tools/call, modern tool errors, the unsupported-version error, legacy
 initialize, and legacy tools/list.
 
-Real clients were also exercised:
+SDK probes (protocol eras, repath **a160280**):
 
-| Client | SDK | Era | Result |
-| --- | --- | --- | --- |
-| modern | `@modelcontextprotocol/client` **2.4.0**, `mode: {pin: "2026-07-28"}` | modern (`getProtocolEra() === "modern"`) | six tools; `impact` returned the expected dependents |
-| legacy | `@modelcontextprotocol/sdk` **1.32.2** | legacy initialize | six tools; `impact` returned the expected dependents |
-| legacy (M5) | `@modelcontextprotocol/client` 2.2.0 | legacy | six tools; `impact` worked |
+| Probe | Exact version | Transport | Era observed | `tools/list` | `impact` |
+| --- | --- | --- | --- | --- | --- |
+| modern | `@modelcontextprotocol/client` **2.4.0**, `mode: {pin: "2026-07-28"}` | stdio | modern (`getProtocolEra() === "modern"`) | 6 | expected dependents |
+| legacy | `@modelcontextprotocol/sdk` **1.32.2** | stdio | legacy `initialize` (`2024-11-05`) | 6 | expected dependents |
+| legacy (M5) | `@modelcontextprotocol/client` 2.2.0 | stdio | legacy | 6 | worked |
 
-The modern client is a different SDK generation from the M5 verification, so
-both the probe path and the legacy fallback are covered by real clients, not
-only by the pipe test.
+Real clients (this machine, same binary):
+
+| Client | Exact version | Transport | Era | `tools/list` | `impact` |
+| --- | --- | --- | --- | --- | --- |
+| MCP Inspector | `@modelcontextprotocol/inspector` **2.15.0** (`--cli`) | stdio | **legacy**: client offered `2025-11-25`, repath answered `2024-11-05` | 6 tools | 3 dependents: `checkout`, `cartTest`, `checkoutTest` |
+| Codex CLI | `codex-cli` **0.164.0** (`codex exec --json`) | stdio | **legacy**: client offered `2025-06-18`, repath answered `2024-11-05` | 6 tools | same 3 dependents |
+| Claude Desktop / IDE panel | — | — | — | **not verified** | not available on this Linux sandbox |
+| Inspector web/TUI | 2.15.0 | stdio | legacy | **not driven** (headless run used the official `--cli` client; the UI was not automated) | — |
+
+No **GUI** client could be exercised on this machine: Claude Desktop is not
+installed, and the Inspector web/TUI was not automated. Both real clients that
+were available are CLI/TUI tools. Neither Inspector 2.15.0 nor Codex 0.164.0
+sends the `2026-07-28` `_meta`/`server/discover` path, so **modern era with a
+real or GUI client remains unverified**; the modern evidence is the
+`@modelcontextprotocol/client` 2.4.0 probe above. The six-tool list and the
+envelope were unchanged in every probe, and no MCP SDK dependency was added to
+the repository.

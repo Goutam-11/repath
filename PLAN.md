@@ -319,6 +319,16 @@ advertises `supportedVersions`/capabilities/identity, and unsupported versions
 return `-32022` with the supported list. Both eras keep exactly the six tools
 and the envelope.
 
+**v1.2 real-client verification (#34).** MCP Inspector **2.15.0** (official
+`--cli`) and Codex CLI **0.164.0** both connected to `repath mcp` over stdio in
+the **legacy** era — the clients offered `2025-11-25` / `2025-06-18`, and repath
+answered `2024-11-05` — saw exactly six tools, and called `impact` successfully
+(three dependents). No GUI client (Claude Desktop, IDE panel, or the Inspector
+web/TUI) was available or automated on this Linux machine, so modern-era/GUI
+verification remains the `@modelcontextprotocol/client` 2.4.0 probe; that gap is
+recorded in `docs/mcp.md`. The six-tool surface, envelope, and dependency set
+are unchanged.
+
 ### 7.1 Transport strategy — CLI first, MCP second
 
 Measured, not assumed:
@@ -640,6 +650,15 @@ incremental 709 ms, 50k map p95 245.7 ms, zstd 25.2%). The real tree honestly
 optimization was attempted in this validation issue; the numbers and the
 not-verified list are in `docs/benchmarks.md`. `make bench-real` stays opt-in
 and is not a CI gate.
+
+**v1.2 real-client MCP verification landed** (issue #34): MCP Inspector
+**2.15.0** (official `--cli`) and Codex CLI **0.164.0** connected over stdio in
+the legacy era (clients offered `2025-11-25` / `2025-06-18`; repath answered
+`2024-11-05`), saw exactly six tools, and called `impact` successfully. No GUI
+client was available: Claude Desktop is not installed and the Inspector
+web/TUI was not automated, so modern/GUI verification remains the
+`@modelcontextprotocol/client` 2.4.0 probe. The six-tool surface, envelope, and
+dependency set are unchanged. See `docs/mcp.md`.
 
 ## 13. Evaluation harness
 
