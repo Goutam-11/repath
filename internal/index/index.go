@@ -52,6 +52,12 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 		return Result{}, err
 	}
 
+	modules := DetectModules(root, sources)
+	moduleIDs, err := st.UpsertModules(ctx, modules)
+	if err != nil {
+		return Result{}, err
+	}
+
 	discovered := make(map[string]struct{}, len(sources))
 	for _, src := range sources {
 		discovered[src.Path] = struct{}{}
@@ -109,13 +115,14 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 		}
 		for _, o := range batch {
 			fileID, err := tx.UpsertFile(ctx, store.File{
-				Path:    o.src.Path,
-				Lang:    o.lang,
-				Size:    o.src.Size,
-				MTime:   o.src.MTime,
-				Hash:    o.hash,
-				ParseOK: o.ok,
-				Err:     o.errMsg,
+				Path:     o.src.Path,
+				Lang:     o.lang,
+				ModuleID: moduleIDs[ModuleRootFor(modules, o.src.Path)],
+				Size:     o.src.Size,
+				MTime:    o.src.MTime,
+				Hash:     o.hash,
+				ParseOK:  o.ok,
+				Err:      o.errMsg,
 			})
 			if err != nil {
 				_ = tx.Rollback()
