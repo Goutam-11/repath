@@ -231,3 +231,95 @@ func TestFindAmbiguousSymbol(t *testing.T) {
 		t.Fatalf("error = %q, want ambiguous", payload.Error)
 	}
 }
+
+func TestImpactPathAndMap(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.ts", "export function add(a: number, b: number): number {\n  return a + b;\n}\n")
+	writeFile(t, dir, "b.ts", "import { add } from \"./a\";\n\nexport function sum(): number {\n  return add(1, 2);\n}\n")
+	writeFile(t, dir, "c.ts", "import { sum } from \"./b\";\n\nexport function app(): number {\n  return sum();\n}\n")
+
+	if code, _, errOut := run(t, "status", "--json", "--root", dir); code != 0 {
+		t.Fatalf("status exit = %d: %s", code, errOut)
+	}
+
+	code, out, errOut := run(t, "impact", "add", "--json", "--root", dir)
+	if code != 0 {
+		t.Fatalf("impact exit = %d: %s", code, errOut)
+	}
+	var impact struct {
+		Dependents []struct {
+			QName      string  `json:"qname"`
+			Depth      int     `json:"depth"`
+			Confidence float64 `json:"confidence"`
+		} `json:"dependents"`
+		Files []struct {
+			Path    string `json:"path"`
+			Symbols int    `json:"symbols"`
+		} `json:"files"`
+	}
+	if err := json.Unmarshal([]byte(out), &impact); err != nil {
+		t.Fatalf("impact output is not JSON: %v\n%s", err, out)
+	}
+	if len(impact.Dependents) != 2 {
+		t.Fatalf("dependents = %d, want 2 (sum at depth 1, app at depth 2)", len(impact.Dependents))
+	}
+	byQName := map[string]int{}
+	for _, d := range impact.Dependents {
+		byQName[d.QName] = d.Depth
+		if d.Confidence < 0.99 {
+			t.Fatalf("%s confidence = %.2f, want 1.0 (import edge)", d.QName, d.Confidence)
+		}
+	}
+	if byQName["sum"] != 1 || byQName["app"] != 2 {
+		t.Fatalf("depths = %+v, want sum:1 app:2", byQName)
+	}
+	if len(impact.Files) != 2 {
+		t.Fatalf("affected files = %d, want 2", len(impact.Files))
+	}
+
+	code, out, _ = run(t, "path", "app", "add", "--json", "--root", dir)
+	if code != 0 {
+		t.Fatalf("path exit = %d", code)
+	}
+	var pathResult struct {
+		Hops []struct {
+			Kind       string  `json:"kind"`
+			Confidence float64 `json:"confidence"`
+		} `json:"hops"`
+	}
+	if err := json.Unmarshal([]byte(out), &pathResult); err != nil {
+		t.Fatalf("path output is not JSON: %v\n%s", err, out)
+	}
+	if len(pathResult.Hops) != 2 {
+		t.Fatalf("hops = %d, want 2 (app → sum → add)", len(pathResult.Hops))
+	}
+
+	code, out, _ = run(t, "map", "--json", "--root", dir)
+	if code != 0 {
+		t.Fatalf("map exit = %d", code)
+	}
+	var mapResult struct {
+		Modules []struct {
+			Name string `json:"name"`
+		} `json:"modules"`
+		Top []struct {
+			QName string `json:"qname"`
+		} `json:"top"`
+	}
+	if err := json.Unmarshal([]byte(out), &mapResult); err != nil {
+		t.Fatalf("map output is not JSON: %v\n%s", err, out)
+	}
+	if len(mapResult.Modules) == 0 || len(mapResult.Top) == 0 {
+		t.Fatalf("map is empty: %s", out)
+	}
+}
+
+func TestImpactUnknownTarget(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.ts", "export function add() {}\n")
+
+	code, _, _ := run(t, "impact", "nope", "--root", dir)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3", code)
+	}
+}

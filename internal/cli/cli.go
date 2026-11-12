@@ -22,6 +22,9 @@ Usage:
   repath status  [--root DIR] [--json] [--no-refresh]
   repath find    <symbol> [--root DIR] [--json] [--min-confidence N]
   repath callers <symbol> [--root DIR] [--json] [--min-confidence N]
+  repath impact  <symbol|file:line> [--depth N] [--limit N] [--json]
+  repath path    <from> <to> [--max-depth N] [--json]
+  repath map     [--max-tokens N] [--json]
   repath version
 
 Commands:
@@ -29,6 +32,9 @@ Commands:
   status   report index state, refreshing it first
   find     symbol card: location, kind, caller and callee counts
   callers  who calls this symbol
+  impact   transitive blast radius of a change
+  path     how one symbol reaches another
+  map      ranked overview: modules, cycles, hot symbols
   version  print the build version
 
 Exit codes:
@@ -58,6 +64,12 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return findCmd(args[1:], stdout, stderr)
 	case "callers":
 		return callersCmd(args[1:], stdout, stderr)
+	case "impact":
+		return impactCmd(args[1:], stdout, stderr)
+	case "path":
+		return pathCmd(args[1:], stdout, stderr)
+	case "map":
+		return mapCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s", args[0], usage)
 		return 2
@@ -72,11 +84,13 @@ type options struct {
 	noRefresh     bool
 	minConfidence float64
 	depth         int
+	limit         int
+	maxTokens     int
 }
 
 // parseOptions returns the flags and the positional arguments.
 func parseOptions(args []string) (options, []string, error) {
-	o := options{minConfidence: 0.5, depth: 1}
+	o := options{minConfidence: 0.5, limit: 50, maxTokens: 2000}
 	var positional []string
 
 	for i := 0; i < len(args); i++ {
@@ -108,13 +122,29 @@ func parseOptions(args []string) (options, []string, error) {
 			if err := setConfidence(&o, strings.TrimPrefix(arg, "--min-confidence=")); err != nil {
 				return o, nil, err
 			}
-		case arg == "--depth":
+		case arg == "--depth", arg == "--max-depth":
 			if i+1 >= len(args) {
-				return o, nil, fmt.Errorf("--depth needs a number")
+				return o, nil, fmt.Errorf("%s needs a number", arg)
 			}
 			i++
 			if _, err := fmt.Sscanf(args[i], "%d", &o.depth); err != nil {
-				return o, nil, fmt.Errorf("--depth %q is not a number", args[i])
+				return o, nil, fmt.Errorf("%s %q is not a number", arg, args[i])
+			}
+		case arg == "--limit":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--limit needs a number")
+			}
+			i++
+			if _, err := fmt.Sscanf(args[i], "%d", &o.limit); err != nil {
+				return o, nil, fmt.Errorf("--limit %q is not a number", args[i])
+			}
+		case arg == "--max-tokens":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--max-tokens needs a number")
+			}
+			i++
+			if _, err := fmt.Sscanf(args[i], "%d", &o.maxTokens); err != nil {
+				return o, nil, fmt.Errorf("--max-tokens %q is not a number", args[i])
 			}
 		case strings.HasPrefix(arg, "--"):
 			return o, nil, fmt.Errorf("unknown argument %q", arg)

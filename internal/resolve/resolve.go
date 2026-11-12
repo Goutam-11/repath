@@ -30,7 +30,7 @@ type Resolution struct {
 type Index struct {
 	byFile  map[int64]map[string][]store.NodeRow
 	global  map[string][]store.NodeRow
-	methods map[string][]store.NodeRow
+	byQName map[string][]store.NodeRow
 	exports map[int64][]store.NodeRow
 	files   map[string]int64
 	aliases *Aliases
@@ -50,7 +50,7 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 	ix := &Index{
 		byFile:  make(map[int64]map[string][]store.NodeRow),
 		global:  make(map[string][]store.NodeRow),
-		methods: make(map[string][]store.NodeRow),
+		byQName: make(map[string][]store.NodeRow),
 		exports: make(map[int64][]store.NodeRow),
 		files:   make(map[string]int64, len(paths)),
 		aliases: LoadAliases(root),
@@ -69,9 +69,7 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 		}
 		ix.byFile[n.FileID][name] = append(ix.byFile[n.FileID][name], n)
 		ix.global[name] = append(ix.global[name], n)
-		if n.Kind == "method" {
-			ix.methods[name] = append(ix.methods[name], n)
-		}
+		ix.byQName[n.QName] = append(ix.byQName[n.QName], n)
 		if n.Exported {
 			ix.exports[n.FileID] = append(ix.exports[n.FileID], n)
 		}
@@ -121,9 +119,14 @@ func (ix *Index) Resolve(fromFile int64, fromPath string, ref tsx.Ref, imports m
 		}
 	}
 
-	// 4. Bare member calls can only be guessed by unique method name.
+	// 4. Typed receivers: cart.total() where cart is "const cart = new Cart()"
+	// or a parameter declared as Cart. Without a type there is no honest guess,
+	// so a bare obj.m() stays unresolved rather than matching "m" repo-wide.
 	if ref.Form == "member" {
-		return ix.byUnique(ref.Name, ref.Arity, ix.methods[ref.Name], "ts.method")
+		if ref.ReceiverType != "" {
+			return ix.byTypedMethod(fromFile, fromPath, ref, imports)
+		}
+		return Resolution{}
 	}
 
 	// 5. Identifiers: local scope, then global uniqueness.
@@ -172,6 +175,32 @@ func (ix *Index) byUnique(name string, arity int, candidates []store.NodeRow, ru
 		ids = append(ids, n.ID)
 	}
 	return Resolution{Confidence: 0.40, Rule: rulePrefix + ".ambiguous", Candidates: ids, Found: true}
+}
+
+// byTypedMethod resolves Type.method when the receiver's type is known.
+func (ix *Index) byTypedMethod(fromFile int64, fromPath string, ref tsx.Ref, imports map[string]tsx.Import) Resolution {
+	qname := ref.ReceiverType + "." + ref.Name
+
+	for _, n := range ix.byQName[qname] {
+		if n.FileID == fromFile {
+			return Resolution{Dst: n.ID, Confidence: 0.85, Rule: "ts.typed.method", Found: true}
+		}
+	}
+
+	if binding, ok := imports[ref.ReceiverType]; ok {
+		if target := ix.resolveSpecifier(fromPath, binding.Source); target != 0 {
+			for _, n := range ix.byQName[qname] {
+				if n.FileID == target {
+					return Resolution{Dst: n.ID, Confidence: 0.85, Rule: "ts.typed.method", Found: true}
+				}
+			}
+		}
+	}
+
+	if nodes := ix.byQName[qname]; len(nodes) == 1 {
+		return Resolution{Dst: nodes[0].ID, Confidence: 0.70, Rule: "ts.typed.method.global", Found: true}
+	}
+	return Resolution{}
 }
 
 // ResolveName resolves a bare name by global uniqueness. It is used when

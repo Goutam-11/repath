@@ -86,8 +86,12 @@ func callersCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "callers needs exactly one symbol name\n\n%s", usage)
 		return 2
 	}
-	if opts.depth != 1 {
-		fmt.Fprintln(stderr, "callers supports --depth 1 today; transitive impact arrives with the impact command")
+	depth := opts.depth
+	if depth == 0 {
+		depth = 1
+	}
+	if depth != 1 {
+		fmt.Fprintln(stderr, "callers supports --depth 1; use impact for transitive reach")
 		return 2
 	}
 
