@@ -126,6 +126,10 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	if opts.compress && opts.artifact == "" {
+		fmt.Fprintf(stderr, "--compress requires --artifact DIR\n\n%s", usage)
+		return 2
+	}
 	root, err := query.ResolveRoot(opts.root)
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve root: %v\n", err)
@@ -149,7 +153,7 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 
 	var exported *artifact.ExportResult
 	if opts.artifact != "" {
-		out, err := artifact.Export(ctx, st.Store, root, opts.artifact, version)
+		out, err := artifact.ExportWithOptions(ctx, st.Store, root, opts.artifact, version, artifact.Options{Compress: opts.compress})
 		if err != nil {
 			fmt.Fprintf(stderr, "artifact: %v\n", err)
 			return 1

@@ -18,7 +18,7 @@ var version = "dev"
 const usage = `repath — structural answers about a codebase
 
 Usage:
-  repath index   [--root DIR] [--full] [--json] [--artifact DIR]
+  repath index   [--root DIR] [--full] [--json] [--artifact DIR] [--compress]
   repath pull    <path|url> [--root DIR] [--json]
   repath status  [--root DIR] [--json] [--no-refresh]
   repath find    <symbol> [--root DIR] [--json] [--min-confidence N]
@@ -114,6 +114,7 @@ type options struct {
 	maxTokens     int
 	module        string
 	artifact      string
+	compress      bool
 	scip          string
 	failOn        string
 	maxFindings   int
@@ -131,6 +132,8 @@ func parseOptions(args []string) (options, []string, error) {
 			o.json = true
 		case arg == "--full":
 			o.full = true
+		case arg == "--compress":
+			o.compress = true
 		case arg == "--no-refresh":
 			o.noRefresh = true
 		case arg == "--root":

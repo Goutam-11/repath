@@ -11,7 +11,7 @@ so artifacts are internal build products, not a public cache.
 ```
 <repo>/.repath/index.db                     working copy (WAL, gitignored)
 $GIT_COMMON_DIR/repath/commits/<sha>.db     shared across worktrees (docs/worktrees.md)
-out/repath-<sha>.sqlite + manifest.json     CI artifact, read-only
+out/repath-<sha>.sqlite[.zst] + manifest.json   CI artifact, read-only
 ```
 
 Paths are stored repo-relative POSIX, so the same database answers correctly
@@ -21,11 +21,13 @@ diagnostics; it is not used to resolve paths.
 ## Export
 
 ```sh
-repath index --artifact out/
+repath index --artifact out/              # uncompressed SQLite
+repath index --artifact out/ --compress   # opt-in zstd
 ```
 
 writes a consistent snapshot with SQLite `VACUUM INTO` (not a copy of a live WAL)
-and a sidecar:
+and a sidecar. With `--compress`, the snapshot is zstd-encoded after
+`VACUUM INTO`; the manifest is the authority for which form is in the directory:
 
 ```json
 {
@@ -37,26 +39,38 @@ and a sidecar:
   "edge_count": 1,
   "unresolved_rate": 0,
   "indexed_at": "2026-11-12T13:02:00Z",
-  "format": "sqlite",
-  "db_file": "repath-dev.sqlite"
+  "format": "sqlite+zstd",
+  "db_file": "repath-dev.sqlite.zst"
 }
 ```
 
-The database is chmod `0444`: a CI artifact is evidence, not a working index.
-`pull` copies before opening, so the read-only mode is not a problem.
+`format` is `sqlite` or `sqlite+zstd`; `pull` reads both. The database is chmod
+`0444`: a CI artifact is evidence, not a working index. `pull` copies and
+decompresses before opening, so the read-only mode is not a problem.
 
-**Format deviation (M5).** PLAN §4.1 originally sketched
-`repath-<sha>.sqlite.zst`. Compression would add a dependency beyond the two
-the project allows, so M5 ships uncompressed SQLite and records the deviation in
-PLAN and in `manifest.format`. A future compressed form can be added behind the
-same manifest without guessing what an old artifact is.
+**Compression decision (v1.1, #18).** M5 deliberately shipped uncompressed
+SQLite because zstd would have been a third dependency. #18 evaluated the
+options; the approved decision is the Go dependency
+`github.com/klauspost/compress/zstd` v1.20.4, behind an opt-in `--compress`
+flag. This keeps the default artifact path dependency-free at runtime, avoids a
+shell-out to an external `zstd` binary, and gives a measurable size win:
+
+| Tree | Uncompressed | zstd | Ratio | Export time | Pull time |
+| --- | --- | --- | --- | --- | --- |
+| 10k synthetic | 3.8 MiB | 991 KiB | 25.3% | 29.4 → 48.0 ms | 4.5 → 9.5 ms |
+| 50k synthetic | 19.2 MiB | 4.8 MiB | 25.2% | 158 → 224 ms | 13.9 → 38.8 ms |
+
+The 50k tree's tiny one-line functions are not the 250–400 MB real-repo
+estimate, so treat the ratio as the claim, not the absolute size. The schema
+gate is unchanged and runs for both formats.
 
 ## Pull
 
 ```sh
 repath pull out/                       # artifact directory
 repath pull out/repath-abc.sqlite      # direct database, manifest beside it
-repath pull https://ci.example/repath-abc.sqlite
+repath pull out/repath-abc.sqlite.zst  # direct compressed artifact
+repath pull https://ci.example/repath-abc.sqlite.zst
 ```
 
 `pull` seeds `<repo>/.repath/index.db`, then overlays the local checkout:
@@ -81,7 +95,7 @@ pull: artifact schema v99 is not supported by this binary (expects v5); upgrade 
 
 The refusal happens before `.repath/index.db` is replaced, so a failed pull
 cannot leave a half-seeded index. The manifest version and the database's own
-`meta.schema_version` are both checked.
+`meta.schema_version` are both checked, before and after decompression.
 
 ## CI sketch
 
@@ -99,9 +113,14 @@ A reviewer or a second job downloads `out/` and runs `repath pull out/`.
 
 - export → pull round-trip in two temp directories, including repo-relative
   paths, read-only mode, manifest counts, `meta.root`, and a live `impact`;
-- an unknown schema version is refused with the upgrade hint and no index file;
-- an HTTP fetch of the database and its sibling manifest;
+- the same round-trip for `sqlite+zstd`, including the manifest format and a
+  live query after pull;
+- an unknown schema version is refused for both formats with the upgrade hint
+  and no index file;
+- an HTTP fetch of the database and its sibling manifest, for both compressed
+  and uncompressed forms;
 - a missing source maps to the not-found exit code;
 - an empty checkout keeps the snapshot instead of wiping it.
 
-The CLI path is covered by `TestIndexArtifactAndPull` in `internal/cli`.
+The CLI path is covered by `TestIndexArtifactAndPull` and
+`TestIndexCompressedArtifactAndPull` in `internal/cli`.

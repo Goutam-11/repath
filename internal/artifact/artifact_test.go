@@ -45,6 +45,10 @@ func buildIndex(t *testing.T, root string) *store.Store {
 }
 
 func exportFixture(t *testing.T) (root, outDir string) {
+	return exportFixtureWith(t, Options{})
+}
+
+func exportFixtureWith(t *testing.T, opts Options) (root, outDir string) {
 	t.Helper()
 	root = t.TempDir()
 	writeFile(t, root, "src/a.ts", "export function add(a: number, b: number): number { return a + b; }\n")
@@ -53,7 +57,7 @@ func exportFixture(t *testing.T) (root, outDir string) {
 	defer st.Close()
 
 	outDir = t.TempDir()
-	if _, err := Export(context.Background(), st, root, outDir, "test-version"); err != nil {
+	if _, err := ExportWithOptions(context.Background(), st, root, outDir, "test-version", opts); err != nil {
 		t.Fatalf("export: %v", err)
 	}
 	return root, outDir
@@ -155,6 +159,74 @@ func TestExportPullRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCompressedExportPullRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	root, outDir := exportFixtureWith(t, Options{Compress: true})
+
+	manifest, err := ReadManifest(filepath.Join(outDir, ManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Format != "sqlite+zstd" || !strings.HasSuffix(manifest.DBFile, ".sqlite.zst") {
+		t.Fatalf("manifest = %+v", manifest)
+	}
+	compressed := filepath.Join(outDir, manifest.DBFile)
+	info, err := os.Stat(compressed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm()&0o200 != 0 {
+		t.Fatalf("artifact mode = %v, want read-only", info.Mode().Perm())
+	}
+	if info.Size() == 0 {
+		t.Fatal("compressed artifact is empty")
+	}
+
+	laptop := t.TempDir()
+	writeFile(t, laptop, "src/a.ts", "export function add(a: number, b: number): number { return a + b; }\n")
+	writeFile(t, laptop, "src/b.ts", "import { add } from \"./a\";\nexport function sum(): number { return add(1, 2); }\n")
+	if _, err := Pull(ctx, outDir, laptop, "test-version"); err != nil {
+		t.Fatalf("pull compressed: %v", err)
+	}
+	session, err := query.Open(ctx, laptop, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	answer, code, err := query.Impact(ctx, session.Store, "add", 2, 0.5, 10)
+	if err != nil || code != 0 {
+		t.Fatalf("impact after compressed pull: code %d err %v", code, err)
+	}
+	if len(answer.Result.Dependents) != 1 || answer.Result.Dependents[0].QName != "sum" {
+		t.Fatalf("dependents = %+v", answer.Result.Dependents)
+	}
+	if root == "" {
+		t.Fatal("root unexpectedly empty")
+	}
+}
+
+func TestCompressedPullRefusesUnknownSchemaVersion(t *testing.T) {
+	_, outDir := exportFixtureWith(t, Options{Compress: true})
+	manifestPath := filepath.Join(outDir, ManifestName)
+	manifest, err := ReadManifest(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest.SchemaVersion = 99
+	if err := writeManifest(manifestPath, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	laptop := t.TempDir()
+	_, err = Pull(context.Background(), outDir, laptop, "test-version")
+	if err == nil || !strings.Contains(err.Error(), "expects v5") {
+		t.Fatalf("error = %v, want schema refusal", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(laptop, ".repath", "index.db")); !os.IsNotExist(statErr) {
+		t.Fatalf("failed compressed pull left an index: %v", statErr)
+	}
+}
+
 func TestPullRefusesUnknownSchemaVersion(t *testing.T) {
 	_, outDir := exportFixture(t)
 
@@ -248,5 +320,27 @@ func TestPullKeepsSnapshotWhenCheckoutIsEmpty(t *testing.T) {
 	}
 	if counts.Files != 2 || counts.Nodes != 2 {
 		t.Fatalf("empty checkout wiped the snapshot: %+v", counts)
+	}
+}
+
+func TestPullCompressedFromURL(t *testing.T) {
+	_, outDir := exportFixtureWith(t, Options{Compress: true})
+	server := httptest.NewServer(http.FileServer(http.Dir(outDir)))
+	defer server.Close()
+
+	manifest, err := ReadManifest(filepath.Join(outDir, ManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	laptop := t.TempDir()
+	writeFile(t, laptop, "src/a.ts", "export function add(a: number, b: number): number { return a + b; }\n")
+	writeFile(t, laptop, "src/b.ts", "import { add } from \"./a\";\nexport function sum(): number { return add(1, 2); }\n")
+
+	pulled, err := Pull(context.Background(), server.URL+"/"+manifest.DBFile, laptop, "test-version")
+	if err != nil {
+		t.Fatalf("pull compressed from URL: %v", err)
+	}
+	if pulled.Format != "sqlite+zstd" || pulled.FileCount != 2 || pulled.EdgeCount != 1 {
+		t.Fatalf("pulled manifest = %+v", pulled)
 	}
 }

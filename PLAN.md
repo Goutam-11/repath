@@ -5,7 +5,7 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **M0–M5 landed; v1.1 `check`, the SCIP adapter, entrypoint flows, and test-impact mapping landed.** This document is the contract for v1 and its first v1.1 slice.
+Status: **M0–M5 landed; v1.1 `check`, the SCIP adapter, entrypoint flows, test-impact mapping, dual-era MCP, and opt-in artifact compression landed.** This document is the contract for v1 and its first v1.1 slice.
 Scope changes require editing the decision table, not just the code.
 
 ---
@@ -159,11 +159,17 @@ out/repath-<sha>.sqlite + manifest.json       CI artifact, read-only
   artifact whose `schema_version` it does not know, with a one-line upgrade hint.
 
 > **M5 amendment — artifact compression.** The sketch above named
-> `.sqlite.zst`. M5 ships an uncompressed `.sqlite` instead: zstd would add a
-> dependency beyond the two the project allows (§11), and the manifest schema
-> gate does not depend on the container. The format is explicit in
-> `manifest.format`, so a compressed artifact can arrive later without
-> ambiguity. Compression is a v1.1 candidate, not a silent format change.
+> `.sqlite.zst`. M5 shipped an uncompressed `.sqlite` instead: zstd would add a
+> dependency beyond the two the project allowed (§11), and the manifest schema
+> gate does not depend on the container.
+>
+> **v1.1 amendment (#18).** Compression is now opt-in via
+> `repath index --artifact out/ --compress`, using the approved third dependency
+> `github.com/klauspost/compress/zstd`. `manifest.format` is authoritative
+> (`sqlite` or `sqlite+zstd`), `pull` reads both, and the schema gate runs for
+> both. Measured on the synthetic trees: 10k **3.8 MiB → 991 KiB** (25.3%),
+> 50k **19.2 MiB → 4.8 MiB** (25.2%); 50k export **158 → 224 ms**, pull
+> **13.9 → 38.8 ms**. The default remains uncompressed.
 
 ### 4.2 Worktrees — the primary multi-agent case
 
@@ -395,10 +401,12 @@ testdata/fixtures/{ts,py,rs}/{src,expected.json}
 docs/         resolution.md, mcp.md, sharing.md, worktrees.md, check.md
 ```
 
-Dependencies (deliberately two): the `go-sitter-forest` grammars with
-`go-tree-sitter-bare` (cgo, confined to `internal/lang/`) and `modernc.org/sqlite`
-(pure Go). No cobra, no ORM, no MCP SDK — stdlib flags, handwritten SQL,
-handwritten JSON-RPC.
+Dependencies (deliberately three): the `go-sitter-forest` grammars with
+`go-tree-sitter-bare` (cgo, confined to `internal/lang/`), `modernc.org/sqlite`
+(pure Go), and `github.com/klauspost/compress/zstd` (pure Go, v1.20.4, only
+imported by `internal/artifact` for opt-in export compression; approved for
+#18). No cobra, no ORM, no MCP SDK — stdlib flags, handwritten SQL, handwritten
+JSON-RPC.
 
 > **M0 amendment.** There is no maintained pure-Go tree-sitter runtime; the
 > grammars and binding are cgo. The cost is real: a C toolchain is required to
@@ -488,7 +496,7 @@ cache in **12.9 ms** (budget <2 s). A cold build of the binary (fresh Go build
 cache, modules already downloaded) is **21.8 s**, so README quickstart → first
 answer on the 10k tree is **~27 s** (budget <60 s). Every §10 budget is met; the
 artifact fixture (14 TS files) exports to **73,728 B** and pulls in **0.05 s**.
-Compression of artifacts is the one documented deviation (§4.1).
+M5 artifacts were uncompressed; v1.1 adds opt-in zstd (§4.1).
 
 **v1.1 landed** (`repath check`): five graph-native checks with a shared
 report and `--json`: module cycles (warning), dead private functions/methods
@@ -497,6 +505,15 @@ cross-module private access is a warning), fan-in/out hotspots (info), and
 per-module unresolved rate (warning). `--fail-on none|error|warning|info` gates
 CI; `check` is the only command that returns exit code `5`. Definitions and
 limitations are in `docs/check.md`.
+
+**v1.1 artifact compression landed** (issue #18): `repath index --artifact
+out/ --compress` writes a zstd-compressed SQLite snapshot with
+`manifest.format: "sqlite+zstd"`; `pull` reads both forms and the schema gate
+runs before and after decompression. The dependency is the approved
+`github.com/klauspost/compress/zstd` v1.20.4, imported only by
+`internal/artifact`; the default artifact is still uncompressed. Measured
+10k **3.8 MiB → 991 KiB**, 50k **19.2 MiB → 4.8 MiB**; 50k export
+**158 → 224 ms**, pull **13.9 → 38.8 ms**. See `docs/sharing.md`.
 
 **v1.1 MCP negotiation landed** (issue #17): the adapter is dual-era. It still
 answers the legacy `initialize` handshake at 2024-11-05, and now implements the

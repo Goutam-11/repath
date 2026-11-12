@@ -20,6 +20,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
+
 	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/store"
 )
@@ -55,24 +57,43 @@ type ExportResult struct {
 	DBPath       string   `json:"db_path"`
 }
 
-// ArtifactName is the file name for a commit. The full commit lives in the
-// manifest; the name is short so directories stay readable.
+// ArtifactName is the uncompressed file name for a commit. The full commit
+// lives in the manifest; the name is short so directories stay readable.
 func ArtifactName(commit string) string {
-	if commit == "" {
-		return "repath-dev.sqlite"
-	}
-	short := commit
-	if len(short) > 12 {
-		short = short[:12]
-	}
-	return "repath-" + short + ".sqlite"
+	return artifactName(commit, false)
 }
 
-// Export writes a consistent database snapshot and its manifest into outDir.
-// The snapshot is uncompressed SQLite: zstd was the PLAN sketch, but adding a
-// compression dependency would break the two-dependency rule, so M5 documents
-// the deviation instead of hiding it (PLAN §4.1).
+func artifactName(commit string, compress bool) string {
+	name := "repath-dev.sqlite"
+	if commit != "" {
+		short := commit
+		if len(short) > 12 {
+			short = short[:12]
+		}
+		name = "repath-" + short + ".sqlite"
+	}
+	if compress {
+		return name + ".zst"
+	}
+	return name
+}
+
+// Options controls the artifact container. Compression is opt-in and recorded
+// in manifest.format; pull always reads both forms.
+type Options struct {
+	Compress bool
+}
+
+// Export writes an uncompressed SQLite snapshot; use ExportWithOptions for the
+// opt-in zstd form.
 func Export(ctx context.Context, st *store.Store, root, outDir, version string) (ExportResult, error) {
+	return ExportWithOptions(ctx, st, root, outDir, version, Options{})
+}
+
+// ExportWithOptions writes a consistent database snapshot and its manifest.
+// The snapshot is uncompressed by default. With Compress it is zstd-encoded
+// after the VACUUM INTO snapshot, and manifest.format records sqlite+zstd.
+func ExportWithOptions(ctx context.Context, st *store.Store, root, outDir, version string, opts Options) (ExportResult, error) {
 	if outDir == "" {
 		return ExportResult{}, errors.New("artifact directory is empty")
 	}
@@ -115,14 +136,26 @@ func Export(ctx context.Context, st *store.Store, root, outDir, version string) 
 		indexedAt = time.Now().UTC().Format(time.RFC3339)
 	}
 
-	name := ArtifactName(commit)
+	name := artifactName(commit, opts.Compress)
 	dbPath := filepath.Join(outDir, name)
 	if err := os.Remove(dbPath); err != nil && !os.IsNotExist(err) {
 		return ExportResult{}, fmt.Errorf("replace artifact: %w", err)
 	}
 	tmp := dbPath + ".tmp-" + strconv.Itoa(os.Getpid())
 	_ = os.Remove(tmp)
-	if err := st.VacuumInto(ctx, tmp); err != nil {
+	if opts.Compress {
+		sqliteTmp := tmp + ".sqlite"
+		_ = os.Remove(sqliteTmp)
+		if err := st.VacuumInto(ctx, sqliteTmp); err != nil {
+			return ExportResult{}, err
+		}
+		if err := compressFile(sqliteTmp, tmp); err != nil {
+			_ = os.Remove(sqliteTmp)
+			_ = os.Remove(tmp)
+			return ExportResult{}, err
+		}
+		_ = os.Remove(sqliteTmp)
+	} else if err := st.VacuumInto(ctx, tmp); err != nil {
 		return ExportResult{}, err
 	}
 	if err := os.Rename(tmp, dbPath); err != nil {
@@ -134,6 +167,10 @@ func Export(ctx context.Context, st *store.Store, root, outDir, version string) 
 		return ExportResult{}, fmt.Errorf("chmod artifact: %w", err)
 	}
 
+	format := "sqlite"
+	if opts.Compress {
+		format = "sqlite+zstd"
+	}
 	manifest := Manifest{
 		SchemaVersion:  store.SchemaVersion,
 		ToolVersion:    version,
@@ -143,7 +180,7 @@ func Export(ctx context.Context, st *store.Store, root, outDir, version string) 
 		EdgeCount:      totalEdges,
 		UnresolvedRate: unresolvedRate,
 		IndexedAt:      indexedAt,
-		Format:         "sqlite",
+		Format:         format,
 		DBFile:         name,
 	}
 	manifestPath := filepath.Join(outDir, ManifestName)
@@ -163,7 +200,25 @@ func Pull(ctx context.Context, source, root, version string) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
-	defer cleanup()
+	defer func() { cleanup() }()
+
+	switch manifest.Format {
+	case "", "sqlite", "sqlite+zstd":
+	default:
+		return manifest, fmt.Errorf("artifact format %q is not supported", manifest.Format)
+	}
+	if isCompressed(manifest, dbPath) {
+		decompressed, err := decompressToTemp(dbPath)
+		if err != nil {
+			return manifest, err
+		}
+		previous := cleanup
+		cleanup = func() {
+			_ = os.Remove(decompressed)
+			previous()
+		}
+		dbPath = decompressed
+	}
 
 	if manifest.SchemaVersion != store.SchemaVersion {
 		return manifest, fmt.Errorf(
@@ -216,6 +271,73 @@ func Pull(ctx context.Context, source, root, version string) (Manifest, error) {
 	}
 
 	return manifest, nil
+}
+
+func isCompressed(manifest Manifest, dbPath string) bool {
+	return manifest.Format == "sqlite+zstd" || strings.HasSuffix(strings.ToLower(dbPath), ".zst")
+}
+
+func compressFile(src, dest string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("open snapshot: %w", err)
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+	if err != nil {
+		return fmt.Errorf("create compressed artifact: %w", err)
+	}
+	encoder, err := zstd.NewWriter(out, zstd.WithEncoderLevel(zstd.SpeedDefault))
+	if err != nil {
+		out.Close()
+		_ = os.Remove(dest)
+		return fmt.Errorf("zstd encoder: %w", err)
+	}
+	_, copyErr := io.Copy(encoder, in)
+	closeErr := encoder.Close()
+	outErr := out.Close()
+	if copyErr != nil || closeErr != nil || outErr != nil {
+		_ = os.Remove(dest)
+		if copyErr != nil {
+			return fmt.Errorf("compress artifact: %w", copyErr)
+		}
+		if closeErr != nil {
+			return fmt.Errorf("compress artifact: %w", closeErr)
+		}
+		return fmt.Errorf("compress artifact: %w", outErr)
+	}
+	return nil
+}
+
+func decompressToTemp(src string) (string, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return "", fmt.Errorf("open compressed artifact: %w", err)
+	}
+	defer in.Close()
+	decoder, err := zstd.NewReader(in)
+	if err != nil {
+		return "", fmt.Errorf("zstd decoder: %w", err)
+	}
+	defer decoder.Close()
+
+	out, err := os.CreateTemp("", "repath-zstd-*.sqlite")
+	if err != nil {
+		return "", err
+	}
+	written, copyErr := io.Copy(out, io.LimitReader(decoder, maxArtifactSize+1))
+	closeErr := out.Close()
+	if copyErr != nil || closeErr != nil || written > maxArtifactSize {
+		_ = os.Remove(out.Name())
+		if copyErr != nil {
+			return "", fmt.Errorf("decompress artifact: %w", copyErr)
+		}
+		if closeErr != nil {
+			return "", closeErr
+		}
+		return "", fmt.Errorf("decompressed artifact exceeds %d bytes", maxArtifactSize)
+	}
+	return out.Name(), nil
 }
 
 func writeManifest(path string, manifest Manifest) error {
@@ -426,7 +548,7 @@ func validateBaseName(name string) error {
 
 // findSQLite is the fallback for a manifest that predates db_file.
 func findSQLite(dir string) string {
-	for _, pattern := range []string{"repath-*.sqlite", "*.sqlite", "*.db"} {
+	for _, pattern := range []string{"repath-*.sqlite", "repath-*.sqlite.zst", "*.sqlite", "*.db"} {
 		matches, _ := filepath.Glob(filepath.Join(dir, pattern))
 		if len(matches) == 1 {
 			return filepath.Base(matches[0])
