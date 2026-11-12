@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Goutam-11/repath/internal/lang/facts"
+	"github.com/Goutam-11/repath/internal/lang/py"
 	"github.com/Goutam-11/repath/internal/lang/tsx"
 )
 
@@ -21,6 +22,8 @@ const (
 	TSX
 	// JavaScript parses .js, .mjs and .cjs files.
 	JavaScript
+	// Python parses .py files.
+	Python
 )
 
 // For reports the dialect and language name for path. ok is false for files
@@ -44,6 +47,8 @@ func For(path string) (dialect Dialect, name string, ok bool) {
 		return JavaScript, "javascript", true
 	case ".jsx":
 		return TSX, "javascript", true
+	case ".py":
+		return Python, "python", true
 	}
 
 	return 0, "", false
@@ -53,11 +58,12 @@ func For(path string) (dialect Dialect, name string, ok bool) {
 // for concurrent use; index workers each create their own.
 type Extractor struct {
 	tsx *tsx.Extractor
+	py  *py.Extractor
 }
 
 // NewExtractor builds an extractor for every registered language.
 func NewExtractor() *Extractor {
-	return &Extractor{tsx: tsx.New()}
+	return &Extractor{tsx: tsx.New(), py: py.New()}
 }
 
 // Extract parses src and returns its definitions, references, and imports.
@@ -69,6 +75,8 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) facts.Result {
 		return e.tsx.Extract(src, tsx.TSX)
 	case JavaScript:
 		return e.tsx.Extract(src, tsx.JavaScript)
+	case Python:
+		return e.py.Extract(src, py.Python)
 	}
 	return facts.Result{Err: "unsupported dialect"}
 }

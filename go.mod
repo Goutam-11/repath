@@ -4,6 +4,7 @@ go 1.27.0
 
 require (
 	github.com/alexaandru/go-sitter-forest/javascript v1.9.2
+	github.com/alexaandru/go-sitter-forest/python v1.9.10
 	github.com/alexaandru/go-sitter-forest/tsx v1.9.2
 	github.com/alexaandru/go-sitter-forest/typescript v1.9.4
 	github.com/alexaandru/go-tree-sitter-bare v1.11.0
