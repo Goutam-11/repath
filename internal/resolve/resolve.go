@@ -8,7 +8,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/Goutam-11/repath/internal/lang/tsx"
+	"github.com/Goutam-11/repath/internal/lang/facts"
 	"github.com/Goutam-11/repath/internal/store"
 )
 
@@ -78,7 +78,7 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 }
 
 // Resolve returns where ref points. imports is the referring file's binding map.
-func (ix *Index) Resolve(fromFile int64, fromPath string, ref tsx.Ref, imports map[string]tsx.Import) Resolution {
+func (ix *Index) Resolve(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) Resolution {
 	// Builtins are not symbols in the repo; treating them as external keeps the
 	// unresolved queue meaningful.
 	if ref.Form == "ident" && isBuiltin(ref.Name) {
@@ -139,7 +139,7 @@ func (ix *Index) Resolve(fromFile int64, fromPath string, ref tsx.Ref, imports m
 	return ix.byUnique(ref.Name, ref.Arity, ix.global[ref.Name], "ts.global")
 }
 
-func (ix *Index) byImport(fromPath string, binding tsx.Import, ref tsx.Ref) Resolution {
+func (ix *Index) byImport(fromPath string, binding facts.Import, ref facts.Ref) Resolution {
 	target := ix.resolveSpecifier(fromPath, binding.Source)
 	if target == 0 {
 		return Resolution{External: true}
@@ -178,7 +178,7 @@ func (ix *Index) byUnique(name string, arity int, candidates []store.NodeRow, ru
 }
 
 // byTypedMethod resolves Type.method when the receiver's type is known.
-func (ix *Index) byTypedMethod(fromFile int64, fromPath string, ref tsx.Ref, imports map[string]tsx.Import) Resolution {
+func (ix *Index) byTypedMethod(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) Resolution {
 	qname := ref.ReceiverType + "." + ref.Name
 
 	for _, n := range ix.byQName[qname] {

@@ -12,6 +12,8 @@ import (
 	foresttsx "github.com/alexaandru/go-sitter-forest/tsx"
 	foresttypescript "github.com/alexaandru/go-sitter-forest/typescript"
 	sitter "github.com/alexaandru/go-tree-sitter-bare"
+
+	"github.com/Goutam-11/repath/internal/lang/facts"
 )
 
 // Dialect selects the grammar used for a file.
@@ -26,48 +28,14 @@ const (
 	JavaScript
 )
 
-// Symbol is one definition found in a file. QName is scoped to enclosing
-// declarations ("Cart.add"), never to the file; the file is a separate column.
-type Symbol struct {
-	Kind      string
-	Name      string
-	QName     string
-	Arity     int
-	StartLine int
-	EndLine   int
-	Exported  bool
-}
-
-// Ref is one use of a name: a call, a constructor, or a heritage clause.
-type Ref struct {
-	Kind     string // call | new | extends | implements
-	Name     string
-	Form     string // ident | this | member
-	Receiver string // identifier before the dot, when Form is member
-	// ReceiverType is the locally inferred type of Receiver ("Cart"), from a
-	// variable annotation, a constructor, or a parameter annotation.
-	ReceiverType string
-	Arity        int
-	Line         int
-	Enclosing    string // qname of the symbol the reference sits inside
-}
-
-// Import is one local binding created by an import statement.
-type Import struct {
-	Local    string
-	Imported string // a name, "default", or "*"
-	Source   string
-	Line     int
-}
-
-// Result is everything one file contributes to the graph.
-type Result struct {
-	Symbols []Symbol
-	Refs    []Ref
-	Imports []Import
-	OK      bool
-	Err     string
-}
+// Symbol, Ref, Import, and Result are the shared extraction-fact types. The
+// aliases keep tsx's public surface unchanged for existing callers.
+type (
+	Symbol = facts.Symbol
+	Ref    = facts.Ref
+	Import = facts.Import
+	Result = facts.Result
+)
 
 // Extractor holds one parser per dialect. It is not safe for concurrent use;
 // index workers each create their own.

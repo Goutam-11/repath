@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/Goutam-11/repath/internal/lang"
-	"github.com/Goutam-11/repath/internal/lang/tsx"
+	"github.com/Goutam-11/repath/internal/lang/facts"
 	"github.com/Goutam-11/repath/internal/resolve"
 	"github.com/Goutam-11/repath/internal/store"
 )
@@ -79,7 +79,7 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ex := tsx.New()
+			ex := lang.NewExtractor()
 			for src := range jobs {
 				parsed <- parseOne(src, ex, existing, opts.Full)
 			}
@@ -236,7 +236,7 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 	for _, o := range written {
 		changed[o.fileID] = true
 
-		imports := make(map[string]tsx.Import, len(o.imports))
+		imports := make(map[string]facts.Import, len(o.imports))
 		for _, imp := range o.imports {
 			imports[imp.Local] = imp
 		}
@@ -333,13 +333,13 @@ type outcome struct {
 	ok      bool
 	errMsg  string
 	symbols []store.Node
-	refs    []tsx.Ref
-	imports []tsx.Import
+	refs    []facts.Ref
+	imports []facts.Import
 	skipped bool
 	fileID  int64
 }
 
-func parseOne(src Source, ex *tsx.Extractor, existing map[string]store.FileState, full bool) *outcome {
+func parseOne(src Source, ex *lang.Extractor, existing map[string]store.FileState, full bool) *outcome {
 	data, err := os.ReadFile(src.Abs)
 	if err != nil {
 		return &outcome{src: src, ok: false, errMsg: err.Error()}
@@ -378,7 +378,7 @@ func parseOne(src Source, ex *tsx.Extractor, existing map[string]store.FileState
 
 // toNodes converts extractor output into rows; the store must not depend on a
 // language package.
-func toNodes(symbols []tsx.Symbol) []store.Node {
+func toNodes(symbols []facts.Symbol) []store.Node {
 	nodes := make([]store.Node, 0, len(symbols))
 	for _, s := range symbols {
 		nodes = append(nodes, store.Node{
