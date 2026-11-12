@@ -363,7 +363,6 @@ func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes 
 	defer stmt.Close()
 
 	seen := make(map[nodeKey]bool, len(nodes))
-	kept := make(map[int64]bool, len(nodes))
 	written := 0
 	for _, n := range nodes {
 		key := keyOf(n.QName, n.Arity)
@@ -378,7 +377,6 @@ func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes 
 			Scan(&id); err != nil {
 			return written, err
 		}
-		kept[id] = true
 		written++
 	}
 

@@ -300,6 +300,8 @@ func (ix *Index) pyByImport(fromPath string, binding facts.Import, ref facts.Ref
 
 // pyByStar resolves a bare name through a `from x import *` binding. It is
 // weaker than a named import because only a wildcard tied the name to the file.
+// The imports map keeps the last binding for a local name, so the last star
+// import wins when several of them define it — the Python execution order.
 func (ix *Index) pyByStar(fromFile int64, fromPath string, ref facts.Ref) (Resolution, bool) {
 	for _, binding := range ix.imports[fromFile] {
 		if binding.Local != "*" {

@@ -195,7 +195,7 @@ type ImportRow struct {
 // Imports reads every stored import binding.
 func (s *Store) Imports(ctx context.Context) ([]ImportRow, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT file_id, local, imported, source, line FROM imports`)
+		`SELECT file_id, local, imported, source, line FROM imports ORDER BY rowid`)
 	if err != nil {
 		return nil, err
 	}

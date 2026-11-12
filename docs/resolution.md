@@ -84,7 +84,8 @@ that ends at the standard library or a dependency is classified external rather
 than unresolved.
 
 `from x import *` is weaker because only a wildcard ties the name to the file:
-it resolves at 0.80, and the first star import that contains the name wins.
+it resolves at 0.80. Bindings are applied in file order, so when several star
+imports define the same name the last one wins, matching Python execution.
 
 ## Known gaps
 
