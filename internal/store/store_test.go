@@ -29,9 +29,40 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("meta: %v", err)
 	}
-	if meta["schema_version"] != "3" {
-		t.Fatalf("schema_version = %q, want 3", meta["schema_version"])
+	if meta["schema_version"] != "4" {
+		t.Fatalf("schema_version = %q, want 4", meta["schema_version"])
 	}
+}
+
+func TestMigrateAddsImportPublic(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	// Simulate an M3 index whose imports table predates the public column.
+	if _, err := st.db.ExecContext(ctx, `ALTER TABLE imports DROP COLUMN public`); err != nil {
+		t.Fatalf("drop public: %v", err)
+	}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate old schema: %v", err)
+	}
+
+	rows, err := st.db.QueryContext(ctx, `PRAGMA table_info(imports)`)
+	if err != nil {
+		t.Fatalf("table info: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if name == "public" {
+			return
+		}
+	}
+	t.Fatal("imports.public was not added by Migrate")
 }
 
 func TestMigrateAddsPendingForm(t *testing.T) {
@@ -123,7 +154,7 @@ func TestWriteFileAndImports(t *testing.T) {
 		t.Fatalf("upsert file: %v", err)
 	}
 	if err := tx.ReplaceImports(ctx, id, []ImportRow{
-		{Local: "Service", Imported: "Service", Source: ".service", Line: 1},
+		{Local: "Service", Imported: "Service", Source: ".service", Line: 1, Public: true},
 		{Local: "util", Imported: "*", Source: "util", Line: 2},
 	}); err != nil {
 		t.Fatalf("replace imports: %v", err)
@@ -136,7 +167,7 @@ func TestWriteFileAndImports(t *testing.T) {
 	if err != nil {
 		t.Fatalf("imports: %v", err)
 	}
-	if len(imports) != 2 || imports[0].Local != "Service" || imports[0].Source != ".service" {
+	if len(imports) != 2 || imports[0].Local != "Service" || imports[0].Source != ".service" || !imports[0].Public {
 		t.Fatalf("imports = %+v", imports)
 	}
 
