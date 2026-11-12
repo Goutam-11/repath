@@ -22,8 +22,12 @@ type Resolution struct {
 	Confidence float64
 	Rule       string
 	Candidates []int64
-	External   bool
-	Found      bool
+	// Kind overrides the edge kind when the resolution changes it: a Python
+	// call whose target is a class is stored as REFERENCES, the analogue of
+	// TypeScript's `new`.
+	Kind     string
+	External bool
+	Found    bool
 }
 
 // Index is the global name index used for resolution.
@@ -33,16 +37,22 @@ type Index struct {
 	byQName map[string][]store.NodeRow
 	exports map[int64][]store.NodeRow
 	files   map[string]int64
+	paths   map[int64]string
+	imports map[int64]map[string]facts.Import
 	aliases *Aliases
 }
 
-// Build loads every symbol and file into the resolution index.
+// Build loads every symbol, file, and import binding into the resolution index.
 func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 	nodes, err := st.Nodes(ctx)
 	if err != nil {
 		return nil, err
 	}
 	paths, err := st.FilePaths(ctx)
+	if err != nil {
+		return nil, err
+	}
+	imports, err := st.Imports(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +63,8 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 		byQName: make(map[string][]store.NodeRow),
 		exports: make(map[int64][]store.NodeRow),
 		files:   make(map[string]int64, len(paths)),
+		paths:   paths,
+		imports: make(map[int64]map[string]facts.Import),
 		aliases: LoadAliases(root),
 	}
 
@@ -74,11 +86,28 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 			ix.exports[n.FileID] = append(ix.exports[n.FileID], n)
 		}
 	}
+	for _, imp := range imports {
+		if ix.imports[imp.FileID] == nil {
+			ix.imports[imp.FileID] = make(map[string]facts.Import)
+		}
+		ix.imports[imp.FileID][imp.Local] = facts.Import{
+			Local: imp.Local, Imported: imp.Imported, Source: imp.Source, Line: imp.Line,
+		}
+	}
 	return ix, nil
 }
 
-// Resolve returns where ref points. imports is the referring file's binding map.
-func (ix *Index) Resolve(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) Resolution {
+// Resolve returns where ref points. The file's own imports come from the index,
+// so a reference in an unchanged file still resolves after an incremental run.
+func (ix *Index) Resolve(fromFile int64, fromPath string, ref facts.Ref) Resolution {
+	if ix.language(fromFile) == "python" {
+		return ix.resolvePython(fromFile, fromPath, ref)
+	}
+	return ix.resolveTS(fromFile, fromPath, ref, ix.imports[fromFile])
+}
+
+// resolveTS is the TypeScript/JavaScript ladder.
+func (ix *Index) resolveTS(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) Resolution {
 	// Builtins are not symbols in the repo; treating them as external keeps the
 	// unresolved queue meaningful.
 	if ref.Form == "ident" && isBuiltin(ref.Name) {
@@ -139,6 +168,64 @@ func (ix *Index) Resolve(fromFile int64, fromPath string, ref facts.Ref, imports
 	return ix.byUnique(ref.Name, ref.Arity, ix.global[ref.Name], "ts.global")
 }
 
+// resolvePython is the Python ladder. Import bindings are exact (1.00), module
+// receivers and relative imports are next, then local scope, then uniqueness.
+func (ix *Index) resolvePython(fromFile int64, fromPath string, ref facts.Ref) Resolution {
+	if ref.Form == "ident" && isPyBuiltin(ref.Name) {
+		return Resolution{External: true}
+	}
+	if ref.Form == "member" && isPyBuiltin(ref.Receiver) {
+		return Resolution{External: true}
+	}
+
+	imports := ix.imports[fromFile]
+
+	// 1. self.method() inside a class body.
+	if ref.Form == "this" {
+		qname := classOf(ref.Enclosing) + "." + ref.Name
+		for _, n := range ix.byFile[fromFile][ref.Name] {
+			if n.QName == qname {
+				return pyTarget(ref, n, 0.90, "py.this.method")
+			}
+		}
+		return Resolution{}
+	}
+
+	// 2. A binding created by an import statement.
+	if ref.Form == "ident" {
+		if binding, ok := imports[ref.Name]; ok {
+			return ix.pyByImport(fromPath, binding, ref)
+		}
+		if r, ok := ix.pyByStar(fromFile, fromPath, ref); ok {
+			return r
+		}
+	}
+
+	// 3. Module receivers (pkg.f(), util.f(), from . import util) and typed
+	// receivers (service.f() where service is "Service(...)" or typed).
+	if ref.Form == "member" {
+		if r, ok := ix.pyByModuleMember(fromFile, fromPath, ref, imports); ok {
+			return r
+		}
+		if ref.ReceiverType != "" {
+			if isPyBuiltin(ref.ReceiverType) {
+				return Resolution{External: true}
+			}
+			return ix.pyByTypedMethod(fromFile, fromPath, ref, imports)
+		}
+		return Resolution{}
+	}
+
+	// 4. Local scope, then global uniqueness.
+	if nodes := ix.byFile[fromFile][ref.Name]; len(nodes) > 0 {
+		if picked := pick(nodes, ref.Arity); len(picked) == 1 {
+			return pyTarget(ref, picked[0], 0.85, "py.local")
+		}
+	}
+
+	return ix.byUniquePython(ref, ix.global[ref.Name])
+}
+
 func (ix *Index) byImport(fromPath string, binding facts.Import, ref facts.Ref) Resolution {
 	target := ix.resolveSpecifier(fromPath, binding.Source)
 	if target == 0 {
@@ -157,6 +244,316 @@ func (ix *Index) byImport(fromPath string, binding facts.Import, ref facts.Ref) 
 		return Resolution{Dst: n.ID, Confidence: 1.0, Rule: "ts.import.named", Found: true}
 	}
 	return Resolution{}
+}
+
+// pyByImport resolves a name bound by `import x`, `from x import y`, or an
+// alias. A source that is not in the repo is external; a broken relative import
+// stays unresolved instead of hiding as external.
+func (ix *Index) pyByImport(fromPath string, binding facts.Import, ref facts.Ref) Resolution {
+	if binding.Imported == "*" {
+		if ix.resolvePyModule(fromPath, binding.Source) != 0 {
+			// `import pkg` binds a module, not a symbol; member receivers use
+			// pyByModuleMember.
+			return Resolution{}
+		}
+		if isRelative(binding.Source) {
+			return Resolution{}
+		}
+		return Resolution{External: true}
+	}
+
+	target := ix.resolvePyModule(fromPath, binding.Source)
+	if target == 0 {
+		if ix.resolvePyImportedModule(fromPath, binding.Source, binding.Imported) != 0 {
+			return Resolution{}
+		}
+		if isRelative(binding.Source) {
+			return Resolution{}
+		}
+		return Resolution{External: true}
+	}
+
+	if n, reexported, ok := ix.pyExport(target, binding.Imported, map[int64]bool{}); ok {
+		switch {
+		case reexported:
+			return pyTarget(ref, n, 0.95, "py.import.reexport")
+		case binding.Local != binding.Imported:
+			return pyTarget(ref, n, 1.0, "py.import.alias")
+		default:
+			return pyTarget(ref, n, 1.0, "py.import.named")
+		}
+	}
+
+	// The name may be a submodule of the imported package ("from . import x").
+	if ix.resolvePyImportedModule(fromPath, binding.Source, binding.Imported) != 0 {
+		return Resolution{}
+	}
+	return Resolution{}
+}
+
+// pyByStar resolves a bare name through a `from x import *` binding. It is
+// weaker than a named import because only a wildcard tied the name to the file.
+func (ix *Index) pyByStar(fromFile int64, fromPath string, ref facts.Ref) (Resolution, bool) {
+	for _, binding := range ix.imports[fromFile] {
+		if binding.Local != "*" {
+			continue
+		}
+		target := ix.resolvePyModule(fromPath, binding.Source)
+		if target == 0 {
+			continue
+		}
+		if n, _, ok := ix.pyExport(target, ref.Name, map[int64]bool{}); ok {
+			return pyTarget(ref, n, 0.80, "py.import.star"), true
+		}
+	}
+	return Resolution{}, false
+}
+
+// pyByModuleMember resolves member.f() when the receiver is a module binding.
+// Both an exact binding ("util.f()") and a dotted receiver ("pkg.mod.f()")
+// are handled; a receiver with no module binding is left for typed receivers.
+func (ix *Index) pyByModuleMember(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) (Resolution, bool) {
+	receiver := ref.Receiver
+	if receiver == "" {
+		return Resolution{}, false
+	}
+
+	if binding, ok := imports[receiver]; ok {
+		spec, isModule := ix.bindingModuleSpec(fromPath, binding)
+		if isModule {
+			return ix.pyModuleMember(fromPath, ref, spec)
+		}
+		// A named import whose target file exists but is not a module binding
+		// will be handled by the typed-receiver path; do not guess.
+		return Resolution{}, false
+	}
+
+	if i := strings.Index(receiver, "."); i > 0 {
+		prefix := receiver[:i]
+		if binding, ok := imports[prefix]; ok {
+			if spec, isModule := ix.bindingModuleSpec(fromPath, binding); isModule {
+				return ix.pyModuleMember(fromPath, ref, spec+receiver[i:])
+			}
+		}
+	}
+	return Resolution{}, false
+}
+
+// pyModuleMember looks up ref.Name in one module file. The bool reports whether
+// the reference was consumed: resolved, external, or the module existed but the
+// member did not (which leaves a pending row).
+func (ix *Index) pyModuleMember(fromPath string, ref facts.Ref, spec string) (Resolution, bool) {
+	target := ix.resolvePyModule(fromPath, spec)
+	if target == 0 {
+		if isRelative(spec) {
+			return Resolution{}, true
+		}
+		return Resolution{External: true}, true
+	}
+	if n, reexported, ok := ix.pyExport(target, ref.Name, map[int64]bool{}); ok {
+		switch {
+		case reexported:
+			return pyTarget(ref, n, 0.95, "py.import.reexport"), true
+		case isRelative(spec):
+			return pyTarget(ref, n, 0.90, "py.module.relative"), true
+		default:
+			return pyTarget(ref, n, 0.95, "py.import.module"), true
+		}
+	}
+	return Resolution{}, true
+}
+
+// bindingModuleSpec returns the module specifier a binding refers to, when the
+// binding is a module (import pkg, import pkg.mod as m, from . import util).
+func (ix *Index) bindingModuleSpec(fromPath string, binding facts.Import) (string, bool) {
+	if binding.Imported == "*" {
+		return binding.Source, true
+	}
+	spec := joinPySpec(binding.Source, binding.Imported)
+	if ix.resolvePyModule(fromPath, spec) != 0 {
+		return spec, true
+	}
+	return "", false
+}
+
+// pyByTypedMethod resolves Type.method when the receiver's type is known from
+// an annotation or a Constructor() call. It follows a package __init__ re-export
+// to the module that actually defines the class.
+func (ix *Index) pyByTypedMethod(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) Resolution {
+	qname := ref.ReceiverType + "." + ref.Name
+
+	for _, n := range ix.byQName[qname] {
+		if n.FileID == fromFile {
+			return pyTarget(ref, n, 0.85, "py.typed.method")
+		}
+	}
+
+	if binding, ok := imports[ref.ReceiverType]; ok {
+		if target := ix.resolvePyModule(fromPath, binding.Source); target != 0 {
+			for _, n := range ix.byQName[qname] {
+				if n.FileID == target {
+					return pyTarget(ref, n, 0.85, "py.typed.method")
+				}
+			}
+			if classNode, _, ok := ix.pyExport(target, ref.ReceiverType, map[int64]bool{}); ok {
+				for _, n := range ix.byQName[qname] {
+					if n.FileID == classNode.FileID {
+						return pyTarget(ref, n, 0.85, "py.typed.method")
+					}
+				}
+			}
+		}
+	}
+
+	if nodes := ix.byQName[qname]; len(nodes) == 1 {
+		return pyTarget(ref, nodes[0], 0.70, "py.typed.method.global")
+	}
+	return Resolution{}
+}
+
+// pyExport finds an importable name in a module. For a package __init__.py it
+// follows stored import bindings, which is what makes `from pkg import Name`
+// work when the package only re-exports Name.
+func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool) (store.NodeRow, bool, bool) {
+	if seen[fileID] {
+		return store.NodeRow{}, false, false
+	}
+	seen[fileID] = true
+
+	for _, n := range ix.exports[fileID] {
+		if n.Name == name && n.QName == name {
+			return n, false, true
+		}
+	}
+
+	fromPath := ix.paths[fileID]
+	if !strings.HasSuffix(fromPath, "__init__.py") {
+		return store.NodeRow{}, false, false
+	}
+	for _, imp := range ix.imports[fileID] {
+		if imp.Local != name || imp.Imported == "*" {
+			continue
+		}
+		target := ix.resolvePyModule(fromPath, imp.Source)
+		if target == 0 {
+			continue
+		}
+		if n, _, ok := ix.pyExport(target, imp.Imported, seen); ok {
+			return n, true, true
+		}
+	}
+	return store.NodeRow{}, false, false
+}
+
+// resolvePyModule maps a Python module specifier to a file id. It understands
+// leading-dot relative imports and the common src/ and lib/ source layouts for
+// absolute imports. Zero means "not in this repo" (stdlib or a dependency).
+func (ix *Index) resolvePyModule(fromPath, spec string) int64 {
+	if spec == "" {
+		return 0
+	}
+
+	dots := 0
+	for dots < len(spec) && spec[dots] == '.' {
+		dots++
+	}
+	rest := spec[dots:]
+	module := strings.ReplaceAll(rest, ".", "/")
+
+	if dots > 0 {
+		dir := path.Dir(fromPath)
+		for i := 1; i < dots; i++ {
+			dir = path.Dir(dir)
+		}
+		if module != "" {
+			dir = path.Join(dir, module)
+		}
+		return ix.pyFile(dir)
+	}
+
+	for _, base := range []string{"", "src", "lib"} {
+		if id := ix.pyFile(path.Join(base, module)); id != 0 {
+			return id
+		}
+	}
+	return 0
+}
+
+// resolvePyImportedModule resolves the module a `from source import name`
+// binding may refer to when `name` is a submodule rather than a symbol.
+func (ix *Index) resolvePyImportedModule(fromPath, source, imported string) int64 {
+	if imported == "" || imported == "*" {
+		return 0
+	}
+	return ix.resolvePyModule(fromPath, joinPySpec(source, imported))
+}
+
+func (ix *Index) pyFile(base string) int64 {
+	base = strings.TrimSuffix(base, "/")
+	if base == "" {
+		base = "."
+	}
+	if base == "." {
+		if id, ok := ix.files["__init__.py"]; ok {
+			return id
+		}
+	}
+	for _, candidate := range []string{base + ".py", base + "/__init__.py"} {
+		if id, ok := ix.files[candidate]; ok {
+			return id
+		}
+	}
+	return 0
+}
+
+func isRelative(spec string) bool { return strings.HasPrefix(spec, ".") }
+
+func joinPySpec(source, name string) string {
+	if source == "" {
+		return name
+	}
+	// "." and ".." already carry the separator; appending another dot would
+	// change the relative level.
+	if strings.Trim(source, ".") == "" {
+		return source + name
+	}
+	return source + "." + name
+}
+
+// pyTarget applies the Python instantiation rule: a call that resolves to a
+// class is a REFERENCES edge, mirroring `new` in TypeScript.
+func pyTarget(ref facts.Ref, n store.NodeRow, confidence float64, rule string) Resolution {
+	r := Resolution{Dst: n.ID, Confidence: confidence, Rule: rule, Found: true}
+	if ref.Kind == "call" && n.Kind == "class" {
+		r.Kind = "REFERENCES"
+	}
+	return r
+}
+
+func (ix *Index) byUniquePython(ref facts.Ref, candidates []store.NodeRow) Resolution {
+	picked := pick(candidates, ref.Arity)
+	switch len(picked) {
+	case 0:
+		return Resolution{}
+	case 1:
+		return pyTarget(ref, picked[0], 0.60, "py.global.unique")
+	}
+	if len(picked) > maxCandidates {
+		return Resolution{}
+	}
+	ids := make([]int64, 0, len(picked))
+	allClasses := ref.Kind == "call"
+	for _, n := range picked {
+		ids = append(ids, n.ID)
+		if n.Kind != "class" {
+			allClasses = false
+		}
+	}
+	kind := ""
+	if allClasses {
+		kind = "REFERENCES"
+	}
+	return Resolution{Confidence: 0.40, Rule: "py.global.ambiguous", Candidates: ids, Found: true, Kind: kind}
 }
 
 func (ix *Index) byUnique(name string, arity int, candidates []store.NodeRow, rulePrefix string) Resolution {
@@ -203,15 +600,28 @@ func (ix *Index) byTypedMethod(fromFile int64, fromPath string, ref facts.Ref, i
 	return Resolution{}
 }
 
-// ResolveName resolves a bare name by global uniqueness. It is used when
-// retrying references that were left pending by an earlier run, where the
-// import context is no longer available.
-func (ix *Index) ResolveName(name string) (int64, bool) {
-	r := ix.byUnique(name, 0, ix.global[name], "ts.global")
-	if r.Found && len(r.Candidates) == 0 {
-		return r.Dst, true
+// ResolvePending retries a reference that was left pending by an earlier run,
+// when the import context is no longer available. The language comes from the
+// referring file, so Python names get Python rule ids.
+func (ix *Index) ResolvePending(fileID int64, kind, name string) (Resolution, bool) {
+	ref := facts.Ref{Kind: kind, Name: name}
+	var r Resolution
+	if ix.language(fileID) == "python" {
+		r = ix.byUniquePython(ref, ix.global[name])
+	} else {
+		r = ix.byUnique(name, 0, ix.global[name], "ts.global")
 	}
-	return 0, false
+	if r.Found && len(r.Candidates) == 0 {
+		return r, true
+	}
+	return Resolution{}, false
+}
+
+func (ix *Index) language(fileID int64) string {
+	if strings.HasSuffix(ix.paths[fileID], ".py") {
+		return "python"
+	}
+	return "typescript"
 }
 
 // resolveSpecifier maps an import source to a file id. Zero means external.
@@ -305,4 +715,27 @@ var builtins = map[string]bool{
 	"localStorage": true, "sessionStorage": true, "alert": true,
 }
 
+// pyBuiltins are Python builtins and decorators that are never project symbols.
+var pyBuiltins = map[string]bool{
+	"print": true, "len": true, "range": true, "enumerate": true, "zip": true,
+	"map": true, "filter": true, "sorted": true, "reversed": true, "sum": true,
+	"min": true, "max": true, "abs": true, "round": true, "open": true,
+	"input": true, "isinstance": true, "issubclass": true, "getattr": true,
+	"setattr": true, "hasattr": true, "delattr": true, "super": true,
+	"property": true, "staticmethod": true, "classmethod": true, "object": true,
+	"type": true, "str": true, "int": true, "float": true, "bool": true,
+	"bytes": true, "bytearray": true, "list": true, "dict": true, "set": true,
+	"frozenset": true, "tuple": true, "Exception": true, "BaseException": true,
+	"ValueError": true, "TypeError": true, "KeyError": true, "IndexError": true,
+	"AttributeError": true, "RuntimeError": true, "StopIteration": true,
+	"NotImplementedError": true, "OSError": true, "IOError": true,
+	"ImportError": true, "ModuleNotFoundError": true, "ZeroDivisionError": true,
+	"AssertionError": true, "id": true, "hash": true, "iter": true, "next": true,
+	"vars": true, "dir": true, "callable": true, "format": true, "repr": true,
+	"eval": true, "exec": true, "compile": true, "globals": true, "locals": true,
+	"__import__": true, "self": true, "cls": true,
+}
+
 func isBuiltin(name string) bool { return builtins[name] }
+
+func isPyBuiltin(name string) bool { return pyBuiltins[name] }

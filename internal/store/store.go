@@ -14,7 +14,7 @@ import (
 
 // SchemaVersion is bumped whenever the schema below changes. A binary refuses
 // an index written by a newer version.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta    (key TEXT PRIMARY KEY, value TEXT);
@@ -60,10 +60,20 @@ CREATE TABLE IF NOT EXISTS pending (
     kind    TEXT NOT NULL,
     line    INTEGER NOT NULL DEFAULT 0
 );
+-- imports are resolution inputs, not edges: they let a later run follow
+-- __init__.py re-exports without keeping every file's AST in memory.
+CREATE TABLE IF NOT EXISTS imports (
+    file_id  INTEGER NOT NULL,
+    local    TEXT NOT NULL,
+    imported TEXT NOT NULL,
+    source   TEXT NOT NULL,
+    line     INTEGER NOT NULL DEFAULT 0
+);
 CREATE INDEX IF NOT EXISTS edges_rev    ON edges (dst, kind, confidence);
 CREATE INDEX IF NOT EXISTS nodes_qn     ON nodes (qname);
 CREATE INDEX IF NOT EXISTS nodes_loc    ON nodes (file_id, start_line);
 CREATE INDEX IF NOT EXISTS pending_name ON pending (name);
+CREATE INDEX IF NOT EXISTS imports_file ON imports (file_id);
 CREATE UNIQUE INDEX IF NOT EXISTS modules_root ON modules (root);
 `
 
@@ -304,10 +314,14 @@ func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes 
 	return inserted, nil
 }
 
-// DeleteFile removes a file row and its nodes.
+// DeleteFile removes a file row and its nodes and import bindings.
 func (t *Tx) DeleteFile(ctx context.Context, path string) error {
 	if _, err := t.tx.ExecContext(ctx,
 		`DELETE FROM nodes WHERE file_id = (SELECT id FROM files WHERE path = ?)`, path); err != nil {
+		return err
+	}
+	if _, err := t.tx.ExecContext(ctx,
+		`DELETE FROM imports WHERE file_id = (SELECT id FROM files WHERE path = ?)`, path); err != nil {
 		return err
 	}
 	_, err := t.tx.ExecContext(ctx, `DELETE FROM files WHERE path = ?`, path)

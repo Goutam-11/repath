@@ -132,6 +132,10 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 				_ = tx.Rollback()
 				return err
 			}
+			if err := tx.ReplaceImports(ctx, fileID, toImportRows(o.imports)); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
 			o.fileID = fileID
 			res.Indexed++
 			res.Nodes += len(o.symbols)
@@ -236,11 +240,6 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 	for _, o := range written {
 		changed[o.fileID] = true
 
-		imports := make(map[string]facts.Import, len(o.imports))
-		for _, imp := range o.imports {
-			imports[imp.Local] = imp
-		}
-
 		ids, err := st.NodeIDsByFile(ctx, o.fileID)
 		if err != nil {
 			return err
@@ -255,7 +254,11 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 				continue
 			}
 
-			r := ix.Resolve(o.fileID, o.src.Path, ref, imports)
+			r := ix.Resolve(o.fileID, o.src.Path, ref)
+			kind := edgeKind(ref.Kind)
+			if r.Kind != "" {
+				kind = r.Kind
+			}
 			switch {
 			case r.External:
 			case r.Found && len(r.Candidates) > 0:
@@ -264,7 +267,7 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 						continue
 					}
 					edges = append(edges, store.Edge{
-						Src: src, Dst: candidate, Kind: edgeKind(ref.Kind),
+						Src: src, Dst: candidate, Kind: kind,
 						Confidence: r.Confidence, Rule: r.Rule, Line: ref.Line,
 						Candidates: joinIDs(r.Candidates),
 					})
@@ -274,7 +277,7 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 					continue
 				}
 				edges = append(edges, store.Edge{
-					Src: src, Dst: r.Dst, Kind: edgeKind(ref.Kind),
+					Src: src, Dst: r.Dst, Kind: kind,
 					Confidence: r.Confidence, Rule: r.Rule, Line: ref.Line,
 				})
 			default:
@@ -302,7 +305,7 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		if changed[p.FileID] {
 			continue
 		}
-		dst, ok := ix.ResolveName(p.Name)
+		r, ok := ix.ResolvePending(p.FileID, p.Kind, p.Name)
 		if !ok {
 			continue
 		}
@@ -310,12 +313,16 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		if err != nil {
 			return err
 		}
-		if !ok || src == dst {
+		if !ok || src == r.Dst {
 			continue
 		}
+		kind := edgeKind(p.Kind)
+		if r.Kind != "" {
+			kind = r.Kind
+		}
 		retried = append(retried, store.Edge{
-			Src: src, Dst: dst, Kind: edgeKind(p.Kind),
-			Confidence: 0.60, Rule: "ts.global.unique", Line: p.Line,
+			Src: src, Dst: r.Dst, Kind: kind,
+			Confidence: r.Confidence, Rule: r.Rule, Line: p.Line,
 		})
 		if err := st.DeletePending(ctx, p); err != nil {
 			return err
@@ -392,6 +399,18 @@ func toNodes(symbols []facts.Symbol) []store.Node {
 		})
 	}
 	return nodes
+}
+
+// toImportRows converts extractor imports into rows. Imports are resolution
+// inputs and are stored separately from edges and nodes.
+func toImportRows(imports []facts.Import) []store.ImportRow {
+	rows := make([]store.ImportRow, 0, len(imports))
+	for _, imp := range imports {
+		rows = append(rows, store.ImportRow{
+			Local: imp.Local, Imported: imp.Imported, Source: imp.Source, Line: imp.Line,
+		})
+	}
+	return rows
 }
 
 func edgeKind(refKind string) string {

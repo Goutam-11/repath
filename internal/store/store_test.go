@@ -29,8 +29,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("meta: %v", err)
 	}
-	if meta["schema_version"] != "2" {
-		t.Fatalf("schema_version = %q, want 2", meta["schema_version"])
+	if meta["schema_version"] != "3" {
+		t.Fatalf("schema_version = %q, want 3", meta["schema_version"])
 	}
 }
 
@@ -74,6 +74,57 @@ func TestWriteFileAndNodes(t *testing.T) {
 	}
 	if counts.ByKind["function"] != 1 {
 		t.Fatalf("by kind = %+v", counts.ByKind)
+	}
+}
+
+func TestWriteFileAndImports(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	id, err := tx.UpsertFile(ctx, File{
+		Path: "pkg/__init__.py", Lang: "python", Size: 10, MTime: 100, Hash: "abc", ParseOK: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert file: %v", err)
+	}
+	if err := tx.ReplaceImports(ctx, id, []ImportRow{
+		{Local: "Service", Imported: "Service", Source: ".service", Line: 1},
+		{Local: "util", Imported: "*", Source: "util", Line: 2},
+	}); err != nil {
+		t.Fatalf("replace imports: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	imports, err := st.Imports(ctx)
+	if err != nil {
+		t.Fatalf("imports: %v", err)
+	}
+	if len(imports) != 2 || imports[0].Local != "Service" || imports[0].Source != ".service" {
+		t.Fatalf("imports = %+v", imports)
+	}
+
+	tx, err = st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin replace: %v", err)
+	}
+	if err := tx.ReplaceImports(ctx, id, []ImportRow{{Local: "util", Imported: "*", Source: "util"}}); err != nil {
+		t.Fatalf("replace imports: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit replace: %v", err)
+	}
+	imports, err = st.Imports(ctx)
+	if err != nil {
+		t.Fatalf("imports after replace: %v", err)
+	}
+	if len(imports) != 1 || imports[0].Local != "util" {
+		t.Fatalf("imports after replace = %+v, want one util binding", imports)
 	}
 }
 

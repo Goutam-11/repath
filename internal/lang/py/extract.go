@@ -472,6 +472,12 @@ func (w *walker) add(kind, name, qname string, arity int, n sitter.Node, exporte
 	}
 	w.seen[key] = true
 
+	// Any module-level def is importable in Python, including a private-looking
+	// name and one defined under an `if`/`try` block.
+	if !strings.Contains(qname, ".") {
+		exported = true
+	}
+
 	w.res.Symbols = append(w.res.Symbols, Symbol{
 		Kind: kind, Name: name, QName: qname, Arity: arity,
 		StartLine: int(n.StartPoint().Row) + 1,

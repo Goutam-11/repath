@@ -181,6 +181,58 @@ func (s *Store) ReplacePending(ctx context.Context, fileID int64, refs []Pending
 	return tx.Commit()
 }
 
+// ImportRow is one local binding created by an import statement. Imports are
+// resolution inputs, never graph edges.
+type ImportRow struct {
+	FileID   int64
+	Local    string
+	Imported string
+	Source   string
+	Line     int
+}
+
+// Imports reads every stored import binding.
+func (s *Store) Imports(ctx context.Context) ([]ImportRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT file_id, local, imported, source, line FROM imports`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ImportRow
+	for rows.Next() {
+		var imp ImportRow
+		if err := rows.Scan(&imp.FileID, &imp.Local, &imp.Imported, &imp.Source, &imp.Line); err != nil {
+			return nil, err
+		}
+		out = append(out, imp)
+	}
+	return out, rows.Err()
+}
+
+// ReplaceImports swaps the import bindings for one file, in a transaction.
+func (t *Tx) ReplaceImports(ctx context.Context, fileID int64, imports []ImportRow) error {
+	if _, err := t.tx.ExecContext(ctx, `DELETE FROM imports WHERE file_id = ?`, fileID); err != nil {
+		return err
+	}
+	if len(imports) == 0 {
+		return nil
+	}
+	stmt, err := t.tx.PrepareContext(ctx,
+		`INSERT INTO imports (file_id, local, imported, source, line) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, imp := range imports {
+		if _, err := stmt.ExecContext(ctx, fileID, imp.Local, imp.Imported, imp.Source, imp.Line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DeletePending removes one pending row.
 func (s *Store) DeletePending(ctx context.Context, p PendingRef) error {
 	_, err := s.db.ExecContext(ctx,
