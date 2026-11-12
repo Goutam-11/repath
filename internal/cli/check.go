@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -30,6 +31,25 @@ func checkCmd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	// Parse every SARIF input before the index is opened or refreshed: a bad
+	// version or a missing file must be a clean error, never a half-run.
+	var sarif *check.SARIFLoad
+	if len(opts.sarif) > 0 {
+		load, err := check.LoadSARIF(root, opts.sarif)
+		if err != nil {
+			fmt.Fprintf(stderr, "check: %v\n", err)
+			switch {
+			case errors.Is(err, check.ErrSARIFNotFound):
+				return 3
+			case errors.Is(err, check.ErrSARIFInvalid):
+				return 2
+			default:
+				return 1
+			}
+		}
+		sarif = &load
+	}
+
 	ctx := context.Background()
 	st, err := query.Open(ctx, root, opts.noRefresh)
 	if err != nil {
@@ -49,6 +69,7 @@ func checkCmd(args []string, stdout, stderr io.Writer) int {
 	report, err := check.Run(ctx, st.Store, root, check.Options{
 		MinConfidence: opts.minConfidence,
 		MaxFindings:   opts.maxFindings,
+		SARIF:         sarif,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "check: %v\n", err)
@@ -69,6 +90,12 @@ func checkCmd(args []string, stdout, stderr io.Writer) int {
 func printCheck(out io.Writer, report check.Report) {
 	fmt.Fprintf(out, "repath check · %d files · %d nodes · %d edges · min-confidence %.2f\n",
 		report.Files, report.Nodes, report.Edges, report.MinConfidence)
+	if report.Diagnostics != nil {
+		fmt.Fprintf(out, "SARIF: %d source(s) · %d results · %d attached · %d skipped · %d duplicate(s)\n",
+			report.Diagnostics.Sources, report.Diagnostics.Results,
+			report.Diagnostics.Attached, report.Diagnostics.Skipped,
+			report.Diagnostics.Duplicates)
+	}
 
 	total := report.Counts.Error + report.Counts.Warning + report.Counts.Info
 	if total == 0 {
@@ -90,7 +117,12 @@ func printCheck(out io.Writer, report check.Report) {
 		case finding.Module != "":
 			location = "  module " + finding.Module
 		}
-		fmt.Fprintf(out, "  %-18s %s%s\n", finding.Kind, finding.Message, location)
+		message := finding.Message
+		if finding.Kind == "diagnostic" && finding.QName != "" {
+			// The symbol is the attachment point, so make it visible.
+			message = finding.QName + ": " + message
+		}
+		fmt.Fprintf(out, "  %-18s %s%s\n", finding.Kind, message, location)
 	}
 	if report.Truncated {
 		fmt.Fprintf(out, "\n… truncated to %d findings; raise --max-findings to see more\n", report.MaxFindings)

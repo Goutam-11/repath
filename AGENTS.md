@@ -7,7 +7,8 @@ humans and coding agents. One static binary, SQLite, no LLM, no server.
 **Current state: M5 + v1.1 `check`, SCIP adapter, entrypoint flows, test-impact mapping, dual-era MCP, and opt-in artifact compression.**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
-diagnostics, `repath adapter --scip` merges compiler facts into unresolved
+diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
+findings to enclosing symbols (it never runs the compiler), `repath adapter --scip` merges compiler facts into unresolved
 references, `repath flows` walks forward from detected entrypoints,
 `repath tests` maps a change to structurally reachable test files, and
 `repath mcp` speaks both the legacy handshake and the 2026-07-28 discovery era.
@@ -46,6 +47,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath index --artifact out/ --compress # zstd artifact (opt-in)
 ./bin/repath pull out/                     # seed the local index from one
 ./bin/repath check --fail-on warning       # graph-native diagnostics for CI
+./bin/repath check --sarif out.ts.sarif    # attach external SARIF 2.1.0 findings
 ./bin/repath adapter --scip index.scip     # merge compiler facts, no overwrite
 ./bin/repath flows <entrypoint>            # forward execution paths
 ./bin/repath tests <symbol|file:line>      # structurally affected test files
@@ -74,7 +76,7 @@ internal/query    shared answer layer: open, resolve, six answers, status
 internal/output   the MCP envelope and provenance cap
 internal/mcp      hand-rolled stdio JSON-RPC adapter
 internal/artifact export/pull, manifest, schema gate
-internal/check    cycles, dead code, boundaries, hotspots, unresolved rate
+internal/check    cycles, dead code, boundaries, hotspots, unresolved rate, SARIF
 internal/adapter  SCIP fact ingestion and non-overwriting edge merge
 internal/testpath shared test-path classifier for check and tests
 internal/eval     fixture gate (test-only)
@@ -219,6 +221,14 @@ the database.
   (non-test → test, cross-module private access), not an intended-layering
   policy. Module cycles stay warnings because one noisy edge can merge an SCC.
   Do not add a config file to make these "smarter" without a plan change.
+- **SARIF is an opt-in bridge, not a compiler frontend.** `check --sarif` reads
+  SARIF 2.1.0 that an external tool already produced; repath never runs `tsc`,
+  `pyright`, `ruff`, or `rustc`. Results attach to the enclosing symbol at read
+  time as `diagnostic` findings with `sarif.<tool>.<ruleId>` rules; they are not
+  persisted. Duplicates collapse on `(rule, file, line, message)`; results
+  outside a symbol are counted as skipped. Missing input is exit `3`,
+  malformed/non-2.1.0 input is exit `2`, and `5` stays check-only. Do not add a
+  language server or a new dependency for this.
 - `.cache/` and `.repath/` are local artifacts. Never commit them.
 
 ## Adding a language

@@ -14,6 +14,8 @@ immutable cache, `repath check` adds graph-native CI diagnostics, and
 overwriting tree-sitter edges, and `repath flows` walks forward from detected
 entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`),
 and `repath tests` maps a change to the test files that structurally reach it.
+`repath check --sarif` now attaches external compiler/linter diagnostics (SARIF
+2.1.0) to the enclosing symbols without running those tools.
 [`PLAN.md`](PLAN.md) is the specification.
 
 ## Build
@@ -37,6 +39,7 @@ make build
 ./bin/repath index --artifact out/     # export a snapshot (--compress for zstd)
 ./bin/repath pull out/                 # seed the local index from a snapshot
 ./bin/repath check --fail-on warning   # cycles, dead code, boundaries, hotspots
+./bin/repath check --sarif out.ts.sarif # attach SARIF diagnostics to symbols
 ./bin/repath adapter --scip index.scip # merge SCIP facts into pending refs
 ./bin/repath flows <entrypoint>        # forward execution paths
 ./bin/repath tests <symbol|file:line>  # affected test files (structural)
@@ -48,7 +51,9 @@ is the ~300-token cheat sheet. Shell-less clients use the MCP adapter; see
 Sharing, the manifest, and the schema gate are in
 [`docs/sharing.md`](docs/sharing.md); worktree seeding, locks, and LRU are in
 [`docs/worktrees.md`](docs/worktrees.md); the five checks, severities, and the
-check-only exit code `5` are in [`docs/check.md`](docs/check.md). The MCP
+check-only exit code `5` are in [`docs/check.md`](docs/check.md); that page also
+covers opt-in SARIF ingestion, the `diagnostic` kind, and the clean `2`/`3`
+SARIF error paths. The MCP
 adapter's dual-era negotiation and client verification are in
 [`docs/mcp.md`](docs/mcp.md). The optional SCIP adapter, its merge rules,
 and the measured unresolved drop are in

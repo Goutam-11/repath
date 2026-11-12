@@ -73,7 +73,7 @@ Two hard constraints inherited from the field:
 | 19 | Transport | CLI primary; `repath mcp` stdio adapter; SKILL.md | 49-tool MCP measured at 88.9× schema overhead; ~300 on-demand tokens beat ~1.5k always-on |
 | 20 | Worktrees | Per-worktree DB seeded by copying a commit-keyed cache | Parallel agents own separate trees; sub-second seed, zero lock contention |
 | 21 | Sharing | Commit-keyed CI artifact + local dirty overlay | Snapshot distribution like SCIP→Sourcegraph; never a network-FS database |
-| 22 | Diagnostics | Structural `check` in v1.1 only; no compiler diagnostics | Type checking is a language frontend, not a graph query |
+| 22 | Diagnostics | Structural `check`; opt-in SARIF 2.1.0 ingestion attaches external diagnostics and never runs the compiler (amended in v1.2) | The compiler already did the work; reading its log is a bridge, not a language frontend |
 
 Assumptions to veto if wrong: **MIT license**, **no config file** (flags only).
 
@@ -139,6 +139,9 @@ Invariants:
   `rs.use.super`, `py.module.relative`, …) used by tests and by `status`.
 - Adapter facts add edges only: rules are prefixed `scip.ts.*`, stats live in
   `meta.adapter.<name>`, and no adapter row is a node or a schema change.
+- SARIF diagnostics are ingested per `check` run and attached to the enclosing
+  symbol at read time (`sarif.<tool>.<rule>`); they are never persisted as
+  nodes, edges, or a schema change (decision 22, amended in v1.2).
 
 ### 4.1 Storage forms — one format, three lives
 
@@ -251,7 +254,7 @@ repath flows  <entrypoint>      [--depth 6] [--limit 20] [--json]
 repath path   <A> <B>           [--max-depth 8] [--alternates 3] [--json]
 repath map    [--max-tokens 2000] [--json]
 repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
-              [--max-findings 200] [--json]
+              [--max-findings 200] [--sarif FILE|DIR ...] [--json]
 repath adapter --scip FILE [--json]
 ```
 
@@ -390,7 +393,8 @@ internal/
   graph/      queries: impact, path, map, callers, find
   store/      schema, migrations, upserts, checkpoint, pending queue
   query/      shared answer layer (open, resolve, six answers, status)
-  check/      graph-native diagnostics (cycles, dead code, boundaries, hotspots)
+  check/      graph-native diagnostics (cycles, dead code, boundaries, hotspots,
+              plus opt-in SARIF 2.1.0 ingestion attached to symbols)
   testpath/   shared test-path classifier for check and tests
   adapter/    compiler facts (SCIP) merged into pending references
   artifact/   pack/pull commit-keyed snapshots, manifest, schema gate
@@ -582,6 +586,17 @@ the 10k p95 fell from 187 ms to **82 ms**. The 10k budgets were not loosened.
 The synthetic files are one-line functions, so the 19.2 MiB artifact is not the
 250–400 MB real-repo estimate; the timings and memory are the 50k claim here.
 
+**v1.2 SARIF diagnostics landed** (issue #28): `repath check --sarif FILE|DIR`
+reads SARIF **2.1.0** only, attaches each result to the symbol enclosing its
+first location, and adds `diagnostic` findings with `sarif.<tool>.<ruleId>`
+rules. `error`/`warning`/`note` map to error/warning/info; duplicates are
+collapsed on `(rule, file, line, message)`; results outside any symbol are
+counted as skipped. Diagnostics count toward `--fail-on`, and `check` remains
+the only command returning `5`. Missing input is exit `3`, malformed JSON or a
+non-2.1.0 version is exit `2`. No schema, node kind, edge, or dependency
+changed; the pinned fixtures are `testdata/fixtures/sarif/{ts,py}` and the
+structural report is unchanged when `--sarif` is absent. See `docs/check.md`.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -626,8 +641,10 @@ reachability rather than runtime coverage. That remains the known ceiling.
    violations, fan-in/out hotspots, unresolved-rate per module — graph-native,
    CI exit codes. Defined in `docs/check.md`; cycles stay warnings because a
    single noisy edge can merge an SCC.
-3. SARIF ingestion from tsc/pyright/ruff/rustc, findings attached to symbols
-   (bridge, don't rebuild).
+3. SARIF ingestion (v1.2, landed): opt-in `check --sarif FILE` reads a pinned
+   SARIF 2.1.0 log, attaches each result to its enclosing symbol, and counts
+   skipped/duplicate results. It is a bridge, not a compiler frontend; see
+   `docs/check.md`. Decision 22 was amended in the same PR.
 4. Entrypoint/flow detection (v1.1, landed): Express/Fastify/Next.js,
    FastAPI/Flask, pytest, Python `__main__`, Rust `main`/`#[test]`; see
    `docs/flows.md`. MCP still exposes the same six tools.

@@ -1,7 +1,9 @@
 // Package check implements the graph-native repository checks from PLAN §16.2:
 // module cycles, dead code, module-boundary violations, fan-in/out hotspots,
 // and per-module unresolved rate. Everything is derived from the symbol graph;
-// no compiler or config file is consulted.
+// no compiler or config file is consulted. An opt-in SARIF log can add
+// `diagnostic` findings (PLAN §3 decision 22, amended in v1.2), but repath still
+// never invokes a compiler.
 package check
 
 import (
@@ -38,6 +40,9 @@ const (
 type Options struct {
 	MinConfidence float64
 	MaxFindings   int
+	// SARIF is an already-loaded SARIF ingestion. It is opt-in and only adds
+	// diagnostic findings; structural findings are unchanged when it is nil.
+	SARIF *SARIFLoad
 }
 
 // Finding is one check result.
@@ -65,16 +70,17 @@ type Counts struct {
 
 // Report is the `check --json` contract.
 type Report struct {
-	Root          string    `json:"root"`
-	SchemaVersion int       `json:"schema_version"`
-	MinConfidence float64   `json:"min_confidence"`
-	MaxFindings   int       `json:"max_findings"`
-	Files         int       `json:"files"`
-	Nodes         int       `json:"nodes"`
-	Edges         int       `json:"edges"`
-	Counts        Counts    `json:"counts"`
-	Findings      []Finding `json:"findings"`
-	Truncated     bool      `json:"truncated"`
+	Root          string             `json:"root"`
+	SchemaVersion int                `json:"schema_version"`
+	MinConfidence float64            `json:"min_confidence"`
+	MaxFindings   int                `json:"max_findings"`
+	Files         int                `json:"files"`
+	Nodes         int                `json:"nodes"`
+	Edges         int                `json:"edges"`
+	Counts        Counts             `json:"counts"`
+	Findings      []Finding          `json:"findings"`
+	Diagnostics   *DiagnosticSummary `json:"diagnostics,omitempty"`
+	Truncated     bool               `json:"truncated"`
 }
 
 // Run executes every check against the current index.
@@ -131,6 +137,15 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Repor
 	findings = append(findings, boundaryFindings(edges, fileModules, moduleNames, paths)...)
 	findings = append(findings, hotspotFindings(nodes, edges, paths)...)
 	findings = append(findings, unresolvedFindings(pending, edges, fileModules, moduleNames)...)
+	if opts.SARIF != nil {
+		diagnostics, err := diagnosticFindings(ctx, st, opts.SARIF, files)
+		if err != nil {
+			return Report{}, err
+		}
+		findings = append(findings, diagnostics...)
+		summary := opts.SARIF.Summary
+		report.Diagnostics = &summary
+	}
 
 	sortFindings(findings)
 	for _, finding := range findings {
