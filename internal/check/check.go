@@ -7,12 +7,12 @@ package check
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/Goutam-11/repath/internal/graph"
 	"github.com/Goutam-11/repath/internal/store"
+	"github.com/Goutam-11/repath/internal/testpath"
 )
 
 // Severities and the check-only exit code. Exit codes 0-4 stay reserved for the
@@ -228,7 +228,7 @@ func deadCodeFindings(nodes []store.NodeRow, edges []store.EdgeOut, paths map[in
 			continue
 		}
 		path := paths[node.FileID]
-		if path == "" || isTestPath(path) {
+		if path == "" || testpath.IsTest(path) {
 			continue
 		}
 		if state, ok := files[path]; ok && !state.ParseOK {
@@ -281,11 +281,11 @@ func boundaryFindings(edges []store.EdgeOut, fileModules map[int64]int64, module
 		if srcModule == "" || dstModule == "" || srcModule == dstModule {
 			continue
 		}
-		if isTestPath(srcPath) {
+		if testpath.IsTest(srcPath) {
 			continue
 		}
 
-		if isTestPath(dstPath) {
+		if testpath.IsTest(dstPath) {
 			k := key{rule: "test-boundary", from: srcModule, to: edge.DstNode.QName}
 			add(k, Finding{
 				Kind:     "module-boundary",
@@ -351,7 +351,7 @@ func hotspotFindings(nodes []store.NodeRow, edges []store.EdgeOut, paths map[int
 			if !ok {
 				continue
 			}
-			if isTestPath(paths[node.FileID]) {
+			if testpath.IsTest(paths[node.FileID]) {
 				continue
 			}
 			list = append(list, ranked{node: node, count: count})
@@ -484,34 +484,6 @@ func isSpecial(name string) bool {
 		return true
 	}
 	return len(name) > 4 && strings.HasPrefix(name, "__") && strings.HasSuffix(name, "__")
-}
-
-// isTestPath is a heuristic path classifier. It deliberately errs toward
-// treating a file as test code so test helpers do not become dead-code noise.
-func isTestPath(path string) bool {
-	p := strings.ToLower(filepath.ToSlash(path))
-	base := filepath.Base(p)
-	if base == "conftest.py" {
-		return true
-	}
-	if strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py") {
-		return true
-	}
-	for _, marker := range []string{"/test/", "/tests/", "/__tests__/", "/testdata/"} {
-		if strings.Contains(p, marker) || strings.HasPrefix(p, strings.TrimPrefix(marker, "/")) {
-			return true
-		}
-	}
-	for _, suffix := range []string{
-		".test.ts", ".test.tsx", ".test.js", ".test.jsx",
-		".spec.ts", ".spec.tsx", ".spec.js", ".spec.jsx",
-		".test.py", ".spec.py",
-	} {
-		if strings.HasSuffix(p, suffix) {
-			return true
-		}
-	}
-	return false
 }
 
 func sortFindings(findings []Finding) {

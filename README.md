@@ -13,7 +13,8 @@ snapshot, `pull` seeds it locally, parallel git worktrees warm from a shared
 immutable cache, `repath check` adds graph-native CI diagnostics, and
 `repath adapter --scip` merges compiler facts into unresolved references without
 overwriting tree-sitter edges, and `repath flows` walks forward from detected
-entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`).
+entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`),
+and `repath tests` maps a change to the test files that structurally reach it.
 [`PLAN.md`](PLAN.md) is the specification.
 
 ## Build
@@ -39,6 +40,7 @@ make build
 ./bin/repath check --fail-on warning   # cycles, dead code, boundaries, hotspots
 ./bin/repath adapter --scip index.scip # merge SCIP facts into pending refs
 ./bin/repath flows <entrypoint>        # forward execution paths
+./bin/repath tests <symbol|file:line>  # affected test files (structural)
 ```
 
 An agent with a shell should prefer the CLI; [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
@@ -50,7 +52,8 @@ Sharing, the manifest, and the schema gate are in
 check-only exit code `5` are in [`docs/check.md`](docs/check.md). The optional SCIP adapter, its merge rules,
 and the measured unresolved drop are in
 [`docs/adapters.md`](docs/adapters.md), and entrypoint detection/flow limits are
-in [`docs/flows.md`](docs/flows.md).
+in [`docs/flows.md`](docs/flows.md), and test-impact provenance/limits are in
+[`docs/tests.md`](docs/tests.md).
 
 The measured 10k-file synthetic tree (reproducible with `make perf-10k`): cold
 index **5.0 s**, 10-file incremental **237 ms**, `impact` p95 **24.5 ms**, a

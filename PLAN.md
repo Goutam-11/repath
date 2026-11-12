@@ -5,7 +5,7 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **M0–M5 landed; v1.1 `check`, the SCIP adapter, and entrypoint flows landed.** This document is the contract for v1 and its first v1.1 slice.
+Status: **M0–M5 landed; v1.1 `check`, the SCIP adapter, entrypoint flows, and test-impact mapping landed.** This document is the contract for v1 and its first v1.1 slice.
 Scope changes require editing the decision table, not just the code.
 
 ---
@@ -240,6 +240,7 @@ repath status [--json]
 repath find   <name>            [--module M] [--json]
 repath callers <sym>            [--depth 1] [--min-confidence 0.5] [--json]
 repath impact <sym|file:line>   [--depth 8] [--limit 50] [--json] [--module M]
+repath tests  <sym|file:line>   [--depth 8] [--limit 50] [--json]
 repath flows  <entrypoint>      [--depth 6] [--limit 20] [--json]
 repath path   <A> <B>           [--max-depth 8] [--alternates 3] [--json]
 repath map    [--max-tokens 2000] [--json]
@@ -379,6 +380,7 @@ internal/
   store/      schema, migrations, upserts, checkpoint, pending queue
   query/      shared answer layer (open, resolve, six answers, status)
   check/      graph-native diagnostics (cycles, dead code, boundaries, hotspots)
+  testpath/   shared test-path classifier for check and tests
   adapter/    compiler facts (SCIP) merged into pending references
   artifact/   pack/pull commit-keyed snapshots, manifest, schema gate
   mcp/        stdio JSON-RPC server, tool schemas
@@ -491,6 +493,17 @@ per-module unresolved rate (warning). `--fail-on none|error|warning|info` gates
 CI; `check` is the only command that returns exit code `5`. Definitions and
 limitations are in `docs/check.md`.
 
+**v1.1 test-impact mapping landed** (issue #15): `repath tests <target>`
+returns the test files that structurally reach a changed symbol/line, with a
+link per piece of evidence (test symbol, affected symbol/file, depth,
+confidence, rule, call line). Graph reachability is primary; path conventions
+(`testpath.convention`, 0.50) and test imports (`testpath.import`, 0.50) only
+fill files with no graph link. The test-path classifier now lives in
+`internal/testpath` and is shared with `check` (no duplicate copy). Output is
+text + JSON, bounded by depth and `--limit` with `truncated`. It is explicitly
+structural, not runtime coverage. There is no MCP tool and no `--diff` mode yet.
+See `docs/tests.md`.
+
 **v1.1 entrypoint flows landed** (issue #14): `repath flows <entrypoint>`
 walks forward from a detected entrypoint and returns bounded leaf paths with
 per-edge rule/confidence, or the nearest frontier when no outgoing edge exists.
@@ -568,11 +581,11 @@ The synthetic files are one-line functions, so the 19.2 MiB artifact is not the
 
 ## 15. Non-goals for v1
 
-Runtime/model edges (routes, DB tables, env, queues) · test mapping ·
-embeddings or any LLM in index or query · watch daemon · local HTTP server ·
+Runtime/model edges (routes, DB tables, env, queues) · test coverage
+collection · embeddings or any LLM in index or query · watch daemon · local HTTP server ·
 multi-repo · FFI/cross-language edges · UI/TUI/HTML · C/C++/Java/Go parsers ·
-config file. **Impact is structural, not test-aware** — that is the known
-ceiling and the first v1.1 candidate, together with entrypoint flows.
+config file. **Impact is structural, not test-aware**, and `repath tests` is structural
+reachability rather than runtime coverage. That remains the known ceiling.
 
 ## 16. Deferred (revisit after v1)
 
@@ -587,7 +600,8 @@ ceiling and the first v1.1 candidate, together with entrypoint flows.
 4. Entrypoint/flow detection (v1.1, landed): Express/Fastify/Next.js,
    FastAPI/Flask, pytest, Python `__main__`, Rust `main`/`#[test]`; see
    `docs/flows.md`. MCP still exposes the same six tools.
-5. Test-impact mapping ("which tests break").
+5. Test-impact mapping (v1.1, landed): `repath tests <target>` maps the
+   structural reverse closure to test files; see `docs/tests.md`.
 6. Adapter seam (v1.1, landed): SCIP facts merged into pending references; LSP
    and Python/Rust adapters are still deferred. See `docs/adapters.md`.
 7. Cross-language edges (TS `fetch` → route → Python handler, OpenAPI, gRPC).
@@ -607,8 +621,8 @@ team artifact sharing, diagnostics scope. Output: the 22 decisions in §3.
 
 ---
 
-Next action: **v1.1 candidates** — entrypoint/flow detection, test-impact
-mapping, and the adapter seam for compiler-grade precision. `repath check`
-shipped first because it is graph-native and reuses the walkers. The largest
-known gap remains member calls without typed receivers; it is the first target
-for that adapter and for `--min-confidence` guidance.
+Next action: **v1.1 wave** — `check`, the 50k budget, the SCIP adapter,
+entrypoint flows, and test-impact mapping have landed. The remaining candidates
+are MCP protocol negotiation (#17) and opt-in artifact compression (#18); the
+largest quality gap remains member calls without typed receivers, now partly
+addressed by the opt-in adapter.

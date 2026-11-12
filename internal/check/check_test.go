@@ -8,6 +8,7 @@ import (
 
 	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/store"
+	"github.com/Goutam-11/repath/internal/testpath"
 )
 
 func writeFile(t *testing.T, root, name, content string) {
@@ -289,8 +290,8 @@ func TestTestPathClassifier(t *testing.T) {
 		"testament/play.ts":    false,
 	}
 	for path, want := range cases {
-		if got := isTestPath(path); got != want {
-			t.Fatalf("isTestPath(%q) = %v, want %v", path, got, want)
+		if got := testpath.IsTest(path); got != want {
+			t.Fatalf("testpath.IsTest(%q) = %v, want %v", path, got, want)
 		}
 	}
 }

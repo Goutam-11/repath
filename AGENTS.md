@@ -4,11 +4,12 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M5 + v1.1 `check`, SCIP adapter, and entrypoint flows.**
+**Current state: M5 + v1.1 `check`, SCIP adapter, entrypoint flows, and test-impact mapping.**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath adapter --scip` merges compiler facts into unresolved
-references, and `repath flows` walks forward from detected entrypoints. The
+references, `repath flows` walks forward from detected entrypoints, and
+`repath tests` maps a change to structurally reachable test files. The
 measured 10k and 50k budgets live in PLAN §12 and are reproducible with
 `make perf`.
 
@@ -45,6 +46,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath check --fail-on warning       # graph-native diagnostics for CI
 ./bin/repath adapter --scip index.scip     # merge compiler facts, no overwrite
 ./bin/repath flows <entrypoint>            # forward execution paths
+./bin/repath tests <symbol|file:line>      # structurally affected test files
 ```
 
 Sandbox note (this machine): Go lives at `/usr/local/go/bin` (not on `PATH`),
@@ -72,6 +74,7 @@ internal/mcp      hand-rolled stdio JSON-RPC adapter
 internal/artifact export/pull, manifest, schema gate
 internal/check    cycles, dead code, boundaries, hotspots, unresolved rate
 internal/adapter  SCIP fact ingestion and non-overwriting edge merge
+internal/testpath shared test-path classifier for check and tests
 internal/eval     fixture gate (test-only)
 ```
 
@@ -183,6 +186,11 @@ the database.
   reading belongs to that tree. It is evidence, not a CI gate (timings are
   machine-dependent). The 50k target is <3 min and <1 GB RSS; the 10k budgets
   are unchanged and must stay green.
+- **Test impact is structural reachability, not coverage.** `repath tests` uses
+  graph reverse edges first, then path conventions and imports at 0.50; it must
+  say so. The classifier is `internal/testpath.IsTest`, shared with `check`; do
+  not copy it. There is no `--diff` mode until it can reuse the existing git
+  discovery.
 - **Entrypoints are a dimension, not nodes.** The `entrypoints` table (schema
   v5) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
   `rs.main` to existing symbols. Do not turn them into a node kind or let

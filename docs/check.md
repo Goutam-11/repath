@@ -141,8 +141,9 @@ TypeScript rule that a non-exported class's methods inherit the class export
 flag, Python dunder/entrypoint name exclusions, a 10-caller fan-in hotspot, a
 module with 5 unresolved refs, truncation counts, and the full test-path
 classifier (including `testdata/`, `__tests__/`, `*.test.*`, `*.spec.*`,
-`test_*.py`, and `conftest.py`). `internal/cli/check_test.go` covers the text
-report, JSON, `--fail-on` thresholds, and usage errors.
+`test_*.py`, and `conftest.py`). The classifier is
+`internal/testpath.IsTest`, shared with `repath tests`. `internal/cli/check_test.go`
+covers the text report, JSON, `--fail-on` thresholds, and usage errors.
 
 On the reproducible 50k tree from `make perf-50k`, `check` takes **490 ms**
 (0 findings); the 10k tree takes **89 ms**. The 50k tree is synthetic and has
