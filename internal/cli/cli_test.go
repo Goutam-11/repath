@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Goutam-11/repath/internal/artifact"
+	"github.com/Goutam-11/repath/internal/store"
 )
 
 func run(t *testing.T, args ...string) (code int, stdout, stderr string) {
@@ -344,5 +347,106 @@ func TestImpactUnknownTarget(t *testing.T) {
 	code, _, _ := run(t, "impact", "nope", "--root", dir)
 	if code != 3 {
 		t.Fatalf("exit = %d, want 3", code)
+	}
+}
+
+func TestIndexArtifactAndPull(t *testing.T) {
+	ci := t.TempDir()
+	writeFile(t, ci, "src/a.ts", "export function add(a: number, b: number): number {\n  return a + b;\n}\n")
+	writeFile(t, ci, "src/b.ts", "import { add } from \"./a\";\n\nexport function sum(): number {\n  return add(1, 2);\n}\n")
+	outDir := t.TempDir()
+
+	code, out, errOut := run(t, "index", "--root", ci, "--artifact", outDir, "--json")
+	if code != 0 {
+		t.Fatalf("index --artifact exit = %d: %s", code, errOut)
+	}
+	var indexed struct {
+		Files    int                    `json:"files"`
+		Nodes    int                    `json:"nodes"`
+		Artifact *artifact.ExportResult `json:"artifact"`
+	}
+	if err := json.Unmarshal([]byte(out), &indexed); err != nil {
+		t.Fatalf("index output is not JSON: %v\n%s", err, out)
+	}
+	if indexed.Artifact == nil {
+		t.Fatalf("index --artifact did not report the artifact: %s", out)
+	}
+	if indexed.Artifact.Manifest.SchemaVersion != store.SchemaVersion {
+		t.Fatalf("artifact schema = %d, want %d", indexed.Artifact.Manifest.SchemaVersion, store.SchemaVersion)
+	}
+	if indexed.Artifact.Manifest.FileCount != 2 || indexed.Artifact.Manifest.EdgeCount != 1 {
+		t.Fatalf("artifact manifest = %+v", indexed.Artifact.Manifest)
+	}
+	if _, err := os.Stat(indexed.Artifact.ManifestPath); err != nil {
+		t.Fatalf("manifest not written: %v", err)
+	}
+
+	laptop := t.TempDir()
+	writeFile(t, laptop, "src/a.ts", "export function add(a: number, b: number): number {\n  return a + b;\n}\n")
+	writeFile(t, laptop, "src/b.ts", "import { add } from \"./a\";\n\nexport function sum(): number {\n  return add(1, 2);\n}\n")
+
+	code, out, errOut = run(t, "pull", outDir, "--root", laptop, "--json")
+	if code != 0 {
+		t.Fatalf("pull exit = %d: %s", code, errOut)
+	}
+	var pulled struct {
+		Files    int               `json:"files"`
+		Nodes    int               `json:"nodes"`
+		Edges    int               `json:"edges"`
+		Artifact artifact.Manifest `json:"artifact"`
+	}
+	if err := json.Unmarshal([]byte(out), &pulled); err != nil {
+		t.Fatalf("pull output is not JSON: %v\n%s", err, out)
+	}
+	if pulled.Files != 2 || pulled.Nodes != 2 || pulled.Edges != 1 {
+		t.Fatalf("pulled counts = %+v", pulled)
+	}
+	if pulled.Artifact.SchemaVersion != store.SchemaVersion {
+		t.Fatalf("pulled manifest schema = %d", pulled.Artifact.SchemaVersion)
+	}
+
+	code, out, errOut = run(t, "impact", "add", "--root", laptop, "--json")
+	if code != 0 {
+		t.Fatalf("impact after pull exit = %d: %s", code, errOut)
+	}
+	var impact struct {
+		Dependents []struct {
+			QName string `json:"qname"`
+		} `json:"dependents"`
+	}
+	if err := json.Unmarshal([]byte(out), &impact); err != nil {
+		t.Fatalf("impact output: %v\n%s", err, out)
+	}
+	if len(impact.Dependents) != 1 || impact.Dependents[0].QName != "sum" {
+		t.Fatalf("impact after pull = %s", out)
+	}
+
+	// A future schema must be refused with a one-line upgrade hint, and must
+	// not leave a half-seeded index behind.
+	data, err := os.ReadFile(indexed.Artifact.ManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest["schema_version"] = 99
+	data, _ = json.Marshal(manifest)
+	if err := os.WriteFile(indexed.Artifact.ManifestPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	refused := t.TempDir()
+	writeFile(t, refused, "src/a.ts", "export function add() {}\n")
+	code, _, errOut = run(t, "pull", outDir, "--root", refused)
+	if code != 1 {
+		t.Fatalf("pull schema-v99 exit = %d, want 1", code)
+	}
+	if !strings.Contains(errOut, "schema v99") || !strings.Contains(errOut, "upgrade") {
+		t.Fatalf("schema refusal stderr = %q", errOut)
+	}
+	if _, err := os.Stat(filepath.Join(refused, ".repath", "index.db")); !os.IsNotExist(err) {
+		t.Fatalf("refused pull wrote an index: %v", err)
 	}
 }

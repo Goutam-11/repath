@@ -203,6 +203,16 @@ func (s *Store) ensureColumn(ctx context.Context, table, column, ddl string) err
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
+// VacuumInto writes a consistent snapshot of the database to path. The target
+// must not exist. Reading through the connection means committed WAL content is
+// included, which a plain file copy would miss.
+func (s *Store) VacuumInto(ctx context.Context, path string) error {
+	if _, err := s.db.ExecContext(ctx, `VACUUM INTO ?`, path); err != nil {
+		return fmt.Errorf("vacuum into %s: %w", path, err)
+	}
+	return nil
+}
+
 // SetMeta upserts one metadata key.
 func (s *Store) SetMeta(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx,

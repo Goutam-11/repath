@@ -4,7 +4,9 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M4 merged.** TypeScript/JS, Python, and Rust are indexed.
+**Current state: M5 in progress.** TypeScript/JS, Python, and Rust are indexed;
+the MCP adapter, skill, and artifact export/pull have landed. Worktree seeding
+and the final performance budget are the remaining M5 pieces.
 
 ## Read first
 
@@ -32,6 +34,9 @@ make test
 ./bin/repath find <symbol>                 # card: callers/callees
 ./bin/repath callers <symbol>              # one-hop reverse edges
 ./bin/repath impact x --min-confidence 0.9 # import/this/local edges only
+./bin/repath mcp                           # stdio JSON-RPC, six tools
+./bin/repath index --artifact out/         # export an artifact + manifest
+./bin/repath pull out/                     # seed the local index from one
 ```
 
 Sandbox note (this machine): Go lives at `/usr/local/go/bin` (not on `PATH`),
@@ -53,6 +58,10 @@ internal/lang     path → dialect; lang/{tsx,py,rs} extract symbols + refs + im
 internal/resolve  global name index, confidence ladder, language-specific module rules
 internal/store    SQLite schema and queries only
 internal/graph    impact / path / map walkers over store queries
+internal/query    shared answer layer: open, resolve, six answers, status
+internal/output   the MCP envelope and provenance cap
+internal/mcp      hand-rolled stdio JSON-RPC adapter
+internal/artifact export/pull, manifest, schema gate
 internal/eval     fixture gate (test-only)
 ```
 
@@ -141,6 +150,10 @@ internal/eval     fixture gate (test-only)
   can be misclassified.
 - **Module cycles** are computed on cross-module edges at ≥0.5; one noisy edge
   can merge modules into one SCC. Treat cycles as hints.
+- **Artifacts are uncompressed SQLite in M5.** PLAN §4.1 sketched
+  `.sqlite.zst`; adding zstd would break the two-dependency rule, so
+  `manifest.format` records `sqlite` and the deviation is documented. Do not
+  change the container silently.
 - `.cache/` and `.repath/` are local artifacts. Never commit them.
 
 ## Adding a language

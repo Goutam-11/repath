@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Goutam-11/repath/internal/artifact"
 	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/query"
 )
@@ -123,16 +124,27 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	var exported *artifact.ExportResult
+	if opts.artifact != "" {
+		out, err := artifact.Export(ctx, st.Store, root, opts.artifact, version)
+		if err != nil {
+			fmt.Fprintf(stderr, "artifact: %v\n", err)
+			return 1
+		}
+		exported = &out
+	}
+
 	if opts.json {
 		payload := struct {
-			Root          string `json:"root"`
-			Files         int    `json:"files"`
-			FilesIndexed  int    `json:"files_indexed"`
-			FilesSkipped  int    `json:"files_skipped"`
-			FilesDeleted  int    `json:"files_deleted"`
-			Nodes         int    `json:"nodes"`
-			ParseFailures int    `json:"parse_failures"`
-			DurationMS    int64  `json:"duration_ms"`
+			Root          string                 `json:"root"`
+			Files         int                    `json:"files"`
+			FilesIndexed  int                    `json:"files_indexed"`
+			FilesSkipped  int                    `json:"files_skipped"`
+			FilesDeleted  int                    `json:"files_deleted"`
+			Nodes         int                    `json:"nodes"`
+			ParseFailures int                    `json:"parse_failures"`
+			DurationMS    int64                  `json:"duration_ms"`
+			Artifact      *artifact.ExportResult `json:"artifact,omitempty"`
 		}{
 			Root:          root,
 			Files:         result.Files,
@@ -142,6 +154,7 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 			Nodes:         result.Nodes,
 			ParseFailures: result.ParseFailures,
 			DurationMS:    result.Duration.Milliseconds(),
+			Artifact:      exported,
 		}
 		if err := writeJSON(stdout, payload); err != nil {
 			fmt.Fprintf(stderr, "encode result: %v\n", err)
@@ -153,6 +166,11 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "indexed %d files (+%d ~%d -%d), %d nodes, %d parse failures in %dms\n",
 		result.Files, result.Indexed, result.Unchanged, result.Deleted,
 		result.Nodes, result.ParseFailures, result.Duration.Milliseconds())
+	if exported != nil {
+		fmt.Fprintf(stdout, "artifact %s + %s (schema v%d · %d files · %d nodes · %d edges)\n",
+			exported.DBPath, exported.ManifestPath, exported.Manifest.SchemaVersion,
+			exported.Manifest.FileCount, exported.Manifest.NodeCount, exported.Manifest.EdgeCount)
+	}
 	return 0
 }
 
