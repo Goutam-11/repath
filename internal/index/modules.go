@@ -11,7 +11,7 @@ import (
 )
 
 // DetectModules groups the repo's files into packages. Manifests win: a
-// package.json with workspaces gives exact package boundaries. Without one the
+// package.json or Cargo.toml gives exact package boundaries. Without one the
 // fallback is directories, which is what "module" means in a plain repo.
 func DetectModules(root string, sources []Source) []store.Module {
 	if modules := manifestModules(root); len(modules) > 0 {
@@ -44,6 +44,13 @@ type packageJSON struct {
 }
 
 func manifestModules(root string) []store.Module {
+	if modules := packageJSONModules(root); len(modules) > 0 {
+		return modules
+	}
+	return cargoModules(root)
+}
+
+func packageJSONModules(root string) []store.Module {
 	data, err := os.ReadFile(filepath.Join(root, "package.json"))
 	if err != nil {
 		return nil
@@ -95,6 +102,167 @@ func manifestModules(root string) []store.Module {
 
 	sort.Slice(modules, func(i, j int) bool { return modules[i].Root < modules[j].Root })
 	return modules
+}
+
+// cargoModules reads Cargo.toml. A workspace contributes its root plus each
+// member; a single package is one module. Parsing is deliberately minimal: the
+// fields needed are [package].name and [workspace].members.
+func cargoModules(root string) []store.Module {
+	data, err := os.ReadFile(filepath.Join(root, "Cargo.toml"))
+	if err != nil {
+		return nil
+	}
+
+	var modules []store.Module
+	name := tomlString(data, "package", "name")
+	members := tomlArray(data, "workspace", "members")
+
+	if len(members) > 0 {
+		modules = append(modules, store.Module{
+			Name: nameOr(name, "(workspace)"), Kind: "workspace", Root: ".",
+		})
+	}
+
+	seen := map[string]bool{".": true}
+	for _, pattern := range members {
+		matches, err := filepath.Glob(filepath.Join(root, pattern))
+		if err != nil {
+			continue
+		}
+		for _, dir := range matches {
+			info, err := os.Stat(dir)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			rel, err := filepath.Rel(root, dir)
+			if err != nil || rel == "." || !filepath.IsLocal(rel) {
+				continue
+			}
+			rel = filepath.ToSlash(rel)
+			if seen[rel] {
+				continue
+			}
+			seen[rel] = true
+
+			memberName := rel
+			if memberData, err := os.ReadFile(filepath.Join(dir, "Cargo.toml")); err == nil {
+				if parsed := tomlString(memberData, "package", "name"); parsed != "" {
+					memberName = parsed
+				}
+			}
+			modules = append(modules, store.Module{Name: memberName, Kind: "package", Root: rel})
+		}
+	}
+
+	if len(modules) == 0 && name != "" {
+		modules = append(modules, store.Module{Name: name, Kind: "package", Root: "."})
+	}
+	if len(modules) == 0 {
+		return nil
+	}
+	sort.Slice(modules, func(i, j int) bool { return modules[i].Root < modules[j].Root })
+	return modules
+}
+
+// tomlString returns key from one TOML section, ignoring comments.
+func tomlString(data []byte, section, key string) string {
+	lines := strings.Split(string(data), "\n")
+	inSection := false
+	for _, line := range lines {
+		line = strings.TrimSpace(stripTOMLComment(line))
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			inSection = strings.TrimSpace(line[1:len(line)-1]) == section
+			continue
+		}
+		if !inSection {
+			continue
+		}
+		name, value, found := strings.Cut(line, "=")
+		if !found || strings.TrimSpace(name) != key {
+			continue
+		}
+		return strings.Trim(strings.TrimSpace(value), `"'`)
+	}
+	return ""
+}
+
+// tomlArray returns a string array such as workspace.members, including arrays
+// that span multiple lines.
+func tomlArray(data []byte, section, key string) []string {
+	lines := strings.Split(stripTOMLComments(string(data)), "\n")
+	inSection := false
+	collecting := false
+	var body strings.Builder
+
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if !collecting {
+			if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+				inSection = strings.TrimSpace(line[1:len(line)-1]) == section
+				continue
+			}
+			if !inSection {
+				continue
+			}
+			name, value, found := strings.Cut(line, "=")
+			if !found || strings.TrimSpace(name) != key {
+				continue
+			}
+			value = strings.TrimSpace(value)
+			open := strings.Index(value, "[")
+			if open < 0 {
+				return nil
+			}
+			rest := value[open+1:]
+			if close := strings.Index(rest, "]"); close >= 0 {
+				body.WriteString(rest[:close])
+				break
+			}
+			body.WriteString(rest)
+			body.WriteString("\n")
+			collecting = true
+			continue
+		}
+		if close := strings.Index(line, "]"); close >= 0 {
+			body.WriteString(line[:close])
+			break
+		}
+		body.WriteString(line)
+		body.WriteString("\n")
+	}
+
+	var out []string
+	for _, part := range strings.Split(body.String(), ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		out = append(out, strings.Trim(part, `"'`))
+	}
+	return out
+}
+
+func stripTOMLComment(line string) string {
+	inString := false
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case '"':
+			inString = !inString
+		case '#':
+			if !inString {
+				return line[:i]
+			}
+		}
+	}
+	return line
+}
+
+func stripTOMLComments(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, line := range lines {
+		lines[i] = stripTOMLComment(line)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func workspacePatterns(raw json.RawMessage) []string {
