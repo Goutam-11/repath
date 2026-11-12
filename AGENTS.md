@@ -4,9 +4,10 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M5 landed.** TypeScript/JS, Python, and Rust are indexed; the
-MCP adapter + skill, artifact export/pull, and worktree seeding are in. The
-measured 10k budget lives in PLAN §12 and is reproducible with `make perf`.
+**Current state: M5 + v1.1 `check`.** TypeScript/JS, Python, and Rust are
+indexed; the MCP adapter + skill, artifact export/pull, and worktree seeding are
+in, and `repath check` adds graph-native CI diagnostics. The measured 10k budget
+lives in PLAN §12 and is reproducible with `make perf`.
 
 ## Read first
 
@@ -38,6 +39,7 @@ make perf       # opt-in 10k synthetic budget (outside make check)
 ./bin/repath mcp                           # stdio JSON-RPC, six tools
 ./bin/repath index --artifact out/         # export an artifact + manifest
 ./bin/repath pull out/                     # seed the local index from one
+./bin/repath check --fail-on warning       # graph-native diagnostics for CI
 ```
 
 Sandbox note (this machine): Go lives at `/usr/local/go/bin` (not on `PATH`),
@@ -63,11 +65,14 @@ internal/query    shared answer layer: open, resolve, six answers, status
 internal/output   the MCP envelope and provenance cap
 internal/mcp      hand-rolled stdio JSON-RPC adapter
 internal/artifact export/pull, manifest, schema gate
+internal/check    cycles, dead code, boundaries, hotspots, unresolved rate
 internal/eval     fixture gate (test-only)
 ```
 
-`cli → index → {lang, resolve, store}`, `cli → graph → store`. Nothing in
-`store` knows about languages or parsing; nothing in `lang` touches the database.
+`cli → index → {lang, resolve, store}`, `cli → query → {index, graph, store}`,
+`cli → check → {graph, store}`, `mcp → query`, `artifact → {index, store}`.
+Nothing in `store` knows about languages or parsing; nothing in `lang` touches
+the database.
 
 ## Data model
 
@@ -91,7 +96,8 @@ internal/eval     fixture gate (test-only)
 - No new dependency without a stated reason. Today's tree: tree-sitter grammar
   modules + `go-tree-sitter-bare` (cgo), and `modernc.org/sqlite` (pure Go).
 - Exit codes are contract: `0` ok, `1` internal, `2` usage, `3` not found,
-  `4` ambiguous. Never reuse them.
+  `4` ambiguous. `check` alone adds `5` for findings at or above `--fail-on`;
+  never reuse it elsewhere.
 - `gofmt` scope is `./cmd ./internal` on purpose: the local tool cache under
   `.cache/` must stay out of the formatter.
 - Fixture expectations (`testdata/fixtures/*/expected.json`) and the eval gate
@@ -167,6 +173,12 @@ internal/eval     fixture gate (test-only)
   old caches instead of seeding them.
 - **`make perf` is opt-in.** `TestPerf10k` skips without `REPATH_PERF=1`; it is
   evidence, not a CI gate (timings are machine-dependent).
+- **`check` is graph-native, not a compiler.** Dead code only considers private
+  functions/methods; exported API, test paths, parse failures, and special
+  entrypoint names are excluded. Boundary checks are objective heuristics
+  (non-test → test, cross-module private access), not an intended-layering
+  policy. Module cycles stay warnings because one noisy edge can merge an SCC.
+  Do not add a config file to make these "smarter" without a plan change.
 - `.cache/` and `.repath/` are local artifacts. Never commit them.
 
 ## Adding a language
@@ -188,6 +200,7 @@ command + renderer → tests → docs.
 ```sh
 make check                                   # must be clean
 make perf                                    # when touching index worktree/query paths
+./bin/repath check --fail-on none            # check the check (should be clean here)
 ./bin/repath status --json                   # on this repo, sanity
 ./bin/repath impact <symbol> --json | head   # smoke on a fixture copy
 go test ./internal/eval -v                   # logs precision/recall

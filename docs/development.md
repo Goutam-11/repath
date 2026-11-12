@@ -45,8 +45,8 @@ it follows the same rules.
 
 - `make check` passes locally (gofmt, vet, tests)
 - the behaviour is covered by a test, or the PR says why it is not
-- exit codes (`0 ok, 1 internal, 2 usage, 3 not found, 4 ambiguous`) are
-  unchanged, or the change is documented
+- exit codes (`0 ok, 1 internal, 2 usage, 3 not found, 4 ambiguous, 5 only for
+  check findings`) are unchanged, or the change is documented
 - `PLAN.md` is updated when a **locked decision** (§3) changes — the plan is the
   contract, so change it deliberately and mention it in the PR
 
