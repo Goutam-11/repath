@@ -180,7 +180,6 @@ func (w *walker) function(n sitter.Node, enclosing string, exported bool, implTy
 		exported = hasVisibility(n) || inTrait || exported
 	case inTrait:
 		kind = "method"
-		exported = exported
 	}
 
 	params := n.ChildByFieldName("parameters")
@@ -613,7 +612,7 @@ func constructedType(value sitter.Node, src []byte, implType string) string {
 			if typ == "" {
 				typ = pathText(path, src)
 			}
-			if startsUpper(typ) {
+			if startsUpper(lastSegment(typ)) {
 				return typ
 			}
 		case "identifier", "type_identifier":
@@ -669,10 +668,16 @@ func typeNameOf(n sitter.Node, src []byte) string {
 		return typeNameOf(n.ChildByFieldName("type"), src)
 	case "reference_type":
 		return typeNameOf(n.ChildByFieldName("type"), src)
-	case "scoped_type_identifier", "scoped_identifier":
-		if name := n.ChildByFieldName("name"); !name.IsNull() {
-			return name.Content(src)
+	case "slice_type":
+		return "slice"
+	case "array_type":
+		return "array"
+	case "dynamic_type":
+		if n.NamedChildCount() > 0 {
+			return typeNameOf(n.NamedChild(0), src)
 		}
+	case "scoped_type_identifier", "scoped_identifier":
+		return pathText(n, src)
 	}
 	return ""
 }
