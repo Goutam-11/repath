@@ -133,5 +133,20 @@
     "src": "app/module_use.py:measure",
     "dst": "app/util.py:clamp",
     "kind": "CALLS"
+  },
+  {
+    "src": "app/compat_use.py:cap",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:make",
+    "dst": "app/service.py:Service.create",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:make",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
   }
 ]

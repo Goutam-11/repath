@@ -207,6 +207,9 @@ func (ix *Index) resolvePython(fromFile int64, fromPath string, ref facts.Ref) R
 		if r, ok := ix.pyByModuleMember(fromFile, fromPath, ref, imports); ok {
 			return r
 		}
+		if r, ok := ix.pyByClassMember(fromFile, fromPath, ref, imports); ok {
+			return r
+		}
 		if ref.ReceiverType != "" {
 			if isPyBuiltin(ref.ReceiverType) {
 				return Resolution{External: true}
@@ -273,9 +276,13 @@ func (ix *Index) pyByImport(fromPath string, binding facts.Import, ref facts.Ref
 		return Resolution{External: true}
 	}
 
-	if n, reexported, ok := ix.pyExport(target, binding.Imported, map[int64]bool{}); ok {
+	n, lookup := ix.pyExport(target, binding.Imported, map[int64]bool{})
+	switch lookup {
+	case exportExternal:
+		return Resolution{External: true}
+	case exportFound, exportFoundReexport:
 		switch {
-		case reexported:
+		case lookup == exportFoundReexport:
 			return pyTarget(ref, n, 0.95, "py.import.reexport")
 		case binding.Local != binding.Imported:
 			return pyTarget(ref, n, 1.0, "py.import.alias")
@@ -302,7 +309,7 @@ func (ix *Index) pyByStar(fromFile int64, fromPath string, ref facts.Ref) (Resol
 		if target == 0 {
 			continue
 		}
-		if n, _, ok := ix.pyExport(target, ref.Name, map[int64]bool{}); ok {
+		if n, lookup := ix.pyExport(target, ref.Name, map[int64]bool{}); lookup == exportFound || lookup == exportFoundReexport {
 			return pyTarget(ref, n, 0.80, "py.import.star"), true
 		}
 	}
@@ -339,6 +346,54 @@ func (ix *Index) pyByModuleMember(fromFile int64, fromPath string, ref facts.Ref
 	return Resolution{}, false
 }
 
+// pyByClassMember resolves Class.method() when the receiver is a class defined
+// in this file or imported by name. Classmethod and staticmethod calls are
+// common, and the class itself is a real symbol, so this is not name guessing.
+func (ix *Index) pyByClassMember(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) (Resolution, bool) {
+	receiver := ref.Receiver
+	if receiver == "" || strings.Contains(receiver, ".") {
+		return Resolution{}, false
+	}
+
+	for _, n := range ix.byFile[fromFile][receiver] {
+		if n.Kind != "class" {
+			continue
+		}
+		for _, method := range ix.byQName[n.QName+"."+ref.Name] {
+			if method.FileID == fromFile {
+				return pyTarget(ref, method, 0.90, "py.class.method"), true
+			}
+		}
+	}
+
+	binding, ok := imports[receiver]
+	if !ok {
+		return Resolution{}, false
+	}
+	target := ix.resolvePyModule(fromPath, binding.Source)
+	if target == 0 {
+		if isRelative(binding.Source) {
+			return Resolution{}, false
+		}
+		// The class comes from the standard library or a dependency.
+		return Resolution{External: true}, true
+	}
+
+	classNode, lookup := ix.pyExport(target, binding.Imported, map[int64]bool{})
+	if lookup != exportFound && lookup != exportFoundReexport {
+		return Resolution{}, false
+	}
+	if classNode.Kind != "class" {
+		return Resolution{}, false
+	}
+	for _, method := range ix.byQName[classNode.QName+"."+ref.Name] {
+		if method.FileID == classNode.FileID {
+			return pyTarget(ref, method, 0.90, "py.class.method"), true
+		}
+	}
+	return Resolution{}, false
+}
+
 // pyModuleMember looks up ref.Name in one module file. The bool reports whether
 // the reference was consumed: resolved, external, or the module existed but the
 // member did not (which leaves a pending row).
@@ -350,9 +405,13 @@ func (ix *Index) pyModuleMember(fromPath string, ref facts.Ref, spec string) (Re
 		}
 		return Resolution{External: true}, true
 	}
-	if n, reexported, ok := ix.pyExport(target, ref.Name, map[int64]bool{}); ok {
+	n, lookup := ix.pyExport(target, ref.Name, map[int64]bool{})
+	switch lookup {
+	case exportExternal:
+		return Resolution{External: true}, true
+	case exportFound, exportFoundReexport:
 		switch {
-		case reexported:
+		case lookup == exportFoundReexport:
 			return pyTarget(ref, n, 0.95, "py.import.reexport"), true
 		case isRelative(spec):
 			return pyTarget(ref, n, 0.90, "py.module.relative"), true
@@ -395,7 +454,7 @@ func (ix *Index) pyByTypedMethod(fromFile int64, fromPath string, ref facts.Ref,
 					return pyTarget(ref, n, 0.85, "py.typed.method")
 				}
 			}
-			if classNode, _, ok := ix.pyExport(target, ref.ReceiverType, map[int64]bool{}); ok {
+			if classNode, lookup := ix.pyExport(target, ref.ReceiverType, map[int64]bool{}); lookup == exportFound || lookup == exportFoundReexport {
 				for _, n := range ix.byQName[qname] {
 					if n.FileID == classNode.FileID {
 						return pyTarget(ref, n, 0.85, "py.typed.method")
@@ -411,38 +470,58 @@ func (ix *Index) pyByTypedMethod(fromFile int64, fromPath string, ref facts.Ref,
 	return Resolution{}
 }
 
-// pyExport finds an importable name in a module. For a package __init__.py it
-// follows stored import bindings, which is what makes `from pkg import Name`
-// work when the package only re-exports Name.
-func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool) (store.NodeRow, bool, bool) {
+// exportLookup is the outcome of looking a name up in a module. Python modules
+// re-export imported names, so a name may resolve through another module, or be
+// external when the chain ends at the standard library or a dependency.
+type exportLookup int
+
+const (
+	exportMissing exportLookup = iota
+	exportFound
+	exportFoundReexport
+	exportExternal
+)
+
+// pyExport finds an importable name in a module. A module re-exports names it
+// imports, which is how `requests.compat` provides stdlib names and how
+// `from pkg import Name` works through a package __init__.py.
+func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool) (store.NodeRow, exportLookup) {
 	if seen[fileID] {
-		return store.NodeRow{}, false, false
+		return store.NodeRow{}, exportMissing
 	}
 	seen[fileID] = true
 
 	for _, n := range ix.exports[fileID] {
 		if n.Name == name && n.QName == name {
-			return n, false, true
+			return n, exportFound
 		}
 	}
 
 	fromPath := ix.paths[fileID]
-	if !strings.HasSuffix(fromPath, "__init__.py") {
-		return store.NodeRow{}, false, false
-	}
+	external := false
 	for _, imp := range ix.imports[fileID] {
 		if imp.Local != name || imp.Imported == "*" {
 			continue
 		}
 		target := ix.resolvePyModule(fromPath, imp.Source)
 		if target == 0 {
+			if !isRelative(imp.Source) {
+				external = true
+			}
 			continue
 		}
-		if n, _, ok := ix.pyExport(target, imp.Imported, seen); ok {
-			return n, true, true
+		n, lookup := ix.pyExport(target, imp.Imported, seen)
+		switch lookup {
+		case exportFound, exportFoundReexport:
+			return n, exportFoundReexport
+		case exportExternal:
+			external = true
 		}
 	}
-	return store.NodeRow{}, false, false
+	if external {
+		return store.NodeRow{}, exportExternal
+	}
+	return store.NodeRow{}, exportMissing
 }
 
 // resolvePyModule maps a Python module specifier to a file id. It understands

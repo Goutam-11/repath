@@ -12,6 +12,10 @@ class Service(Base):
     def total(self) -> int:
         return clamp(self.amount, 0, 100)
 
+    @classmethod
+    def create(cls, amount: int) -> "Service":
+        return cls(amount)
+
     @property
     def label(self) -> str:
         if self.total() > 0:
@@ -21,4 +25,9 @@ class Service(Base):
 
 def build(user: User) -> int:
     service = Service(0)
+    return service.total()
+
+
+def make() -> int:
+    service: Service = Service.create(1)
     return service.total()

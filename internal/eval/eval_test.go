@@ -67,8 +67,8 @@ func copyTree(t *testing.T, src, dst string) {
 }
 
 // indexFixture copies one fixture into a temp repo, indexes it, and returns the
-// live store plus the run result.
-func indexFixture(t *testing.T, name string) (*store.Store, index.Result) {
+// repo path, the live store, and the run result.
+func indexFixture(t *testing.T, name string) (string, *store.Store, index.Result) {
 	t.Helper()
 	fixture := filepath.Join("..", "..", "testdata", "fixtures", name)
 	dir := t.TempDir()
@@ -91,7 +91,7 @@ func indexFixture(t *testing.T, name string) (*store.Store, index.Result) {
 	if result.ParseFailures != 0 {
 		t.Fatalf("parse failures = %d, fixture must parse cleanly", result.ParseFailures)
 	}
-	return st, result
+	return dir, st, result
 }
 
 func TestFixturePrecisionAndRecall(t *testing.T) {
@@ -103,7 +103,7 @@ func TestFixturePrecisionAndRecall(t *testing.T) {
 	for _, spec := range specs {
 		t.Run(spec.name, func(t *testing.T) {
 			fixture := filepath.Join("..", "..", "testdata", "fixtures", spec.name)
-			st, result := indexFixture(t, spec.name)
+			_, st, result := indexFixture(t, spec.name)
 
 			expected := loadExpected(t, filepath.Join(fixture, "expected.json"))
 			edges, err := st.Edges(context.Background(), 0.5)
@@ -174,7 +174,7 @@ func TestAmbiguousEdgesAreLowConfidence(t *testing.T) {
 
 	for _, spec := range specs {
 		t.Run(spec.fixture, func(t *testing.T) {
-			st, _ := indexFixture(t, spec.fixture)
+			_, st, _ := indexFixture(t, spec.fixture)
 
 			edges, err := st.Edges(context.Background(), 0.35)
 			if err != nil {
@@ -205,7 +205,7 @@ func TestAmbiguousEdgesAreLowConfidence(t *testing.T) {
 // TestPythonRuleIDs pins the Python ladder: every new rule id must be reachable
 // from the fixture, and a Python file must never produce a ts.* rule.
 func TestPythonRuleIDs(t *testing.T) {
-	st, _ := indexFixture(t, "py")
+	_, st, _ := indexFixture(t, "py")
 	edges, err := st.Edges(context.Background(), 0.5)
 	if err != nil {
 		t.Fatalf("read edges: %v", err)
@@ -225,8 +225,10 @@ func TestPythonRuleIDs(t *testing.T) {
 		"app/module_use.py:measure -> app/util.py:clamp CALLS":               "py.import.module",
 		"app/star.py:bounded -> app/util.py:clamp CALLS":                     "py.import.star",
 		"app/reexports_use.py:start -> app/service.py:Service REFERENCES":    "py.import.reexport",
+		"app/compat_use.py:cap -> app/util.py:clamp CALLS":                   "py.import.reexport",
 		"app/service.py:Service.label -> app/service.py:Service.total CALLS": "py.this.method",
 		"app/service.py:build -> app/service.py:Service.total CALLS":         "py.typed.method",
+		"app/service.py:make -> app/service.py:Service.create CALLS":         "py.class.method",
 		"app/unique_use.py:call_global -> app/util.py:parse CALLS":           "py.global.unique",
 	}
 	for key, rule := range want {
