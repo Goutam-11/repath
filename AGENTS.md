@@ -4,10 +4,12 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M5 + v1.1 `check`.** TypeScript/JS, Python, and Rust are
-indexed; the MCP adapter + skill, artifact export/pull, and worktree seeding are
-in, and `repath check` adds graph-native CI diagnostics. The measured 10k and
-50k budgets live in PLAN §12 and are reproducible with `make perf`.
+**Current state: M5 + v1.1 `check` + SCIP adapter.** TypeScript/JS, Python, and
+Rust are indexed; the MCP adapter + skill, artifact export/pull, and worktree
+seeding are in, `repath check` adds graph-native CI diagnostics, and
+`repath adapter --scip` merges compiler facts into unresolved references. The
+measured 10k and 50k budgets live in PLAN §12 and are reproducible with
+`make perf`.
 
 ## Read first
 
@@ -40,6 +42,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath index --artifact out/         # export an artifact + manifest
 ./bin/repath pull out/                     # seed the local index from one
 ./bin/repath check --fail-on warning       # graph-native diagnostics for CI
+./bin/repath adapter --scip index.scip     # merge compiler facts, no overwrite
 ```
 
 Sandbox note (this machine): Go lives at `/usr/local/go/bin` (not on `PATH`),
@@ -66,11 +69,13 @@ internal/output   the MCP envelope and provenance cap
 internal/mcp      hand-rolled stdio JSON-RPC adapter
 internal/artifact export/pull, manifest, schema gate
 internal/check    cycles, dead code, boundaries, hotspots, unresolved rate
+internal/adapter  SCIP fact ingestion and non-overwriting edge merge
 internal/eval     fixture gate (test-only)
 ```
 
 `cli → index → {lang, resolve, store}`, `cli → query → {index, graph, store}`,
-`cli → check → {graph, store}`, `mcp → query`, `artifact → {index, store}`.
+`cli → check → {graph, store}`, `cli → adapter → {store, index}`,
+`mcp → query`, `artifact → {index, store}`.
 Nothing in `store` knows about languages or parsing; nothing in `lang` touches
 the database.
 
@@ -176,6 +181,12 @@ the database.
   reading belongs to that tree. It is evidence, not a CI gate (timings are
   machine-dependent). The 50k target is <3 min and <1 GB RSS; the 10k budgets
   are unchanged and must stay green.
+- **Adapter edges never overwrite tree-sitter edges.** `repath adapter --scip`
+  only consumes `pending` references and `store.MergeEdges` reports conflicts
+  instead of upserting. Adapter rules are prefixed `scip.ts.*` at confidence
+  0.99; stats live in `meta` and `status.adapters`, with no schema change. Do not
+  turn the adapter into a silent replacement for the resolver, and do not add a
+  SCIP/Node dependency to the build.
 - **`check` is graph-native, not a compiler.** Dead code only considers private
   functions/methods; exported API, test paths, parse failures, and special
   entrypoint names are excluded. Boundary checks are objective heuristics

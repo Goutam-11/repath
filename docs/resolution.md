@@ -147,7 +147,9 @@ imports define the same name the last one wins, matching Python execution.
   `total` is unique, `cart` is a module/namespace import, or its type is known
   from an annotation, `new`, `Constructor()`, or a parameter. Real inference is
   out of scope for tree-sitter; this is the largest source of unresolved
-  references on real repos.
+  references on real repos. The opt-in SCIP adapter
+  (`repath adapter --scip`, [`docs/adapters.md`](adapters.md)) can supply these
+  typed facts without changing the tree-sitter ladder or its gates.
 - **Top-level references.** A call outside any function has no containing symbol
   to attach an edge to, so it is skipped.
 
