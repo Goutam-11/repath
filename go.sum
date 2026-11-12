@@ -2,6 +2,8 @@ github.com/alexaandru/go-sitter-forest/javascript v1.9.2 h1:b8ZWUk/1bXLmGXN/tL26
 github.com/alexaandru/go-sitter-forest/javascript v1.9.2/go.mod h1:cWOFBHR7EffqM4sdVQ70WtTnFKPZxt5sAm1zS1tWaL8=
 github.com/alexaandru/go-sitter-forest/python v1.9.10 h1:qKbso5wI4vlkQ0EjZBO5hRrxwqf0tmGLVdbzasZCcrg=
 github.com/alexaandru/go-sitter-forest/python v1.9.10/go.mod h1:CXs3nuPcj4p3FqY8BnvJqsJ0vbsrda6Oj3sQDyRumNY=
+github.com/alexaandru/go-sitter-forest/rust v1.9.13 h1:orVZVXQ+IkXkIvzeyO6YvHBwujEvbYFvpMRNAGulHmw=
+github.com/alexaandru/go-sitter-forest/rust v1.9.13/go.mod h1:ZKZRL1Yfy6siuWMvv2h/F9lt/8kMKn6VHnGj00PPNmM=
 github.com/alexaandru/go-sitter-forest/tsx v1.9.2 h1:R6CIvxcs6zGF/nwI7YbHzRM1HuRjL1g7nKYfDMR7ANE=
 github.com/alexaandru/go-sitter-forest/tsx v1.9.2/go.mod h1:JIGhuMRPOeeUQbqrNiDh3YZV9iMtWTHUmTgSH8WMTIk=
 github.com/alexaandru/go-sitter-forest/typescript v1.9.4 h1:k+zE1JbmcDjgqPxO0fVnCnsCFj0yWmRaLpp2sbC4MoA=
