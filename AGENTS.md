@@ -8,7 +8,7 @@ humans and coding agents. One static binary, SQLite, no LLM, no server.
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
-findings to enclosing symbols (it never runs the compiler), `repath adapter --scip` merges compiler facts into unresolved
+findings to enclosing symbols (it never runs the compiler), `repath adapter --scip` merges TypeScript/Python compiler facts into unresolved
 references, `repath flows` walks forward from detected entrypoints,
 `repath tests` maps a change to structurally reachable test files, and
 `repath mcp` speaks both the legacy handshake and the 2026-07-28 discovery era.
@@ -211,10 +211,12 @@ the database.
   an SDK, or a schema generator.
 - **Adapter edges never overwrite tree-sitter edges.** `repath adapter --scip`
   only consumes `pending` references and `store.MergeEdges` reports conflicts
-  instead of upserting. Adapter rules are prefixed `scip.ts.*` at confidence
-  0.99; stats live in `meta` and `status.adapters`, with no schema change. Do not
-  turn the adapter into a silent replacement for the resolver, and do not add a
-  SCIP/Node dependency to the build.
+  instead of upserting. Rules are prefixed `scip.ts.*` or `scip.py.*` at
+  confidence 0.99; stats live in `meta` and `status.adapters` under `scip` /
+  `scip-python`, with no schema change. The Python adapter accepts
+  `scip-python` documents through the same hand-rolled parser and shares the
+  merge policy. Do not turn the adapter into a silent replacement for the
+  resolver, and do not add a SCIP/Node/Python dependency to the build.
 - **`check` is graph-native, not a compiler.** Dead code only considers private
   functions/methods; exported API, test paths, parse failures, and special
   entrypoint names are excluded. Boundary checks are objective heuristics

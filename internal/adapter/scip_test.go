@@ -42,12 +42,16 @@ func copyFixture(t *testing.T, name string) string {
 
 func TestSymbolName(t *testing.T) {
 	cases := map[string]string{
-		"scip-typescript npm . . src/`cart.ts`/Cart#total().": "total",
-		"scip-typescript npm . . src/`cart.ts`/Cart#":         "Cart",
-		"scip-typescript npm . . src/`cart.ts`/make().":       "make",
-		"scip-typescript npm . . src/`cart.ts`/":              "",
-		"local 2":                                             "",
-		"scip-typescript npm . . src/`cart.ts`/Outer#Inner#":  "Inner",
+		"scip-typescript npm . . src/`cart.ts`/Cart#total().":      "total",
+		"scip-typescript npm . . src/`cart.ts`/Cart#":              "Cart",
+		"scip-typescript npm . . src/`cart.ts`/make().":            "make",
+		"scip-typescript npm . . src/`cart.ts`/":                   "",
+		"local 2":                                                  "",
+		"scip-typescript npm . . src/`cart.ts`/Outer#Inner#":       "Inner",
+		"scip-python python py-adapter 0.0.0 models/Base#total().": "total",
+		"scip-python python py-adapter 0.0.0 cart/Cart#":           "Cart",
+		"scip-python python py-adapter 0.0.0 app/run().":           "run",
+		"scip-python python py-adapter 0.0.0 app/__init__:":        "",
 	}
 	for symbol, want := range cases {
 		if got := symbolName(symbol); got != want {
@@ -201,5 +205,130 @@ func TestSCIPAdapterSubprojectPaths(t *testing.T) {
 	}
 	if stats.Matched != 1 || stats.Edges != 1 {
 		t.Fatalf("stats = %+v, want the suffix match to resolve one reference", stats)
+	}
+}
+
+func TestParseSCIPPythonFixture(t *testing.T) {
+	index, err := LoadSCIP(filepath.Join("..", "..", "testdata", "fixtures", "py-adapter", "index.scip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(index.Documents) != 3 {
+		t.Fatalf("documents = %d, want 3", len(index.Documents))
+	}
+	paths := map[string]bool{}
+	var refs int
+	for _, doc := range index.Documents {
+		paths[doc.Path] = true
+		for _, occ := range doc.Occurrences {
+			if occ.Roles&1 == 0 {
+				refs++
+			}
+		}
+	}
+	for _, want := range []string{"app.py", "cart.py", "models.py"} {
+		if !paths[want] {
+			t.Fatalf("document paths = %+v, missing %s", paths, want)
+		}
+	}
+	if refs == 0 {
+		t.Fatal("fixture has no reference occurrences")
+	}
+}
+
+func TestPythonSCIPAdapterGate(t *testing.T) {
+	root := copyFixture(t, "py-adapter")
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.Run(ctx, st, root, index.Options{}); err != nil {
+		t.Fatal(err)
+	}
+
+	beforePending, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beforePending != 2 {
+		t.Fatalf("adapter-off pending = %d, want 2 (two untyped/inherited total calls)", beforePending)
+	}
+
+	parsed, err := LoadSCIP(filepath.Join("..", "..", "testdata", "fixtures", "py-adapter", "index.scip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := ApplySCIP(ctx, st, parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Adapter != "scip-python" {
+		t.Fatalf("adapter = %q, want scip-python", stats.Adapter)
+	}
+	if stats.Matched != 2 || stats.Edges != 2 || stats.Conflicts != 0 {
+		t.Fatalf("stats = %+v, want 2 matched, 2 edges, 0 conflicts", stats)
+	}
+
+	afterPending, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterPending != 0 {
+		t.Fatalf("adapter-on pending = %d, want 0", afterPending)
+	}
+
+	edges, err := st.Edges(ctx, 0.5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := 0
+	for _, edge := range edges {
+		if edge.DstQName != "Base.total" || edge.Kind != "CALLS" {
+			continue
+		}
+		found++
+		if edge.Rule != "scip.py.method" || edge.Confidence != adapterConfidence {
+			t.Fatalf("adapter edge = %+v, want scip.py.method at %.2f", edge, adapterConfidence)
+		}
+	}
+	if found != 2 {
+		t.Fatalf("Base.total adapter edges = %d, want 2: %+v", found, edges)
+	}
+	for _, edge := range edges {
+		if strings.HasPrefix(edge.Rule, "scip.ts.") {
+			t.Fatalf("Python edge used a TypeScript adapter rule: %+v", edge)
+		}
+	}
+
+	saved, err := SavedStats(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 1 || saved[0].Adapter != "scip-python" || saved[0].Edges != 2 {
+		t.Fatalf("saved stats = %+v", saved)
+	}
+}
+
+func TestFamiliesFor(t *testing.T) {
+	ts, err := LoadSCIP(filepath.Join("..", "..", "testdata", "fixtures", "ts-adapter", "index.scip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	py, err := LoadSCIP(filepath.Join("..", "..", "testdata", "fixtures", "py-adapter", "index.scip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	combined := SCIPIndex{Documents: append(ts.Documents, py.Documents...)}
+	families := familiesFor(combined)
+	if len(families) != 2 || families[0].adapter != "scip" || families[1].adapter != "scip-python" {
+		t.Fatalf("families = %+v, want scip then scip-python", families)
+	}
+	if got := familiesFor(SCIPIndex{}); len(got) != 1 || got[0].adapter != "scip" {
+		t.Fatalf("empty families = %+v, want the legacy scip run", got)
 	}
 }

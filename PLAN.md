@@ -137,8 +137,9 @@ Invariants:
   edges. No rollup rows exist in the database.
 - `confidence` ∈ `(0,1]`; `rule` is a stable id (`ts.import.named`,
   `rs.use.super`, `py.module.relative`, …) used by tests and by `status`.
-- Adapter facts add edges only: rules are prefixed `scip.ts.*`, stats live in
-  `meta.adapter.<name>`, and no adapter row is a node or a schema change.
+- Adapter facts add edges only: rules are prefixed `scip.ts.*` or `scip.py.*`,
+  stats live in `meta.adapter.<name>` (`scip`, `scip-python`), and no adapter
+  row is a node or a schema change.
 - SARIF diagnostics are ingested per `check` run and attached to the enclosing
   symbol at read time (`sarif.<tool>.<rule>`); they are never persisted as
   nodes, edges, or a schema change (decision 22, amended in v1.2).
@@ -597,6 +598,18 @@ non-2.1.0 version is exit `2`. No schema, node kind, edge, or dependency
 changed; the pinned fixtures are `testdata/fixtures/sarif/{ts,py}` and the
 structural report is unchanged when `--sarif` is absent. See `docs/check.md`.
 
+**v1.2 Python SCIP adapter landed** (issue #29): the shared SCIP parser now
+accepts Python documents from `scip-python` 0.6.8 and merges them under the
+distinct adapter name **`scip-python`**, with `scip.py.method`/`call`/`new`/
+`reference` rules at confidence `0.99`. The merge policy is unchanged: only
+`pending` rows are candidates, a conflict is reported instead of overwriting a
+tree-sitter edge, and matched pending rows are removed. On the pinned Python
+fixture unresolved goes **2 → 0**; on `psf/requests` @ `3c7baaa` it goes
+**543 → 523** (rate **34.50% → 33.27%**) with **18** edges, **20** matched,
+**0** conflicts, and a **0.27 s** adapter run. The tree-sitter fixture gates are
+unchanged; the adapter-on gate is `TestPythonSCIPAdapterGate`. No Go dependency
+was added. See `docs/adapters.md`.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -650,8 +663,9 @@ reachability rather than runtime coverage. That remains the known ceiling.
    `docs/flows.md`. MCP still exposes the same six tools.
 5. Test-impact mapping (v1.1, landed): `repath tests <target>` maps the
    structural reverse closure to test files; see `docs/tests.md`.
-6. Adapter seam (v1.1, landed): SCIP facts merged into pending references; LSP
-   and Python/Rust adapters are still deferred. See `docs/adapters.md`.
+6. Adapter seam (v1.1, landed): SCIP facts merged into pending references;
+   Python landed in v1.2 under the separate `scip-python` adapter name. LSP and
+   Rust adapters are still deferred. See `docs/adapters.md`.
 7. Cross-language edges (TS `fetch` → route → Python handler, OpenAPI, gRPC).
 8. `repath serve` read-only HTTP for dashboards and shell-less clients.
 9. Watch mode / LSP server for editors.

@@ -11,7 +11,12 @@ import (
 
 func copyAdapterFixture(t *testing.T) string {
 	t.Helper()
-	src := filepath.Join("..", "..", "testdata", "fixtures", "ts-adapter")
+	return copyAdapterFixtureNamed(t, "ts-adapter")
+}
+
+func copyAdapterFixtureNamed(t *testing.T, name string) string {
+	t.Helper()
+	src := filepath.Join("..", "..", "testdata", "fixtures", name)
 	dst := t.TempDir()
 	err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -109,5 +114,40 @@ func TestAdapterCommandIndexesLazily(t *testing.T) {
 	}
 	if stats.Edges != 1 || stats.Matched != 1 {
 		t.Fatalf("adapter did not index lazily: %+v", stats)
+	}
+}
+
+func TestAdapterCommandPython(t *testing.T) {
+	dir := copyAdapterFixtureNamed(t, "py-adapter")
+	scip := filepath.Join("..", "..", "testdata", "fixtures", "py-adapter", "index.scip")
+
+	code, out, errOut := run(t, "adapter", "--scip", scip, "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("adapter exit = %d: %s", code, errOut)
+	}
+	var stats adapter.Stats
+	if err := json.Unmarshal([]byte(out), &stats); err != nil {
+		t.Fatalf("adapter output is not JSON: %v\n%s", err, out)
+	}
+	if stats.Adapter != "scip-python" || stats.Matched != 2 || stats.Edges != 2 || stats.Conflicts != 0 {
+		t.Fatalf("stats = %+v, want scip-python, 2 matched, 2 edges, 0 conflicts", stats)
+	}
+
+	code, out, errOut = run(t, "status", "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("status exit = %d: %s", code, errOut)
+	}
+	var status struct {
+		Unresolved int             `json:"unresolved"`
+		Adapters   []adapter.Stats `json:"adapters"`
+	}
+	if err := json.Unmarshal([]byte(out), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Unresolved != 0 {
+		t.Fatalf("unresolved = %d, want 0", status.Unresolved)
+	}
+	if len(status.Adapters) != 1 || status.Adapters[0].Adapter != "scip-python" {
+		t.Fatalf("status adapters = %+v, want scip-python", status.Adapters)
 	}
 }

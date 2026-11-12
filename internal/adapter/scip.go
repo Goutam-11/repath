@@ -262,7 +262,9 @@ func symbolName(symbol string) string {
 		symbol = strings.TrimSuffix(symbol, ".")
 	case strings.HasSuffix(symbol, "#"):
 		symbol = strings.TrimSuffix(symbol, "#")
-	case strings.HasSuffix(symbol, "/"):
+	case strings.HasSuffix(symbol, "/"), strings.HasSuffix(symbol, ":"):
+		// SCIP namespace/module descriptors end in "/" or ":" and are not
+		// graph targets; this also covers scip-python's app/__init__: form.
 		return ""
 	}
 
@@ -284,12 +286,83 @@ type pendingKey struct {
 	name   string
 }
 
-// ApplySCIP merges one parsed SCIP index into the graph. It only consumes
-// references that tree-sitter left in `pending`, so it cannot overwrite an
-// existing tree-sitter edge; a same-key edge is counted as a conflict and left
-// alone. Matched pending rows are removed and the run's stats are persisted.
+// scipFamily is one language adapter over the shared SCIP parser. The parser
+// stays language-neutral; only the document filter and the rule ids differ.
+type scipFamily struct {
+	adapter string
+	matches func(SCIPDocument) bool
+	rule    func(store.PendingRef) string
+}
+
+var (
+	tsSCIPFamily = scipFamily{adapter: "scip", matches: isTypeScriptDocument, rule: tsAdapterRule}
+	pySCIPFamily = scipFamily{adapter: "scip-python", matches: isPythonDocument, rule: pyAdapterRule}
+)
+
+// ApplySCIP merges one parsed SCIP index and returns the first language
+// family's stats. It is the single-language convenience used by tests; the CLI
+// calls ApplySCIPAll so a Python run is stored under its own adapter name.
 func ApplySCIP(ctx context.Context, st *store.Store, index SCIPIndex) (Stats, error) {
-	stats := Stats{Adapter: "scip", LastRun: time.Now().UTC().Format(time.RFC3339)}
+	all, err := ApplySCIPAll(ctx, st, index)
+	if err != nil {
+		return Stats{}, err
+	}
+	if len(all) == 0 {
+		return Stats{}, nil
+	}
+	return all[0], nil
+}
+
+// ApplySCIPAll applies every language family present in the index and persists
+// one stats entry per family under meta.adapter.<name>.
+func ApplySCIPAll(ctx context.Context, st *store.Store, index SCIPIndex) ([]Stats, error) {
+	families := familiesFor(index)
+	out := make([]Stats, 0, len(families))
+	for _, family := range families {
+		stats, err := applySCIPFamily(ctx, st, index, family)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, stats)
+	}
+	return out, nil
+}
+
+// familiesFor detects the producers in one SCIP file. scip-typescript and
+// scip-python are normally run separately, but a combined index is handled by
+// applying each family over its own documents and reporting both stats.
+func familiesFor(index SCIPIndex) []scipFamily {
+	hasTS, hasPy := false, false
+	for _, doc := range index.Documents {
+		if isTypeScriptDocument(doc) {
+			hasTS = true
+		}
+		if isPythonDocument(doc) {
+			hasPy = true
+		}
+	}
+	var families []scipFamily
+	if hasTS {
+		families = append(families, tsSCIPFamily)
+	}
+	if hasPy {
+		families = append(families, pySCIPFamily)
+	}
+	if len(families) == 0 {
+		// Preserve the pre-Python behavior: an empty or unrecognized index
+		// still records a zero TypeScript run instead of silently disappearing.
+		families = append(families, tsSCIPFamily)
+	}
+	return families
+}
+
+// applySCIPFamily merges one parsed SCIP index into the graph for one language.
+// It only consumes references that tree-sitter left in `pending`, so it cannot
+// overwrite an existing tree-sitter edge; a same-key edge is counted as a
+// conflict and left alone. Matched pending rows are removed and the run's stats
+// are persisted.
+func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, family scipFamily) (Stats, error) {
+	stats := Stats{Adapter: family.adapter, LastRun: time.Now().UTC().Format(time.RFC3339)}
 
 	paths, err := st.FilePaths(ctx)
 	if err != nil {
@@ -332,7 +405,7 @@ func ApplySCIP(ctx context.Context, st *store.Store, index SCIPIndex) (Stats, er
 
 	definitions := make(map[string]int64)
 	for _, doc := range index.Documents {
-		if !isTypeScriptDocument(doc) {
+		if !family.matches(doc) {
 			continue
 		}
 		fileID, ok := fileIDFor(doc.Path)
@@ -367,7 +440,7 @@ func ApplySCIP(ctx context.Context, st *store.Store, index SCIPIndex) (Stats, er
 	matched := make(map[pendingKey]bool)
 	seenEdges := make(map[string]bool)
 	for _, doc := range index.Documents {
-		if !isTypeScriptDocument(doc) {
+		if !family.matches(doc) {
 			continue
 		}
 		fileID, ok := fileIDFor(doc.Path)
@@ -413,7 +486,7 @@ func ApplySCIP(ctx context.Context, st *store.Store, index SCIPIndex) (Stats, er
 					seenEdges[edgeKey] = true
 					edges = append(edges, store.Edge{
 						Src: src, Dst: target, Kind: kind,
-						Confidence: adapterConfidence, Rule: adapterRule(ref), Line: ref.Line,
+						Confidence: adapterConfidence, Rule: family.rule(ref), Line: ref.Line,
 					})
 				}
 				if err := st.DeletePending(ctx, ref); err != nil {
@@ -446,7 +519,16 @@ func isTypeScriptDocument(doc SCIPDocument) bool {
 	return false
 }
 
-func adapterRule(ref store.PendingRef) string {
+// isPythonDocument accepts scip-python's documents. 0.6.8 leaves the language
+// field empty, so the path extension is the reliable signal.
+func isPythonDocument(doc SCIPDocument) bool {
+	if strings.Contains(strings.ToLower(doc.Language), "python") {
+		return true
+	}
+	return strings.EqualFold(filepath.Ext(doc.Path), ".py")
+}
+
+func tsAdapterRule(ref store.PendingRef) string {
 	if ref.Form == "member" || ref.Form == "this" {
 		return "scip.ts.method"
 	}
@@ -457,6 +539,20 @@ func adapterRule(ref store.PendingRef) string {
 		return "scip.ts.new"
 	default:
 		return "scip.ts.reference"
+	}
+}
+
+func pyAdapterRule(ref store.PendingRef) string {
+	if ref.Form == "member" || ref.Form == "this" {
+		return "scip.py.method"
+	}
+	switch ref.Kind {
+	case "call":
+		return "scip.py.call"
+	case "new":
+		return "scip.py.new"
+	default:
+		return "scip.py.reference"
 	}
 }
 
