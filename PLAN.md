@@ -409,7 +409,7 @@ excalidraw's `CALLS` fell 6,447 → 3,976, and the real hubs (`t`,
 `lib/`), `__init__.py` and ordinary-module re-exports through a persisted
 `imports` table (schema v3), `self`/`cls` calls, class and classmethod receivers,
 constructor-style receiver typing, decorator references, and Python class bases.
-The fixture gate is 30/30 edges at precision 1.00 / recall 1.00 with 1 genuine
+The fixture gate is 31/31 edges at precision 1.00 / recall 1.00 with 1 genuine
 unresolved callback parameter, above the 0.88/0.80 milestone gate (not loosened).
 On `psf/requests` @ `3c7baaa`: 37 files, 787 nodes, 0 parse failures, 707
 `CALLS` + 281 `REFERENCES` + 41 `EXTENDS` in 80 ms; 544 references stay

@@ -148,5 +148,10 @@
     "src": "app/service.py:make",
     "dst": "app/service.py:Service.total",
     "kind": "CALLS"
+  },
+  {
+    "src": "app/module_use.py:measure_plain",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
   }
 ]

@@ -428,6 +428,11 @@ func (ix *Index) pyModuleMember(fromPath string, ref facts.Ref, spec string) (Re
 // binding is a module (import pkg, import pkg.mod as m, from . import util).
 func (ix *Index) bindingModuleSpec(fromPath string, binding facts.Import) (string, bool) {
 	if binding.Imported == "*" {
+		// `import a.b` binds the root `a`, not the whole dotted path; the
+		// receiver supplies the rest. `import a.b as c` binds the whole path.
+		if firstSegment(binding.Source) == binding.Local {
+			return binding.Local, true
+		}
 		return binding.Source, true
 	}
 	spec := joinPySpec(binding.Source, binding.Imported)
@@ -585,6 +590,13 @@ func (ix *Index) pyFile(base string) int64 {
 		}
 	}
 	return 0
+}
+
+func firstSegment(name string) string {
+	if i := strings.Index(name, "."); i >= 0 {
+		return name[:i]
+	}
+	return name
 }
 
 func isRelative(spec string) bool { return strings.HasPrefix(spec, ".") }

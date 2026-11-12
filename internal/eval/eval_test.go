@@ -223,6 +223,7 @@ func TestPythonRuleIDs(t *testing.T) {
 		"app/worker.py:measure -> app/util.py:parse CALLS":                   "py.import.alias",
 		"app/worker.py:measure -> app/util.py:clamp CALLS":                   "py.module.relative",
 		"app/module_use.py:measure -> app/util.py:clamp CALLS":               "py.import.module",
+		"app/module_use.py:measure_plain -> app/util.py:clamp CALLS":         "py.import.module",
 		"app/star.py:bounded -> app/util.py:clamp CALLS":                     "py.import.star",
 		"app/reexports_use.py:start -> app/service.py:Service REFERENCES":    "py.import.reexport",
 		"app/compat_use.py:cap -> app/util.py:clamp CALLS":                   "py.import.reexport",
