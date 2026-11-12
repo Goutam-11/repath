@@ -1,0 +1,74 @@
+# GoReleaser configuration for repath (PLAN §16.10).
+#
+# cgo is required for tree-sitter (decision 15), so this is not a pure-Go
+# cross-compile: the arm64 build needs a target C toolchain. The release
+# workflow installs gcc-aarch64-linux-gnu on the amd64 runner; see
+# docs/install.md. Only Linux amd64/arm64 are in scope for v1.2.
+version: 2
+
+project_name: repath
+
+before:
+  hooks:
+    - go mod verify
+
+builds:
+  - id: repath
+    main: ./cmd/repath
+    binary: repath
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/Goutam-11/repath/internal/cli.version={{ .Version }}
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    overrides:
+      - goos: linux
+        goarch: arm64
+        env:
+          - CGO_ENABLED=1
+          - CC=aarch64-linux-gnu-gcc
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+source:
+  enabled: true
+  name_template: "{{ .ProjectName }}_{{ .Version }}_source"
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+
+release:
+  # A tag is the explicit release event. Keep the result as a draft so a human
+  # still presses "publish"; this issue does not create a tag or a release.
+  draft: true
+  github:
+    owner: Goutam-11
+    name: repath
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-snapshot"

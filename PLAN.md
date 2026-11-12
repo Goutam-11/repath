@@ -6,7 +6,11 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **M0–M5 landed; v1.1 `check`, the SCIP adapter, entrypoint flows, test-impact mapping, dual-era MCP, and opt-in artifact compression landed.** This document is the contract for v1 and its first v1.1 slice.
+Status: **M0–M5 plus v1.1 and the v1.2 wave landed** — `check` + opt-in SARIF,
+the TypeScript/Python SCIP adapters, entrypoint flows, test-impact mapping and
+`--diff`, dual-era MCP, opt-in artifact compression, the read-only HTTP server,
+and GoReleaser-based distribution. This document is the contract for v1 and its
+v1.1/v1.2 slices.
 Scope changes require editing the decision table, not just the code.
 
 ---
@@ -674,6 +678,17 @@ a wider bind prints a warning and has no auth/TLS. `flows`/`tests` do not join
 the surface (they are not MCP tools either). No new dependency — stdlib
 `net/http` only. See `docs/serve.md`.
 
+**v1.2 release engineering landed** (issue #33): `.goreleaser.yaml` builds Linux
+amd64/arm64 with `CGO_ENABLED=1`, injects the existing
+`internal/cli.version` ldflag, writes SHA-256 `checksums.txt` and a source
+archive; the arm64 override uses `aarch64-linux-gnu-gcc` because cgo has no
+pure-Go cross-compile. `.github/workflows/release.yml` runs only on a `v*` tag,
+installs the target C toolchain, and creates a **draft** GitHub release for a
+human to publish. `goreleaser check` passes and a local
+`goreleaser build --snapshot --single-target` produced a working
+`0.0.1-snapshot` binary on linux/amd64. No tag, release, or new Go dependency
+was created. See `docs/install.md`.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -737,7 +752,10 @@ reachability rather than runtime coverage. That remains the known ceiling.
    surfaces as MCP, over stdlib `net/http`, loopback by default, no writes. See
    `docs/serve.md`. A UI and mutations remain non-goals.
 9. Watch mode / LSP server for editors.
-10. Distribution: goreleaser, Homebrew, `go install`, GitHub Action.
+10. Distribution (v1.2, landed): tag-triggered GoReleaser for Linux amd64/arm64,
+    SHA-256 checksums, source archive, and a draft GitHub release; see
+    `docs/install.md`. Homebrew/apt/Docker and `go install` packaging remain
+    deferred because cgo needs a C toolchain either way.
 
 ## 17. Decision log
 
@@ -751,8 +769,10 @@ team artifact sharing, diagnostics scope. Output: the 22 decisions in §3.
 
 ---
 
-Next action: **v1.1 wave** — `check`, the 50k budget, the SCIP adapter,
-entrypoint flows, and test-impact mapping have landed. The remaining candidates
-are MCP protocol negotiation (#17) and opt-in artifact compression (#18); the
-largest quality gap remains member calls without typed receivers, now partly
-addressed by the opt-in adapter.
+Next action: the **v1.2 wave is complete** — SARIF, the Python SCIP adapter,
+test-impact `--diff`, real-repo evidence, real-client MCP verification, the
+read-only HTTP server, and release engineering all landed. The largest remaining
+quality gap is still member calls without typed receivers; the next product
+candidates are a Rust SCIP adapter, a richer real-repo benchmark across Python
+and Rust, and the deferred LSP/watch surface. None should start without a new
+plan decision and explicit approval.

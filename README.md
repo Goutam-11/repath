@@ -4,7 +4,7 @@ Structural answers about a codebase — *what breaks if I change this*, *how doe
 A reach B*, *where is the important code* — from one deterministic graph, for
 humans and for coding agents.
 
-**Status: pre-alpha (M5 + v1.1 `check`).** TypeScript/JS, Python, and Rust
+**Status: pre-alpha (M5 + v1.1 + the v1.2 wave).** TypeScript/JS, Python, and Rust
 definitions and relations are indexed, and `impact`, `path`, `find`, `callers`,
 and `map` answer structural questions from SQLite. `repath mcp` serves the same
 six answers over stdio JSON-RPC in both the legacy and 2026-07-28 eras, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
@@ -20,6 +20,22 @@ structurally reach it.
 answers the six structural questions over read-only HTTP for dashboards and
 shell-less clients.
 [`PLAN.md`](PLAN.md) is the specification.
+
+## Install
+
+Prebuilt Linux amd64/arm64 archives and SHA-256 checksums are attached to
+[GitHub releases](https://github.com/Goutam-11/repath/releases); build-from-source,
+cross-compile, and runtime notes are in [`docs/install.md`](docs/install.md).
+
+```sh
+# release binary
+tar -xzf repath_vX.Y.Z_linux_amd64.tar.gz && sudo install -m 0755 repath /usr/local/bin/
+repath --version
+
+# or from source
+make build
+./bin/repath --version
+```
 
 ## Build
 

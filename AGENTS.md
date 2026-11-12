@@ -5,7 +5,7 @@ structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no daemon; the
 optional read-only `repath serve` is the only HTTP surface.
 
-**Current state: M5 + v1.1 `check`, SCIP adapter, entrypoint flows, test-impact mapping, dual-era MCP, and opt-in artifact compression.**
+**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python adapter, test `--diff`, real-repo evidence, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution).**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
@@ -55,6 +55,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath tests <symbol|file:line>      # structurally affected test files
 ./bin/repath tests --diff origin/main      # affected tests for a git change set
 make bench-real REPATH_BENCH_ROOT=...       # opt-in real-repo evidence (not CI)
+make release-snapshot                       # goreleaser current-platform snapshot
 ```
 
 Sandbox note (this machine): Go lives at `/usr/local/go/bin` (not on `PATH`),
@@ -195,6 +196,14 @@ the database.
 - **The cache schema is sidecar-checked.** `<sha>.db` is trusted only when
   `<sha>.db.schema` matches `store.SchemaVersion`; bumping the schema rebuilds
   old caches instead of seeding them.
+- **Release is tag-triggered and draft.** `.goreleaser.yaml` builds Linux
+  amd64/arm64 with cgo and injects `internal/cli.version`; arm64 needs
+  `CC=aarch64-linux-gnu-gcc`, never a pure-Go cross-compile. The
+  `.github/workflows/release.yml` workflow runs only on a `v*` tag, installs
+  the target C toolchain, and creates a **draft** GitHub release. Do not create
+  a tag or publish a release without explicit approval. `goreleaser check` and
+  `make release-snapshot` are local checks; no Go dependency is involved. See
+  `docs/install.md`.
 - **`make bench-real` is opt-in evidence, not a gate.** It pins
   `elastic/kibana` @ `05511966780217f7357b98253299f369dc40199b`, subtree
   `x-pack/solutions` (38,548 indexed TS files), in `docs/benchmarks.md`. It
