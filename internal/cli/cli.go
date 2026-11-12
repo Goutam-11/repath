@@ -26,6 +26,8 @@ Usage:
   repath impact  <symbol|file:line> [--depth N] [--limit N] [--json]
   repath path    <from> <to> [--max-depth N] [--json]
   repath map     [--max-tokens N] [--json]
+  repath check   [--root DIR] [--json] [--min-confidence N]
+                 [--fail-on none|error|warning|info] [--max-findings N]
   repath mcp     [--root DIR]
   repath version
 
@@ -38,11 +40,12 @@ Commands:
   impact   transitive blast radius of a change
   path     how one symbol reaches another
   map      ranked overview: modules, cycles, hot symbols
+  check    graph-native checks: cycles, dead code, boundaries, hotspots
   mcp      stdio JSON-RPC server for MCP clients (six answer tools)
   version  print the build version
 
 Exit codes:
-  0 ok   1 internal   2 usage   3 not found   4 ambiguous
+  0 ok   1 internal   2 usage   3 not found   4 ambiguous   5 check findings
 `
 
 // Version reports the build version.
@@ -79,6 +82,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return pathCmd(args[1:], stdout, stderr)
 	case "map":
 		return mapCmd(args[1:], stdout, stderr)
+	case "check":
+		return checkCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s", args[0], usage)
 		return 2
@@ -97,11 +102,13 @@ type options struct {
 	maxTokens     int
 	module        string
 	artifact      string
+	failOn        string
+	maxFindings   int
 }
 
 // parseOptions returns the flags and the positional arguments.
 func parseOptions(args []string) (options, []string, error) {
-	o := options{minConfidence: 0.5, limit: 50, maxTokens: 2000}
+	o := options{minConfidence: 0.5, limit: 50, maxTokens: 2000, failOn: "error", maxFindings: 200}
 	var positional []string
 
 	for i := 0; i < len(args); i++ {
@@ -149,6 +156,27 @@ func parseOptions(args []string) (options, []string, error) {
 			o.artifact = args[i]
 		case strings.HasPrefix(arg, "--artifact="):
 			o.artifact = strings.TrimPrefix(arg, "--artifact=")
+		case arg == "--fail-on":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--fail-on needs none, error, warning, or info")
+			}
+			i++
+			o.failOn = args[i]
+		case strings.HasPrefix(arg, "--fail-on="):
+			o.failOn = strings.TrimPrefix(arg, "--fail-on=")
+		case arg == "--max-findings":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--max-findings needs a number")
+			}
+			i++
+			if _, err := fmt.Sscanf(args[i], "%d", &o.maxFindings); err != nil || o.maxFindings <= 0 {
+				return o, nil, fmt.Errorf("--max-findings %q is not a positive number", args[i])
+			}
+		case strings.HasPrefix(arg, "--max-findings="):
+			raw := strings.TrimPrefix(arg, "--max-findings=")
+			if _, err := fmt.Sscanf(raw, "%d", &o.maxFindings); err != nil || o.maxFindings <= 0 {
+				return o, nil, fmt.Errorf("--max-findings %q is not a positive number", raw)
+			}
 		case arg == "--module":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--module needs a name")

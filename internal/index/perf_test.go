@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Goutam-11/repath/internal/check"
 	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/mcp"
 	"github.com/Goutam-11/repath/internal/query"
@@ -172,6 +173,15 @@ func TestPerf10k(t *testing.T) {
 		t.Fatalf("mcp answer missing dependents: %s", mcpOut.String())
 	}
 	t.Logf("MCP impact round-trip: %s", mcpDuration)
+
+	// The v1.1 check reads the same graph; report its cost on 10k symbols.
+	start = time.Now()
+	checkReport, err := check.Run(ctx, session.Store, root, check.Options{MinConfidence: 0.5, MaxFindings: 200})
+	checkDuration := time.Since(start)
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	t.Logf("check 10k: %s (%d findings)", checkDuration, len(checkReport.Findings))
 
 	// README quickstart: build is measured separately; this is cold index plus
 	// the first answer's graph work.

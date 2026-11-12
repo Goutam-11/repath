@@ -5,7 +5,7 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **M0–M5 landed.** This document is the contract for v1.
+Status: **M0–M5 landed; v1.1 `check` landed.** This document is the contract for v1 and its first v1.1 slice.
 Scope changes require editing the decision table, not just the code.
 
 ---
@@ -231,6 +231,8 @@ repath callers <sym>            [--depth 1] [--min-confidence 0.5] [--json]
 repath impact <sym|file:line>   [--depth 8] [--limit 50] [--json] [--module M]
 repath path   <A> <B>           [--max-depth 8] [--alternates 3] [--json]
 repath map    [--max-tokens 2000] [--json]
+repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
+              [--max-findings 200] [--json]
 ```
 
 Symbol references accept `qname`, `name`, `file:line`, or `file:name`.
@@ -255,7 +257,9 @@ affected files
 ```
 
 Exit codes: `0` ok · `2` usage · `3` not found · `4` ambiguous (candidates
-printed, or in `error.candidates` for JSON) · `1` internal.
+printed, or in `error.candidates` for JSON) · `5` check findings at or above
+`--fail-on` · `1` internal. `5` is only produced by `check`; the other commands
+never reuse it.
 
 ## 7. MCP contract
 
@@ -360,12 +364,14 @@ internal/
   resolve/    scope chains, import maps, confidence rules
   graph/      queries: impact, path, map, callers, find
   store/      schema, migrations, upserts, checkpoint, pending queue
+  query/      shared answer layer (open, resolve, six answers, status)
+  check/      graph-native diagnostics (cycles, dead code, boundaries, hotspots)
   artifact/   pack/pull commit-keyed snapshots, manifest, schema gate
   mcp/        stdio JSON-RPC server, tool schemas
   output/     text renderer, JSON envelope, token budgeting
 skills/repath/SKILL.md       agent instructions for the CLI
 testdata/fixtures/{ts,py,rs}/{src,expected.json}
-docs/         schema.md, resolution.md, mcp.md, sharing.md
+docs/         resolution.md, mcp.md, sharing.md, worktrees.md, check.md
 ```
 
 Dependencies (deliberately two): the `go-sitter-forest` grammars with
@@ -463,6 +469,14 @@ answer on the 10k tree is **~27 s** (budget <60 s). Every §10 budget is met; th
 artifact fixture (14 TS files) exports to **73,728 B** and pulls in **0.05 s**.
 Compression of artifacts is the one documented deviation (§4.1).
 
+**v1.1 landed** (`repath check`): five graph-native checks with a shared
+report and `--json`: module cycles (warning), dead private functions/methods
+(warning), objective boundary violations (non-test → test is an error;
+cross-module private access is a warning), fan-in/out hotspots (info), and
+per-module unresolved rate (warning). `--fail-on none|error|warning|info` gates
+CI; `check` is the only command that returns exit code `5`. Definitions and
+limitations are in `docs/check.md`.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -503,8 +517,10 @@ ceiling and the first v1.1 candidate, together with entrypoint flows.
 
 1. File and module nodes with `DEFINES`/`CONTAINS` edges, arriving with M2
    impact rollups rather than as an empty shell in M1.
-2. `repath check` (v1.1): import cycles, dead code, module-boundary violations,
-   fan-in/out hotspots, unresolved-rate per module — graph-native, CI exit codes.
+2. `repath check` (v1.1, landed): import cycles, dead code, module-boundary
+   violations, fan-in/out hotspots, unresolved-rate per module — graph-native,
+   CI exit codes. Defined in `docs/check.md`; cycles stay warnings because a
+   single noisy edge can merge an SCC.
 3. SARIF ingestion from tsc/pyright/ruff/rustc, findings attached to symbols
    (bridge, don't rebuild).
 4. Entrypoint/flow detection (FastAPI, Express, pytest, `main`) — the "how it
@@ -528,8 +544,8 @@ team artifact sharing, diagnostics scope. Output: the 22 decisions in §3.
 
 ---
 
-Next action: **v1.1 candidates** — `repath check` (import cycles, dead code,
-module-boundary violations, fan-in/out), entrypoint/flow detection, test-impact
-mapping, and the adapter seam for compiler-grade precision. The largest known
-gap remains member calls without typed receivers; it is the first target for
-that adapter and for `--min-confidence` guidance.
+Next action: **v1.1 candidates** — entrypoint/flow detection, test-impact
+mapping, and the adapter seam for compiler-grade precision. `repath check`
+shipped first because it is graph-native and reuses the walkers. The largest
+known gap remains member calls without typed receivers; it is the first target
+for that adapter and for `--min-confidence` guidance.

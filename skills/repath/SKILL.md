@@ -19,6 +19,7 @@ repath callers <symbol> --json            # direct reverse edges
 repath find <symbol> --json               # card: location, caller/callee counts
 repath map --max-tokens 1200 --json       # modules, cycles, ranked hubs
 repath status --json                      # counts, unresolved, ambiguity, parse failures
+repath check --fail-on warning --json     # cycles, dead code, boundaries, hotspots
 ```
 
 `--min-confidence` (default 0.5) is the precision/completeness dial: 0.9 keeps
@@ -28,8 +29,9 @@ import/`this`/local edges, 0.4 adds ambiguous candidates with their rule id.
 Read the JSON: `dependents[]` carries `depth`, `confidence`, `rule`, `call_line`;
 `path` returns `hops[]` with per-edge `rule`; `impact` and `map` report
 `truncated`. Exit codes: `0` ok, `1` internal, `2` usage, `3` not found,
-`4` ambiguous (candidates printed or in `error.candidates`). Resolve `4` with a
-qualified name, never by picking a candidate yourself.
+`4` ambiguous (candidates printed or in `error.candidates`); `check` alone adds
+`5` for findings at or above `--fail-on`. Resolve `4` with a qualified name,
+never by picking a candidate yourself.
 
 Without a shell, run `repath mcp`: six tools with the same answers —
 `find_symbol`, `impact`, `path`, `callers`, `repo_map`, `status`.

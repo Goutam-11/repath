@@ -151,8 +151,9 @@ func endpointOf(n store.NodeRow, paths map[int64]string) Endpoint {
 	return Endpoint{ID: n.ID, QName: n.QName, Kind: n.Kind, File: paths[n.FileID], Line: n.StartLine}
 }
 
-// moduleLookup returns fileID → moduleID and moduleID → name.
-func moduleLookup(ctx context.Context, st *store.Store) (map[int64]int64, map[int64]string, error) {
+// ModuleIndex returns fileID → moduleID and moduleID → name. Read-time rollups
+// and checks share it so a module boundary means the same thing everywhere.
+func ModuleIndex(ctx context.Context, st *store.Store) (map[int64]int64, map[int64]string, error) {
 	fileModules, err := st.FileModules(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -166,4 +167,9 @@ func moduleLookup(ctx context.Context, st *store.Store) (map[int64]int64, map[in
 		names[m.ID] = m.Name
 	}
 	return fileModules, names, nil
+}
+
+// moduleLookup is the internal spelling used by the walkers.
+func moduleLookup(ctx context.Context, st *store.Store) (map[int64]int64, map[int64]string, error) {
+	return ModuleIndex(ctx, st)
 }
