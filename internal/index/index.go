@@ -413,7 +413,8 @@ func toImportRows(imports []facts.Import) []store.ImportRow {
 	rows := make([]store.ImportRow, 0, len(imports))
 	for _, imp := range imports {
 		rows = append(rows, store.ImportRow{
-			Local: imp.Local, Imported: imp.Imported, Source: imp.Source, Line: imp.Line,
+			Local: imp.Local, Imported: imp.Imported, Source: imp.Source,
+			Line: imp.Line, Public: imp.Public,
 		})
 	}
 	return rows

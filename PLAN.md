@@ -5,7 +5,7 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **M0–M3 landed.** This document is the contract for v1.
+Status: **M0–M4 landed.** This document is the contract for v1.
 Scope changes require editing the decision table, not just the code.
 
 ---
@@ -112,7 +112,8 @@ CREATE TABLE pending (name TEXT, file_id INT, kind TEXT, form TEXT, line INT);
 
 -- import bindings are resolution inputs, not edges: they let a later run
 -- follow package/__init__.py and compat re-exports without re-parsing files
-CREATE TABLE imports (file_id INT, local TEXT, imported TEXT, source TEXT, line INT);
+CREATE TABLE imports (file_id INT, local TEXT, imported TEXT, source TEXT, line INT,
+                       public INT);
 ```
 
 **Node kinds:** `function, method, class, struct, trait, interface, type, enum, const`.
@@ -207,9 +208,11 @@ Per-language rules that must exist before that language ships:
   `requests.compat`), decorators recorded as reference edges, class and
   classmethod receivers, `self`/`cls` calls, and `Constructor()` receiver typing.
   The `if __name__ == "__main__"` marker is deferred with entrypoints (§15).
-- **Rust:** `mod` tree, `use` with braces/globs/aliases, inherent vs trait
-  `impl` blocks (methods keyed by receiver type), `pub` visibility, trait
-  method dispatch ambiguity, and explicit blind spots around macro bodies.
+- **Rust:** `mod` tree, `use` with braces/globs/aliases and `pub use`
+  re-exports, inherent vs trait `impl` blocks (methods keyed by receiver type),
+  `Self`/`self`, associated functions, `pub` visibility, enum-variant
+  construction, trait method dispatch ambiguity, and explicit blind spots
+  around macro token trees. Workspace cross-crate imports stay external.
 
 ## 6. CLI contract
 
@@ -407,7 +410,7 @@ excalidraw's `CALLS` fell 6,447 → 3,976, and the real hubs (`t`,
 
 **M3 landed** (Python): absolute/relative module resolution (root, `src/`,
 `lib/`), `__init__.py` and ordinary-module re-exports through a persisted
-`imports` table (schema v3), `self`/`cls` calls, class and classmethod receivers,
+`imports` table (schema v3, extended to v4 in M4), `self`/`cls` calls, class and classmethod receivers,
 constructor-style receiver typing, decorator references, and Python class bases.
 The fixture gate is 31/31 edges at precision 1.00 / recall 1.00 with 1 genuine
 unresolved callback parameter, above the 0.88/0.80 milestone gate (not loosened).
@@ -418,13 +421,28 @@ and inheritance (`Session.should_strip_auth`), the documented ceiling. A 1-file
 incremental edit is 27 ms; node ids are now stable across re-index, so a no-op
 edit leaves the edge set and unresolved count unchanged.
 
+**M4 landed** (Rust): Cargo package/workspace modules, crate/self/super module
+resolution, use trees (named, alias, glob, module, `pub use` re-exports),
+`Self`/assoc/self/typed receivers, struct literals and enum variants as
+`REFERENCES`, and `IMPLEMENTS` for same-file trait impls. Ambiguity is now
+visible in `status` (`ambiguous`, `ambiguity_rate`). The fixture gate is 27/27
+edges at precision 1.00 / recall 1.00 with 0 unresolved and 2 ambiguous edges,
+above the 0.70 recall gate (not loosened). On `serde-rs/json` @ `8c535a2`:
+72 files, 1,676 nodes, 136 ms, 844 `CALLS` + 147 `REFERENCES` + 9 `IMPLEMENTS`,
+37 ambiguous edges (3.7%), 596 unresolved; the one parse failure is the
+intentionally invalid UI fixture `tests/ui/parse_expr.rs`. A 1-file incremental
+edit is 24 ms with unchanged counts. Remaining unresolved references are
+dominated by generic trait parameters, macro-generated impls, and external
+collection/formatting methods — the documented Rust ceiling.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
   with `expected.json` hand-labeled by kind.
 - `go test ./internal/eval` computes precision/recall at the default confidence
-  plus the unresolved count; CI fails on regression. Per-language gates live in
-  the test table, so adding a language cannot silently lower an existing gate.
+  plus the unresolved and ambiguous counts; CI fails on regression.
+  Per-language gates live in the test table, so adding a language cannot
+  silently lower an existing gate.
 - A `make bench` target indexes a pinned mid-size OSS repo per language and
   prints the table from §10.
 - Ambient check (not a gate): run `impact` on 20 random symbols in a real repo
@@ -482,5 +500,5 @@ team artifact sharing, diagnostics scope. Output: the 22 decisions in §3.
 
 ---
 
-Next action: **M4** — Rust (`mod` tree, `use` braces/globs/aliases, impl/trait
-method keys, macro blind spots) at R ≥ 0.70.
+Next action: **M5** — MCP stdio adapter + `SKILL.md`, artifact export/pull,
+worktree seeding, final incremental/perf budget, and README quickstart.

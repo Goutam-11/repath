@@ -8,6 +8,7 @@ import (
 
 	"github.com/Goutam-11/repath/internal/lang/facts"
 	"github.com/Goutam-11/repath/internal/lang/py"
+	"github.com/Goutam-11/repath/internal/lang/rs"
 	"github.com/Goutam-11/repath/internal/lang/tsx"
 )
 
@@ -24,6 +25,8 @@ const (
 	JavaScript
 	// Python parses .py files.
 	Python
+	// Rust parses .rs files.
+	Rust
 )
 
 // For reports the dialect and language name for path. ok is false for files
@@ -49,6 +52,8 @@ func For(path string) (dialect Dialect, name string, ok bool) {
 		return TSX, "javascript", true
 	case ".py":
 		return Python, "python", true
+	case ".rs":
+		return Rust, "rust", true
 	}
 
 	return 0, "", false
@@ -59,11 +64,12 @@ func For(path string) (dialect Dialect, name string, ok bool) {
 type Extractor struct {
 	tsx *tsx.Extractor
 	py  *py.Extractor
+	rs  *rs.Extractor
 }
 
 // NewExtractor builds an extractor for every registered language.
 func NewExtractor() *Extractor {
-	return &Extractor{tsx: tsx.New(), py: py.New()}
+	return &Extractor{tsx: tsx.New(), py: py.New(), rs: rs.New()}
 }
 
 // Extract parses src and returns its definitions, references, and imports.
@@ -77,6 +83,8 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) facts.Result {
 		return e.tsx.Extract(src, tsx.JavaScript)
 	case Python:
 		return e.py.Extract(src, py.Python)
+	case Rust:
+		return e.rs.Extract(src, rs.Rust)
 	}
 	return facts.Result{Err: "unsupported dialect"}
 }

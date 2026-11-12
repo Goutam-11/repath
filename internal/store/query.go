@@ -190,12 +190,13 @@ type ImportRow struct {
 	Imported string
 	Source   string
 	Line     int
+	Public   bool
 }
 
 // Imports reads every stored import binding.
 func (s *Store) Imports(ctx context.Context) ([]ImportRow, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT file_id, local, imported, source, line FROM imports ORDER BY rowid`)
+		`SELECT file_id, local, imported, source, line, public FROM imports ORDER BY rowid`)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +205,7 @@ func (s *Store) Imports(ctx context.Context) ([]ImportRow, error) {
 	var out []ImportRow
 	for rows.Next() {
 		var imp ImportRow
-		if err := rows.Scan(&imp.FileID, &imp.Local, &imp.Imported, &imp.Source, &imp.Line); err != nil {
+		if err := rows.Scan(&imp.FileID, &imp.Local, &imp.Imported, &imp.Source, &imp.Line, &imp.Public); err != nil {
 			return nil, err
 		}
 		out = append(out, imp)
@@ -221,13 +222,13 @@ func (t *Tx) ReplaceImports(ctx context.Context, fileID int64, imports []ImportR
 		return nil
 	}
 	stmt, err := t.tx.PrepareContext(ctx,
-		`INSERT INTO imports (file_id, local, imported, source, line) VALUES (?, ?, ?, ?, ?)`)
+		`INSERT INTO imports (file_id, local, imported, source, line, public) VALUES (?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, imp := range imports {
-		if _, err := stmt.ExecContext(ctx, fileID, imp.Local, imp.Imported, imp.Source, imp.Line); err != nil {
+		if _, err := stmt.ExecContext(ctx, fileID, imp.Local, imp.Imported, imp.Source, imp.Line, boolInt(imp.Public)); err != nil {
 			return err
 		}
 	}
@@ -419,6 +420,15 @@ func (s *Store) EdgeCounts(ctx context.Context) (map[string]int, error) {
 func (s *Store) CountPending(ctx context.Context) (int, error) {
 	var n int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pending`).Scan(&n)
+	return n, err
+}
+
+// AmbiguousEdges counts 0.40-confidence ambiguity edges, which are excluded by
+// the default query threshold but must stay visible in status.
+func (s *Store) AmbiguousEdges(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM edges WHERE rule LIKE '%.ambiguous'`).Scan(&n)
 	return n, err
 }
 

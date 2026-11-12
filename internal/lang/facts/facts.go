@@ -38,6 +38,9 @@ type Import struct {
 	Imported string // a name, "default", or "*"
 	Source   string
 	Line     int
+	// Public marks a binding that may be re-exported by its module: Python
+	// imports are always eligible, Rust only with `pub use`.
+	Public bool
 }
 
 // Result is everything one file contributes to the graph.

@@ -14,7 +14,7 @@ import (
 
 // SchemaVersion is bumped whenever the schema below changes. A binary refuses
 // an index written by a newer version.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta    (key TEXT PRIMARY KEY, value TEXT);
@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS imports (
     local    TEXT NOT NULL,
     imported TEXT NOT NULL,
     source   TEXT NOT NULL,
-    line     INTEGER NOT NULL DEFAULT 0
+    line     INTEGER NOT NULL DEFAULT 0,
+    public   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS edges_rev    ON edges (dst, kind, confidence);
 CREATE INDEX IF NOT EXISTS nodes_qn     ON nodes (qname);
@@ -160,6 +161,9 @@ func (s *Store) Migrate(ctx context.Context) error {
 	// Additive columns are migrated in place so an M2 index keeps its symbols
 	// and edges instead of requiring a full rebuild.
 	if err := s.ensureColumn(ctx, "pending", "form", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureColumn(ctx, "imports", "public", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := s.SetMeta(ctx, "schema_version", fmt.Sprint(SchemaVersion)); err != nil {

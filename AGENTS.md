@@ -4,7 +4,7 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M3 merged.** TypeScript/JS and Python are indexed.
+**Current state: M4 merged.** TypeScript/JS, Python, and Rust are indexed.
 
 ## Read first
 
@@ -49,8 +49,8 @@ export GOCACHE=$PWD/.cache/go-build GOPATH=$PWD/.cache/gopath \
 cmd/repath        entrypoint only
 internal/cli      commands, text renderers, JSON, exit codes
 internal/index    discovery, hashing, batching, module detection, orchestration
-internal/lang     path → dialect; lang/{tsx,py} extract symbols + refs + imports
-internal/resolve  global name index, confidence ladder, tsconfig aliases, Python module/re-export rules
+internal/lang     path → dialect; lang/{tsx,py,rs} extract symbols + refs + imports
+internal/resolve  global name index, confidence ladder, language-specific module rules
 internal/store    SQLite schema and queries only
 internal/graph    impact / path / map walkers over store queries
 internal/eval     fixture gate (test-only)
@@ -92,7 +92,8 @@ internal/eval     fixture gate (test-only)
 - **cgo is required.** There is no maintained pure-Go tree-sitter (decision 15,
   amended in M0). Builds need a C toolchain; cross-compiles need a target one.
 - **Grammar versions are pinned per module and they differ** (typescript
-  `v1.9.4`, tsx and javascript `v1.9.2`, python `v1.9.10`). Bumping one with
+  `v1.9.4`, tsx and javascript `v1.9.2`, python `v1.9.10`, rust `v1.9.13`).
+  Bumping one with
   `@latest` can drag the binding API and break the others; change them
   deliberately and rebuild.
 - **The parser rejects some valid TypeScript**, e.g.
@@ -121,19 +122,36 @@ internal/eval     fixture gate (test-only)
   property when touching the indexer.
 - **Pending retries only re-link identifiers.** `pending.form` exists so an
   untyped `obj.get()` is never retried as a repo-wide name guess.
+- **Rust module resolution is convention-based.** Crate roots come from
+  Cargo packages (`src/lib.rs` or `src/main.rs`); `src/foo.rs` is `crate::foo`.
+  `#[path]`, inline `mod` blocks as import targets, and workspace cross-crate
+  imports are not resolved. Do not add a "best guess" fallback for them.
+- **Rust macro bodies are blind.** `macro_rules!` token trees and macro
+  invocations create no symbols or edges. Typed receiver methods with no local
+  definition are classified external (dependency or macro-generated trait impl)
+  rather than guessed; keep that trade-off visible in docs.
+- **Rust generic bounds are not modelled.** `T: Trait` calls stay unresolved,
+  and `IMPLEMENTS` is emitted only when the implementing type is defined in the
+  same file. These are fixture-gated gaps, not bugs to paper over.
+- **Rust ambiguity is real.** Inherent and trait impls share `Type.method`;
+  2–5 candidates become 0.40 edges, and `status` exposes `ambiguous` and
+  `ambiguity_rate`. Never collapse them by picking one.
+- **Rust enum variants are a heuristic.** A CamelCase associated call on a known
+  enum becomes REFERENCES at 0.90; an associated constant with the same shape
+  can be misclassified.
 - **Module cycles** are computed on cross-module edges at ≥0.5; one noisy edge
   can merge modules into one SCC. Treat cycles as hints.
 - `.cache/` and `.repath/` are local artifacts. Never commit them.
 
-## Adding a language (the M3 blueprint)
+## Adding a language
 
 1. `internal/lang/<lang>/extract.go` returning the shared
    `facts.Result{Symbols, Refs, Imports}` shape, with its own dialect type.
 2. Register extensions in `internal/lang/lang.go`.
 3. Add resolution rules (relative imports, packages/`__init__` re-exports) in
    `internal/resolve`, with new rule ids and confidences in the ladder.
-4. `testdata/fixtures/py/` + `expected.json`; wire the gate in `internal/eval`
-   (M3 target: precision ≥ 0.88, recall ≥ 0.80).
+4. `testdata/fixtures/<lang>/` + `expected.json`; wire the per-language gate in
+   `internal/eval` from PLAN §12.
 5. Update `docs/resolution.md`, `PLAN.md` status, `README.md`.
 
 Adding a command follows the same shape: `internal/graph` walker → `internal/cli`

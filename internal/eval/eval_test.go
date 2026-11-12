@@ -98,6 +98,7 @@ func TestFixturePrecisionAndRecall(t *testing.T) {
 	specs := []fixtureSpec{
 		{name: "ts", precision: 0.90, recall: 0.75, maxUnresolved: 3},
 		{name: "py", precision: 0.88, recall: 0.80, maxUnresolved: 2},
+		{name: "rs", precision: 0.85, recall: 0.70, maxUnresolved: 2},
 	}
 
 	for _, spec := range specs {
@@ -170,6 +171,7 @@ func TestAmbiguousEdgesAreLowConfidence(t *testing.T) {
 	}{
 		{fixture: "ts", rule: "ts.global.ambiguous"},
 		{fixture: "py", rule: "py.global.ambiguous"},
+		{fixture: "rs", rule: "rs.typed.method.ambiguous"},
 	}
 
 	for _, spec := range specs {
@@ -245,54 +247,108 @@ func TestPythonRuleIDs(t *testing.T) {
 	}
 }
 
+// TestRustRuleIDs pins the Rust ladder: every new rule id must be reachable
+// from the fixture, and a Rust file must never produce a ts.* or py.* rule.
+func TestRustRuleIDs(t *testing.T) {
+	_, st, _ := indexFixture(t, "rs")
+	edges, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+
+	got := make(map[string]string, len(edges))
+	for _, e := range edges {
+		got[edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)] = e.Rule
+	}
+
+	want := map[string]string{
+		"src/util.rs:helper -> src/util.rs:clamp CALLS":                           "rs.local",
+		"src/service.rs:Service -> src/service.rs:Describe IMPLEMENTS":            "rs.local",
+		"src/service.rs:Service.new -> src/service.rs:Service REFERENCES":         "rs.self.type",
+		"src/service.rs:Service.make_default -> src/service.rs:Service.new CALLS": "rs.self.assoc",
+		"src/service.rs:Service.summary -> src/service.rs:Service.total CALLS":    "rs.self.method",
+		"src/service.rs:Service.label -> src/models.rs:User.greet CALLS":          "rs.typed.method",
+		"src/service.rs:Service.total -> src/util.rs:clamp CALLS":                 "rs.use.named",
+		"src/service.rs:Service.total -> src/util.rs:helper CALLS":                "rs.use.alias",
+		"src/glob_use.rs:bounded -> src/util.rs:clamp CALLS":                      "rs.use.glob",
+		"src/lib.rs:root_helper -> src/util.rs:clamp CALLS":                       "rs.module.path",
+		"src/reexport_use.rs:literal -> src/models.rs:User REFERENCES":            "rs.use.reexport",
+		"src/assoc.rs:build -> src/store.rs:Store.new CALLS":                      "rs.assoc.fn",
+		"src/global_use.rs:call_global -> src/util.rs:helper CALLS":               "rs.global.unique",
+	}
+	for key, rule := range want {
+		if got[key] != rule {
+			t.Errorf("edge %q rule = %q, want %q", key, got[key], rule)
+		}
+	}
+
+	for key, rule := range got {
+		if strings.HasPrefix(rule, "ts.") || strings.HasPrefix(rule, "py.") {
+			t.Errorf("Rust edge %q used foreign rule %q", key, rule)
+		}
+	}
+}
+
 // TestIncrementalReindexKeepsEdges guards the incremental contract: editing a
 // file without changing its symbols must not orphan incoming edges or retry
 // member references by bare name.
 func TestIncrementalReindexKeepsEdges(t *testing.T) {
-	dir, st, _ := indexFixture(t, "py")
-	ctx := context.Background()
-
-	before := edgeSet(t, st)
-	pendingBefore, err := st.CountPending(ctx)
-	if err != nil {
-		t.Fatalf("pending: %v", err)
+	specs := []struct {
+		fixture string
+		file    string
+	}{
+		{fixture: "py", file: "app/service.py"},
+		{fixture: "rs", file: "src/service.rs"},
 	}
 
-	path := filepath.Join(dir, "app", "service.py")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		t.Fatalf("open for append: %v", err)
-	}
-	if _, err := f.WriteString("\n# no-op comment: same symbols, same edges\n"); err != nil {
-		t.Fatalf("append: %v", err)
-	}
-	if err := f.Close(); err != nil {
-		t.Fatalf("close: %v", err)
-	}
+	for _, spec := range specs {
+		t.Run(spec.fixture, func(t *testing.T) {
+			dir, st, _ := indexFixture(t, spec.fixture)
+			ctx := context.Background()
 
-	result, err := index.Run(ctx, st, dir, index.Options{})
-	if err != nil {
-		t.Fatalf("re-index: %v", err)
-	}
-	if result.Indexed != 1 || result.Unchanged == 0 {
-		t.Fatalf("incremental run indexed=%d unchanged=%d, want 1 changed file", result.Indexed, result.Unchanged)
-	}
+			before := edgeSet(t, st)
+			pendingBefore, err := st.CountPending(ctx)
+			if err != nil {
+				t.Fatalf("pending: %v", err)
+			}
 
-	after := edgeSet(t, st)
-	if len(after) != len(before) {
-		t.Fatalf("edges changed after a no-op edit: %d -> %d", len(before), len(after))
-	}
-	for key, confidence := range before {
-		if after[key] != confidence {
-			t.Errorf("edge %q changed or disappeared: %.2f -> %.2f", key, confidence, after[key])
-		}
-	}
-	pendingAfter, err := st.CountPending(ctx)
-	if err != nil {
-		t.Fatalf("pending after: %v", err)
-	}
-	if pendingAfter != pendingBefore {
-		t.Fatalf("unresolved changed after a no-op edit: %d -> %d", pendingBefore, pendingAfter)
+			path := filepath.Join(dir, filepath.FromSlash(spec.file))
+			f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+			if err != nil {
+				t.Fatalf("open for append: %v", err)
+			}
+			if _, err := f.WriteString("\n"); err != nil {
+				t.Fatalf("append: %v", err)
+			}
+			if err := f.Close(); err != nil {
+				t.Fatalf("close: %v", err)
+			}
+
+			result, err := index.Run(ctx, st, dir, index.Options{})
+			if err != nil {
+				t.Fatalf("re-index: %v", err)
+			}
+			if result.Indexed != 1 || result.Unchanged == 0 {
+				t.Fatalf("incremental run indexed=%d unchanged=%d, want 1 changed file", result.Indexed, result.Unchanged)
+			}
+
+			after := edgeSet(t, st)
+			if len(after) != len(before) {
+				t.Fatalf("edges changed after a no-op edit: %d -> %d", len(before), len(after))
+			}
+			for key, confidence := range before {
+				if after[key] != confidence {
+					t.Errorf("edge %q changed or disappeared: %.2f -> %.2f", key, confidence, after[key])
+				}
+			}
+			pendingAfter, err := st.CountPending(ctx)
+			if err != nil {
+				t.Fatalf("pending after: %v", err)
+			}
+			if pendingAfter != pendingBefore {
+				t.Fatalf("unresolved changed after a no-op edit: %d -> %d", pendingBefore, pendingAfter)
+			}
+		})
 	}
 }
 

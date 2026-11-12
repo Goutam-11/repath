@@ -391,7 +391,7 @@ func (w *walker) importStatement(n sitter.Node) {
 		case "dotted_name":
 			name := item.Content(w.src)
 			w.res.Imports = append(w.res.Imports, Import{
-				Local: firstSegment(name), Imported: "*", Source: name, Line: line,
+				Local: firstSegment(name), Imported: "*", Source: name, Line: line, Public: true,
 			})
 		case "aliased_import":
 			name := item.ChildByFieldName("name")
@@ -400,7 +400,8 @@ func (w *walker) importStatement(n sitter.Node) {
 				continue
 			}
 			w.res.Imports = append(w.res.Imports, Import{
-				Local: alias.Content(w.src), Imported: "*", Source: name.Content(w.src), Line: line,
+				Local: alias.Content(w.src), Imported: "*", Source: name.Content(w.src),
+				Line: line, Public: true,
 			})
 		}
 	}
@@ -419,7 +420,7 @@ func (w *walker) importFrom(n sitter.Node) {
 		case "dotted_name":
 			name := item.Content(w.src)
 			w.res.Imports = append(w.res.Imports, Import{
-				Local: firstSegment(name), Imported: name, Source: source, Line: line,
+				Local: firstSegment(name), Imported: name, Source: source, Line: line, Public: true,
 			})
 		case "aliased_import":
 			name := item.ChildByFieldName("name")
@@ -428,11 +429,12 @@ func (w *walker) importFrom(n sitter.Node) {
 				continue
 			}
 			w.res.Imports = append(w.res.Imports, Import{
-				Local: alias.Content(w.src), Imported: name.Content(w.src), Source: source, Line: line,
+				Local: alias.Content(w.src), Imported: name.Content(w.src),
+				Source: source, Line: line, Public: true,
 			})
 		case "wildcard_import":
 			w.res.Imports = append(w.res.Imports, Import{
-				Local: "*", Imported: "*", Source: source, Line: line,
+				Local: "*", Imported: "*", Source: source, Line: line, Public: true,
 			})
 		}
 	}
