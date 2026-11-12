@@ -23,7 +23,7 @@ repath flows <entrypoint> --json          # forward execution paths
 repath tests <symbol|file:line> --json    # structurally affected test files
 repath check --fail-on warning --json     # cycles, dead code, boundaries, hotspots
 repath check --sarif tsc.sarif --json     # attach external SARIF 2.1.0 diagnostics
-repath adapter --scip index.scip --json    # optional compiler facts for unresolved refs
+repath adapter --scip index.scip --json    # optional TS/Python compiler facts for unresolved refs
 ```
 
 `--min-confidence` (default 0.5) is the precision/completeness dial: 0.9 keeps

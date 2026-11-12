@@ -43,20 +43,31 @@ func adapterCmd(args []string, stdout, stderr io.Writer) int {
 		}
 		return 1
 	}
-	stats, err := adapter.ApplySCIP(ctx, st.Store, index)
+	statsList, err := adapter.ApplySCIPAll(ctx, st.Store, index)
 	if err != nil {
 		fmt.Fprintf(stderr, "adapter: %v\n", err)
 		return 1
 	}
 
 	if opts.json {
-		if err := writeJSON(stdout, stats); err != nil {
+		var payload any = statsList
+		if len(statsList) == 1 {
+			// Single-language indexes keep the original object shape.
+			payload = statsList[0]
+		} else {
+			payload = struct {
+				Adapters []adapter.Stats `json:"adapters"`
+			}{statsList}
+		}
+		if err := writeJSON(stdout, payload); err != nil {
 			fmt.Fprintf(stderr, "encode adapter: %v\n", err)
 			return 1
 		}
 		return 0
 	}
-	fmt.Fprintf(stdout, "scip adapter: %d definitions · %d references · %d matched · %d edges · %d conflicts · %d skipped · %d unmatched\n",
-		stats.Definitions, stats.References, stats.Matched, stats.Edges, stats.Conflicts, stats.Skipped, stats.Unmatched)
+	for _, stats := range statsList {
+		fmt.Fprintf(stdout, "%s adapter: %d definitions · %d references · %d matched · %d edges · %d conflicts · %d skipped · %d unmatched\n",
+			stats.Adapter, stats.Definitions, stats.References, stats.Matched, stats.Edges, stats.Conflicts, stats.Skipped, stats.Unmatched)
+	}
 	return 0
 }
