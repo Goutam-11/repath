@@ -59,7 +59,7 @@ Two hard constraints inherited from the field:
 | 5 | Agent API | 6 answer-shaped MCP tools + JSON CLI | Small tool surface = reliable tool selection |
 | 6 | Human output | Structured text on stdout + `--json` | Pipeable, diffable, zero dependencies |
 | 7 | Proof | Golden fixtures with P/R gates in CI | Regression protection without an LLM harness |
-| 8 | Nodes | Symbol + file + module; rollups on read | No duplicated edges, no drift after incremental |
+| 8 | Nodes | Symbols are the only nodes; file and module are dimensions (amended in M2) | Same rollup power, no 10k no-op nodes, no drift after incremental |
 | 9 | Modules | Manifest-first, directory fallback | Zero-config that survives monorepos |
 | 10 | Identity | Scoped qname + kind + arity; lines for display | Survives edits, disambiguates overloads |
 | 11 | Fidelity | tree-sitter + scope heuristics + confidence | Zero setup; adapter seam left for later |
@@ -111,14 +111,15 @@ CREATE INDEX nodes_loc ON nodes (file_id, start_line);
 CREATE TABLE pending (name TEXT, file_id INT, kind TEXT, line INT);
 ```
 
-**Node kinds:** `function, method, class, struct, trait, interface, type, enum, const, file, module`.
-**Edge kinds:** `CALLS, REFERENCES, IMPORTS, EXTENDS, IMPLEMENTS, DEFINES, CONTAINS`.
+**Node kinds:** `function, method, class, struct, trait, interface, type, enum, const`.
+**Edge kinds:** `CALLS, REFERENCES, EXTENDS, IMPLEMENTS`.
 
 Invariants:
 
-- `CALLS`/`REFERENCES`/`EXTENDS`/`IMPLEMENTS` are symbol→symbol.
-- `IMPORTS` is file→file (resolved path), with the imported names in `candidates`.
-- `DEFINES` is file→symbol, `CONTAINS` is module→file.
+- Every edge is symbol→symbol. Files and modules are **dimensions** on rows
+  (`files.id`, `files.module_id`), not nodes: rollups group by them at read time.
+- Imports are resolution inputs, not edges; they live in `pending` semantics and
+  the resolver, not in the graph.
 - File- and module-level impact is **computed at read time** by grouping symbol
   edges. No rollup rows exist in the database.
 - `confidence` ∈ `(0,1]`; `rule` is a stable id (`ts.import.named`,
@@ -389,6 +390,15 @@ incremental. 9,248 references stay unresolved, dominated by member calls without
 typed receivers — the honest ceiling of tree-sitter resolution and the first
 target for the v1.1 adapter seam.
 
+**M2 landed** (PR #5): module detection from package.json workspaces (directory
+fallback), `impact` (reverse closure, depth cap, cycle-safe), `path` (shortest
+chain, alternates, nearest-frontier fallback), and `map` (PageRank, module graph,
+SCC cycles, token budget). On a synthetic 10k-file chain: index 2.8 s, `impact`
+p95 25 ms, `map` 120 ms. Member calls now use locally inferred receiver types
+instead of name guessing: the false `BinaryHeap.push` hub (219 callers) vanished,
+excalidraw's `CALLS` fell 6,447 → 3,976, and the real hubs (`t`,
+`isArrowElement`) rose to the top.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language
@@ -413,7 +423,7 @@ target for the v1.1 adapter seam.
 | Worktree seed cost | 300 MB copy per new worktree | `copy_file_range`/reflink when available, LRU to 5 commit DBs |
 | Scope creep (tests, entrypoints, UI) | new node kinds mid-milestone | non-goals list is binding until v1 ships |
 | Grammar rejects valid TS | files with `parse_ok=0` | surfaced in `status`; partial symbols kept; upgrade grammar, never hide the count |
-| Member-call precision | 0.6-rule edges dominate on real repos | rule id on every edge, `--min-confidence` 0.9 for import/this/local only; typed-receiver inference is the M4+ fix |
+| Member-call precision | untyped receivers leave member calls unresolved (12k on excalidraw) | types come only from annotations, `new`, and parameters; `--min-confidence` filters the rest; a type-aware adapter is the v1.1 fix |
 
 ## 15. Non-goals for v1
 
