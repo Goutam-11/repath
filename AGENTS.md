@@ -6,8 +6,8 @@ humans and coding agents. One static binary, SQLite, no LLM, no server.
 
 **Current state: M5 + v1.1 `check`.** TypeScript/JS, Python, and Rust are
 indexed; the MCP adapter + skill, artifact export/pull, and worktree seeding are
-in, and `repath check` adds graph-native CI diagnostics. The measured 10k budget
-lives in PLAN §12 and is reproducible with `make perf`.
+in, and `repath check` adds graph-native CI diagnostics. The measured 10k and
+50k budgets live in PLAN §12 and are reproducible with `make perf`.
 
 ## Read first
 
@@ -26,7 +26,7 @@ same PR with the reason. Silent drift is the one thing this repo does not allow.
 make build      # bin/repath
 make check      # gofmt + vet + tests — the PR gate
 make test
-make perf       # opt-in 10k synthetic budget (outside make check)
+make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 
 ./bin/repath status --json                 # indexes lazily, prints counts
 ./bin/repath index --full                  # rebuild
@@ -171,8 +171,11 @@ the database.
 - **The cache schema is sidecar-checked.** `<sha>.db` is trusted only when
   `<sha>.db.schema` matches `store.SchemaVersion`; bumping the schema rebuilds
   old caches instead of seeding them.
-- **`make perf` is opt-in.** `TestPerf10k` skips without `REPATH_PERF=1`; it is
-  evidence, not a CI gate (timings are machine-dependent).
+- **`make perf` is opt-in.** `TestPerf10k` and `TestPerf50k` skip without
+  `REPATH_PERF=1`; `make perf` runs each in its own process so the Linux VmHWM
+  reading belongs to that tree. It is evidence, not a CI gate (timings are
+  machine-dependent). The 50k target is <3 min and <1 GB RSS; the 10k budgets
+  are unchanged and must stay green.
 - **`check` is graph-native, not a compiler.** Dead code only considers private
   functions/methods; exported API, test paths, parse failures, and special
   entrypoint names are excluded. Boundary checks are objective heuristics

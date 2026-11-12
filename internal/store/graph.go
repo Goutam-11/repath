@@ -120,6 +120,39 @@ func (s *Store) GraphEdges(ctx context.Context, minConfidence float64) ([]EdgeOu
 	return s.edgesWhere(ctx, "", nil, minConfidence)
 }
 
+// EdgeSkeleton is an edge without its endpoint symbols joined in. Map ranking
+// needs only ids and kinds; skipping two node joins and 31 scanned columns
+// keeps `map` inside its p95 budget on a 50k graph.
+type EdgeSkeleton struct {
+	Src, Dst   int64
+	Kind       string
+	Confidence float64
+	Rule       string
+	Line       int
+}
+
+// GraphEdgeSkeletons returns every edge at or above minConfidence without
+// joining the endpoint nodes.
+func (s *Store) GraphEdgeSkeletons(ctx context.Context, minConfidence float64) ([]EdgeSkeleton, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT src, dst, kind, confidence, rule, line
+		FROM edges WHERE confidence >= ?`, minConfidence)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []EdgeSkeleton
+	for rows.Next() {
+		var e EdgeSkeleton
+		if err := rows.Scan(&e.Src, &e.Dst, &e.Kind, &e.Confidence, &e.Rule, &e.Line); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
 // maxParams keeps each IN list under SQLite's variable limit.
 const maxParams = 900
 
