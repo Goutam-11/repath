@@ -5,41 +5,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/Goutam-11/repath/internal/index"
-	"github.com/Goutam-11/repath/internal/store"
+	"github.com/Goutam-11/repath/internal/query"
 )
 
-// statusReport is the `status --json` contract.
-type statusReport struct {
-	Root          string         `json:"root"`
-	Indexed       bool           `json:"indexed"`
-	SchemaVersion int            `json:"schema_version"`
-	Version       string         `json:"version"`
-	Files         int            `json:"files"`
-	Nodes         int            `json:"nodes"`
-	NodesByKind   map[string]int `json:"nodes_by_kind"`
-	ParseFailures int            `json:"parse_failures"`
-	Edges         map[string]int `json:"edges"`
-	Ambiguous     int            `json:"ambiguous"`
-	AmbiguityRate float64        `json:"ambiguity_rate"`
-	Unresolved    int            `json:"unresolved"`
-	LastIndexed   string         `json:"last_indexed,omitempty"`
-	GitHead       string         `json:"git_head,omitempty"`
-	Refresh       refreshReport  `json:"refresh"`
-}
-
-type refreshReport struct {
-	FilesIndexed int   `json:"files_indexed"`
-	FilesSkipped int   `json:"files_skipped"`
-	FilesDeleted int   `json:"files_deleted"`
-	DurationMS   int64 `json:"duration_ms"`
-}
+// statusReport is the `status --json` contract, owned by the shared query layer.
+type statusReport = query.StatusReport
+type refreshReport = query.RefreshReport
 
 func statusCmd(args []string, stdout, stderr io.Writer) int {
 	opts, _, err := parseOptions(args)
@@ -48,86 +23,26 @@ func statusCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	root, err := resolveRoot(opts.root)
+	root, err := query.ResolveRoot(opts.root)
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve root: %v\n", err)
 		return 1
 	}
 
 	ctx := context.Background()
-	st, err := openIndex(ctx, root)
+	st, err := query.Open(ctx, root, true)
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)
 		return 1
 	}
 	defer st.Close()
 
-	var refresh index.Result
-	if !opts.noRefresh {
-		refresh, err = index.Run(ctx, st, root, index.Options{Full: opts.full})
-		if err != nil {
-			fmt.Fprintf(stderr, "index: %v\n", err)
-			return 1
-		}
-	}
-
-	counts, err := st.Counts(ctx)
+	report, err := query.Status(ctx, st.Store, root, !opts.noRefresh, opts.full)
 	if err != nil {
-		fmt.Fprintf(stderr, "read index: %v\n", err)
+		fmt.Fprintf(stderr, "status: %v\n", err)
 		return 1
 	}
-	meta, err := st.Meta(ctx)
-	if err != nil {
-		fmt.Fprintf(stderr, "read index: %v\n", err)
-		return 1
-	}
-
-	edges, err := st.EdgeCounts(ctx)
-	if err != nil {
-		fmt.Fprintf(stderr, "read edges: %v\n", err)
-		return 1
-	}
-	unresolved, err := st.CountPending(ctx)
-	if err != nil {
-		fmt.Fprintf(stderr, "read pending: %v\n", err)
-		return 1
-	}
-	ambiguous, err := st.AmbiguousEdges(ctx)
-	if err != nil {
-		fmt.Fprintf(stderr, "read ambiguity: %v\n", err)
-		return 1
-	}
-	totalEdges := 0
-	for _, n := range edges {
-		totalEdges += n
-	}
-	ambiguityRate := 0.0
-	if totalEdges > 0 {
-		ambiguityRate = float64(ambiguous) / float64(totalEdges)
-	}
-
-	report := statusReport{
-		Root:          root,
-		Indexed:       counts.Files > 0,
-		SchemaVersion: store.SchemaVersion,
-		Version:       version,
-		Files:         counts.Files,
-		Nodes:         counts.Nodes,
-		NodesByKind:   counts.ByKind,
-		ParseFailures: counts.ParseFailures,
-		Edges:         edges,
-		Ambiguous:     ambiguous,
-		AmbiguityRate: ambiguityRate,
-		Unresolved:    unresolved,
-		LastIndexed:   meta["indexed_at"],
-		GitHead:       meta["git_head"],
-		Refresh: refreshReport{
-			FilesIndexed: refresh.Indexed,
-			FilesSkipped: refresh.Unchanged,
-			FilesDeleted: refresh.Deleted,
-			DurationMS:   refresh.Duration.Milliseconds(),
-		},
-	}
+	report.Version = version
 
 	if opts.json {
 		if err := writeJSON(stdout, report); err != nil {
@@ -164,14 +79,20 @@ func printStatus(out io.Writer, r statusReport) {
 		for _, kind := range kinds {
 			parts = append(parts, fmt.Sprintf("%s %d", kind, r.Edges[kind]))
 		}
-		fmt.Fprintf(out, "edges %s · ambiguous %d (%.1f%%) · unresolved %d\n",
-			strings.Join(parts, " · "), r.Ambiguous, r.AmbiguityRate*100, r.Unresolved)
+		fmt.Fprintf(out, "edges %s · ambiguous %d (%.1f%%) · unresolved %d (%.1f%%)\n",
+			strings.Join(parts, " · "), r.Ambiguous, r.AmbiguityRate*100, r.Unresolved, r.UnresolvedRate*100)
 	}
 
 	if r.LastIndexed != "" {
 		fmt.Fprintf(out, "indexed %s · +%d ~%d -%d in %dms\n",
 			r.LastIndexed, r.Refresh.FilesIndexed, r.Refresh.FilesSkipped,
 			r.Refresh.FilesDeleted, r.Refresh.DurationMS)
+	}
+	if r.Stale {
+		fmt.Fprintf(out, "stale: index at %s, HEAD at %s\n", shortSHA(r.GitHead), shortSHA(r.CurrentHead))
+	}
+	if r.DirtyFiles > 0 {
+		fmt.Fprintf(out, "dirty: %d changed or untracked files\n", r.DirtyFiles)
 	}
 }
 
@@ -182,21 +103,21 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	root, err := resolveRoot(opts.root)
+	root, err := query.ResolveRoot(opts.root)
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve root: %v\n", err)
 		return 1
 	}
 
 	ctx := context.Background()
-	st, err := openIndex(ctx, root)
+	st, err := query.Open(ctx, root, true)
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)
 		return 1
 	}
 	defer st.Close()
 
-	result, err := index.Run(ctx, st, root, index.Options{Full: opts.full})
+	result, err := index.Run(ctx, st.Store, root, index.Options{Full: opts.full})
 	if err != nil {
 		fmt.Fprintf(stderr, "index: %v\n", err)
 		return 1
@@ -235,36 +156,15 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func openIndex(ctx context.Context, root string) (*store.Store, error) {
-	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
-	if err != nil {
-		return nil, fmt.Errorf("open index: %w", err)
-	}
-	if err := st.Migrate(ctx); err != nil {
-		st.Close()
-		return nil, fmt.Errorf("migrate index: %w", err)
-	}
-	return st, nil
-}
-
-// resolveRoot prefers the explicit flag, then the git work-tree root, then the
-// current directory.
-func resolveRoot(flag string) (string, error) {
-	if flag != "" {
-		return filepath.Abs(flag)
-	}
-
-	if out, err := exec.Command("git", "rev-parse", "--show-toplevel").Output(); err == nil {
-		if root := strings.TrimSpace(string(out)); root != "" {
-			return root, nil
-		}
-	}
-
-	return os.Getwd()
-}
-
 func writeJSON(out io.Writer, value any) error {
 	enc := json.NewEncoder(out)
 	enc.SetIndent("", "  ")
 	return enc.Encode(value)
+}
+
+func shortSHA(sha string) string {
+	if len(sha) > 12 {
+		return sha[:12]
+	}
+	return sha
 }

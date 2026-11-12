@@ -25,6 +25,7 @@ Usage:
   repath impact  <symbol|file:line> [--depth N] [--limit N] [--json]
   repath path    <from> <to> [--max-depth N] [--json]
   repath map     [--max-tokens N] [--json]
+  repath mcp     [--root DIR]
   repath version
 
 Commands:
@@ -35,11 +36,15 @@ Commands:
   impact   transitive blast radius of a change
   path     how one symbol reaches another
   map      ranked overview: modules, cycles, hot symbols
+  mcp      stdio JSON-RPC server for MCP clients (six answer tools)
   version  print the build version
 
 Exit codes:
   0 ok   1 internal   2 usage   3 not found   4 ambiguous
 `
+
+// Version reports the build version.
+func Version() string { return version }
 
 // Run executes one command against the given streams and returns the process
 // exit code.
@@ -86,6 +91,7 @@ type options struct {
 	depth         int
 	limit         int
 	maxTokens     int
+	module        string
 }
 
 // parseOptions returns the flags and the positional arguments.
@@ -130,6 +136,14 @@ func parseOptions(args []string) (options, []string, error) {
 			if _, err := fmt.Sscanf(args[i], "%d", &o.depth); err != nil {
 				return o, nil, fmt.Errorf("%s %q is not a number", arg, args[i])
 			}
+		case arg == "--module":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--module needs a name")
+			}
+			i++
+			o.module = args[i]
+		case strings.HasPrefix(arg, "--module="):
+			o.module = strings.TrimPrefix(arg, "--module=")
 		case arg == "--limit":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--limit needs a number")
