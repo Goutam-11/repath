@@ -29,7 +29,7 @@ cross-compile, and runtime notes are in [`docs/install.md`](docs/install.md).
 
 ```sh
 # release binary
-tar -xzf repath_vX.Y.Z_linux_amd64.tar.gz && sudo install -m 0755 repath /usr/local/bin/
+tar -xzf repath_X.Y.Z_linux_amd64.tar.gz && sudo install -m 0755 repath /usr/local/bin/
 repath --version
 
 # or from source
