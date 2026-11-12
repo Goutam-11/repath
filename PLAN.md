@@ -168,8 +168,8 @@ out/repath-<sha>.sqlite + manifest.json       CI artifact, read-only
 > `github.com/klauspost/compress/zstd`. `manifest.format` is authoritative
 > (`sqlite` or `sqlite+zstd`), `pull` reads both, and the schema gate runs for
 > both. Measured on the synthetic trees: 10k **3.8 MiB → 991 KiB** (25.3%),
-> 50k **19.2 MiB → 4.8 MiB** (25.2%); 50k export **158 → 224 ms**, pull
-> **13.9 → 38.8 ms**. The default remains uncompressed.
+> 50k **19.2 MiB → 4.8 MiB** (25.2%); 50k export **127 → 190 ms**, pull
+> **11.8 → 30.9 ms**. The default remains uncompressed.
 
 ### 4.2 Worktrees — the primary multi-agent case
 
@@ -513,7 +513,7 @@ runs before and after decompression. The dependency is the approved
 `github.com/klauspost/compress/zstd` v1.20.4, imported only by
 `internal/artifact`; the default artifact is still uncompressed. Measured
 10k **3.8 MiB → 991 KiB**, 50k **19.2 MiB → 4.8 MiB**; 50k export
-**158 → 224 ms**, pull **13.9 → 38.8 ms**. See `docs/sharing.md`.
+**127 → 190 ms**, pull **11.8 → 30.9 ms**. See `docs/sharing.md`.
 
 **v1.1 MCP negotiation landed** (issue #17): the adapter is dual-era. It still
 answers the legacy `initialize` handshake at 2024-11-05, and now implements the
@@ -563,21 +563,21 @@ separate process so Linux `VmHWM` is that tree's own peak. Measured here:
 
 | Metric | 50k result | PLAN §10 target |
 |---|---|---|
-| Cold index | **14.3 s** | <3 min |
-| Peak RSS | **298 MiB** | <1 GB |
-| 10-file incremental | **665 ms** | <1 s |
-| `impact` p50/p95 | **59.5 / 64.0 ms** | <150 ms p95 |
-| `callers` p50/p95 | **34.7 / 36.5 ms** | <150 ms p95 |
-| `path` p50/p95 | **43.1 / 46.9 ms** | <250 ms p95 |
-| `map --max-tokens 2000` p50/p95 | **225.9 / 228.1 ms** | <300 ms p95 |
-| `check` | **490 ms** | no target |
-| artifact export / pull | **19.2 MiB · 132 ms / 12.3 ms** | no target |
+| Cold index | **13.4 s** | <3 min |
+| Peak RSS | **278 MiB** | <1 GB |
+| 10-file incremental | **699 ms** | <1 s |
+| `impact` p50/p95 | **57.1 / 61.1 ms** | <150 ms p95 |
+| `callers` p50/p95 | **33.5 / 35.6 ms** | <150 ms p95 |
+| `path` p50/p95 | **42.1 / 45.3 ms** | <250 ms p95 |
+| `map --max-tokens 2000` p50/p95 | **216.4 / 222.6 ms** | <300 ms p95 |
+| `check` | **464 ms** | no target |
+| artifact export / pull | **19.2 MiB · 127 ms / 11.8 ms** | no target |
 | MCP `impact` round-trip | **88 ms** | no target |
-| cold index + first query | **14.3 s** | — |
+| cold index + first query | **13.5 s** | — |
 
 `map` first missed its p95 budget (432 ms) because `BuildMap` joined both
 endpoint symbols for every edge and allocated a map per PageRank iteration. It
-now reads edge skeletons (no joins) into dense slices: 50k p95 **221–228 ms**, and
+now reads edge skeletons (no joins) into dense slices: 50k p95 **217–228 ms**, and
 the 10k p95 fell from 187 ms to **82 ms**. The 10k budgets were not loosened.
 The synthetic files are one-line functions, so the 19.2 MiB artifact is not the
 250–400 MB real-repo estimate; the timings and memory are the 50k claim here.

@@ -57,8 +57,8 @@ shell-out to an external `zstd` binary, and gives a measurable size win:
 
 | Tree | Uncompressed | zstd | Ratio | Export time | Pull time |
 | --- | --- | --- | --- | --- | --- |
-| 10k synthetic | 3.8 MiB | 991 KiB | 25.3% | 29.4 → 48.0 ms | 4.5 → 9.5 ms |
-| 50k synthetic | 19.2 MiB | 4.8 MiB | 25.2% | 158 → 224 ms | 13.9 → 38.8 ms |
+| 10k synthetic | 3.8 MiB | 990 KiB | 25.3% | 25.4 → 41.2 ms | 3.9 → 8.7 ms |
+| 50k synthetic | 19.2 MiB | 4.8 MiB | 25.2% | 127 → 190 ms | 11.8 → 30.9 ms |
 
 The 50k tree's tiny one-line functions are not the 250–400 MB real-repo
 estimate, so treat the ratio as the claim, not the absolute size. The schema

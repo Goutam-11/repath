@@ -145,6 +145,6 @@ classifier (including `testdata/`, `__tests__/`, `*.test.*`, `*.spec.*`,
 `internal/testpath.IsTest`, shared with `repath tests`. `internal/cli/check_test.go`
 covers the text report, JSON, `--fail-on` thresholds, and usage errors.
 
-On the reproducible 50k tree from `make perf-50k`, `check` takes **490 ms**
-(0 findings); the 10k tree takes **89 ms**. The 50k tree is synthetic and has
+On the reproducible 50k tree from `make perf-50k`, `check` takes **464 ms**
+(0 findings); the 10k tree takes **86 ms**. The 50k tree is synthetic and has
 no violations, so this is runtime evidence, not a false-positive benchmark.

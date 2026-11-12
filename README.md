@@ -62,8 +62,8 @@ measured 10k-file synthetic tree (reproducible with `make perf-10k`): cold
 index **5.0 s**, 10-file incremental **237 ms**, `impact` p95 **24.5 ms**, a
 second worktree warm seed **12.9 ms**, and a cold build **21.8 s** — README
 quickstart to first answer **~27 s**, inside the 60 s budget. The 50k tree
-(`make perf-50k`): cold index **14.3 s**, peak RSS **298 MiB**, `impact` p95
-**64.0 ms**, `map` p95 **228 ms**, `check` **490 ms** — every PLAN §10 budget
+(`make perf-50k`): cold index **13.4 s**, peak RSS **278 MiB**, `impact` p95
+**61.1 ms**, `map` p95 **223 ms**, `check` **464 ms** — every PLAN §10 budget
 met. The full table is in `PLAN.md` §12.
 
 Add `.repath/` to your own `.gitignore`. Languages today:
