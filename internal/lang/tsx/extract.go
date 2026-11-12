@@ -31,10 +31,11 @@ const (
 // Symbol, Ref, Import, and Result are the shared extraction-fact types. The
 // aliases keep tsx's public surface unchanged for existing callers.
 type (
-	Symbol = facts.Symbol
-	Ref    = facts.Ref
-	Import = facts.Import
-	Result = facts.Result
+	Symbol     = facts.Symbol
+	Ref        = facts.Ref
+	Import     = facts.Import
+	Entrypoint = facts.Entrypoint
+	Result     = facts.Result
 )
 
 // Extractor holds one parser per dialect. It is not safe for concurrent use;
@@ -165,6 +166,7 @@ func (w *walker) node(n sitter.Node, enclosing string, exported bool) {
 
 	case "call_expression":
 		w.call(n, enclosing)
+		w.routeEntrypoint(n)
 		w.children(n, enclosing)
 		return
 
@@ -305,6 +307,68 @@ func (w *walker) call(n sitter.Node, enclosing string) {
 		}
 		w.res.Refs = append(w.res.Refs, ref)
 	}
+}
+
+// routeEntrypoint marks a named handler passed to an Express/Fastify-style
+// registration. Inline handlers have no symbol to anchor to; they are skipped
+// rather than inventing a symbol.
+func (w *walker) routeEntrypoint(n sitter.Node) {
+	fn := n.ChildByFieldName("function")
+	if fn.IsNull() || fn.Type() != "member_expression" {
+		return
+	}
+	obj := fn.ChildByFieldName("object")
+	prop := fn.ChildByFieldName("property")
+	if obj.IsNull() || prop.IsNull() || obj.Type() != "identifier" {
+		return
+	}
+	method := prop.Content(w.src)
+	if !routeMethod(method) {
+		return
+	}
+	rule := ""
+	switch obj.Content(w.src) {
+	case "app", "router":
+		rule = "ts.route.express"
+	case "fastify", "server":
+		rule = "ts.route.fastify"
+	default:
+		return
+	}
+
+	args := n.ChildByFieldName("arguments")
+	if args.IsNull() {
+		return
+	}
+	name := routePath(args, w.src)
+	for i := uint32(0); i < args.NamedChildCount(); i++ {
+		arg := args.NamedChild(i)
+		if arg.Type() != "identifier" {
+			continue
+		}
+		w.res.Entrypoints = append(w.res.Entrypoints, Entrypoint{
+			QName: arg.Content(w.src), Name: name, Rule: rule,
+			Confidence: 0.90, Line: int(n.StartPoint().Row) + 1,
+		})
+	}
+}
+
+func routeMethod(name string) bool {
+	switch name {
+	case "get", "post", "put", "patch", "delete", "all", "route":
+		return true
+	}
+	return false
+}
+
+func routePath(args sitter.Node, src []byte) string {
+	for i := uint32(0); i < args.NamedChildCount(); i++ {
+		arg := args.NamedChild(i)
+		if arg.Type() == "string" {
+			return unquote(arg.Content(src))
+		}
+	}
+	return "route"
 }
 
 func (w *walker) ctor(n sitter.Node, enclosing string) {

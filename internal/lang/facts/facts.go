@@ -43,11 +43,23 @@ type Import struct {
 	Public bool
 }
 
+// Entrypoint anchors one symbol as an execution entry. It is a dimension over
+// symbols, never a new node; Name carries the route or test convention for
+// display and debugging.
+type Entrypoint struct {
+	QName      string
+	Name       string
+	Rule       string
+	Confidence float64
+	Line       int
+}
+
 // Result is everything one file contributes to the graph.
 type Result struct {
-	Symbols []Symbol
-	Refs    []Ref
-	Imports []Import
-	OK      bool
-	Err     string
+	Symbols     []Symbol
+	Refs        []Ref
+	Imports     []Import
+	Entrypoints []Entrypoint
+	OK          bool
+	Err         string
 }

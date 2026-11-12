@@ -14,7 +14,7 @@ import (
 
 // SchemaVersion is bumped whenever the schema below changes. A binary refuses
 // an index written by a newer version.
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta    (key TEXT PRIMARY KEY, value TEXT);
@@ -71,11 +71,25 @@ CREATE TABLE IF NOT EXISTS imports (
     line     INTEGER NOT NULL DEFAULT 0,
     public   INTEGER NOT NULL DEFAULT 0
 );
+-- Entrypoints are a dimension over symbols, not a node kind. One symbol can be
+-- an entrypoint for several rules (for example a main that is also a test).
+CREATE TABLE IF NOT EXISTS entrypoints (
+    id         INTEGER PRIMARY KEY,
+    node_id    INTEGER NOT NULL,
+    file_id    INTEGER NOT NULL,
+    rule       TEXT NOT NULL,
+    name       TEXT NOT NULL DEFAULT '',
+    confidence REAL NOT NULL,
+    line       INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (node_id, rule)
+);
 CREATE INDEX IF NOT EXISTS edges_rev    ON edges (dst, kind, confidence);
 CREATE INDEX IF NOT EXISTS nodes_qn     ON nodes (qname);
 CREATE INDEX IF NOT EXISTS nodes_loc    ON nodes (file_id, start_line);
 CREATE INDEX IF NOT EXISTS pending_name ON pending (name);
 CREATE INDEX IF NOT EXISTS imports_file ON imports (file_id);
+CREATE INDEX IF NOT EXISTS entrypoints_rule ON entrypoints (rule);
+CREATE INDEX IF NOT EXISTS entrypoints_file ON entrypoints (file_id);
 CREATE UNIQUE INDEX IF NOT EXISTS modules_root ON modules (root);
 `
 
@@ -405,10 +419,71 @@ func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes 
 	return written, nil
 }
 
-// DeleteFile removes a file row and its nodes and import bindings.
+// NodeIDsByFile maps qname to node id for one file inside a write transaction.
+func (t *Tx) NodeIDsByFile(ctx context.Context, fileID int64) (map[string]int64, error) {
+	rows, err := t.tx.QueryContext(ctx, `SELECT qname, id FROM nodes WHERE file_id = ?`, fileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]int64)
+	for rows.Next() {
+		var qname string
+		var id int64
+		if err := rows.Scan(&qname, &id); err != nil {
+			return nil, err
+		}
+		out[qname] = id
+	}
+	return out, rows.Err()
+}
+
+// EntrypointRow is one symbol anchored by an entrypoint rule.
+type EntrypointRow struct {
+	NodeID     int64
+	FileID     int64
+	Rule       string
+	Name       string
+	Confidence float64
+	Line       int
+}
+
+// ReplaceEntrypoints swaps the entrypoint dimension for one file.
+func (t *Tx) ReplaceEntrypoints(ctx context.Context, fileID int64, entries []EntrypointRow) error {
+	if _, err := t.tx.ExecContext(ctx, `DELETE FROM entrypoints WHERE file_id = ?`, fileID); err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	stmt, err := t.tx.PrepareContext(ctx, `
+		INSERT INTO entrypoints (node_id, file_id, rule, name, confidence, line)
+		VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT (node_id, rule) DO UPDATE SET
+			name = excluded.name,
+			confidence = excluded.confidence,
+			line = excluded.line`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, entry := range entries {
+		if _, err := stmt.ExecContext(ctx, entry.NodeID, fileID, entry.Rule, entry.Name, entry.Confidence, entry.Line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DeleteFile removes a file row and its nodes, entrypoints, and import bindings.
 func (t *Tx) DeleteFile(ctx context.Context, path string) error {
 	if _, err := t.tx.ExecContext(ctx,
 		`DELETE FROM nodes WHERE file_id = (SELECT id FROM files WHERE path = ?)`, path); err != nil {
+		return err
+	}
+	if _, err := t.tx.ExecContext(ctx,
+		`DELETE FROM entrypoints WHERE file_id = (SELECT id FROM files WHERE path = ?)`, path); err != nil {
 		return err
 	}
 	if _, err := t.tx.ExecContext(ctx,

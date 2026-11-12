@@ -70,6 +70,22 @@ func printStatus(out io.Writer, r statusReport) {
 		fmt.Fprintf(out, "  %-10s %d\n", kind, r.NodesByKind[kind])
 	}
 
+	if r.Entrypoints > 0 {
+		fmt.Fprintf(out, "%d entrypoints", r.Entrypoints)
+		if len(r.EntrypointRules) > 0 {
+			rules := make([]string, 0, len(r.EntrypointRules))
+			for rule := range r.EntrypointRules {
+				rules = append(rules, rule)
+			}
+			sort.Strings(rules)
+			parts := make([]string, 0, len(rules))
+			for _, rule := range rules {
+				parts = append(parts, fmt.Sprintf("%s %d", rule, r.EntrypointRules[rule]))
+			}
+			fmt.Fprintf(out, " (%s)", strings.Join(parts, " · "))
+		}
+		fmt.Fprintln(out)
+	}
 	if len(r.Edges) > 0 {
 		kinds := make([]string, 0, len(r.Edges))
 		for kind := range r.Edges {

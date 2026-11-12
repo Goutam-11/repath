@@ -128,7 +128,7 @@ symbol when `name` is defined in `pkg/__init__.py`, and binds a submodule when
 m` and `import pkg.mod` both keep the dotted path, so `pkg.mod.f()` and
 `m.f()` resolve.
 
-Import bindings are persisted per file in the `imports` table (schema v4). They
+Import bindings are persisted per file in the `imports` table (schema v5, extended for entrypoints). They
 are resolution inputs, never nodes or edges. Storing them is what lets a package
 `__init__.py` (or a compat module such as `requests.compat`) re-export a name to
 a file that was not re-parsed in the current incremental run. A re-export chain
@@ -208,8 +208,10 @@ imports define the same name the last one wins, matching Python execution.
   not modelled.
 - **Dynamic constructs.** `__import__`, `getattr`, metaclass-generated methods,
   and conditional imports (last import wins) are outside the static model.
-- **Entrypoint marker.** `if __name__ == "__main__"` is not stored: v1 has no
-  entrypoint node (PLAN §15), so the marker is deferred rather than invented.
+- **Entrypoint marker.** `if __name__ == "__main__"` is stored as the
+  `py.main` entrypoint dimension when a module-level `main()` exists; a script
+  with only top-level statements has no symbol to anchor and stays
+  undetected. See `docs/flows.md`.
 
 ## Tuning
 

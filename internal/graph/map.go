@@ -25,10 +25,12 @@ type ModuleStat struct {
 
 // MapResult is the repository overview.
 type MapResult struct {
-	Modules   []ModuleStat `json:"modules"`
-	Cycles    [][]string   `json:"cycles"`
-	Top       []Ranked     `json:"top"`
-	Truncated bool         `json:"truncated"`
+	Modules         []ModuleStat   `json:"modules"`
+	Cycles          [][]string     `json:"cycles"`
+	Top             []Ranked       `json:"top"`
+	Entrypoints     int            `json:"entrypoints"`
+	EntrypointRules map[string]int `json:"entrypoint_rules,omitempty"`
+	Truncated       bool           `json:"truncated"`
 }
 
 // BuildMap ranks symbols with PageRank over call edges, rolls modules up into a
@@ -51,6 +53,14 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 	if err != nil {
 		return MapResult{}, err
 	}
+	entrypointRules, err := st.EntrypointCounts(ctx)
+	if err != nil {
+		return MapResult{}, err
+	}
+	entrypointCount := 0
+	for _, count := range entrypointRules {
+		entrypointCount += count
+	}
 
 	edges := make([]store.EdgeSkeleton, 0, len(all))
 	for _, e := range all {
@@ -61,7 +71,7 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 
 	ranks, callers := pageRank(nodes, edges)
 
-	result := MapResult{}
+	result := MapResult{Entrypoints: entrypointCount, EntrypointRules: entrypointRules}
 
 	// Module section: symbol counts and outgoing module dependencies.
 	moduleSymbols := map[string]int{}

@@ -20,26 +20,28 @@ type RefreshReport struct {
 
 // StatusReport is the `status --json` contract, shared by the CLI and MCP.
 type StatusReport struct {
-	Root           string          `json:"root"`
-	Indexed        bool            `json:"indexed"`
-	SchemaVersion  int             `json:"schema_version"`
-	Version        string          `json:"version,omitempty"`
-	Files          int             `json:"files"`
-	Nodes          int             `json:"nodes"`
-	NodesByKind    map[string]int  `json:"nodes_by_kind"`
-	ParseFailures  int             `json:"parse_failures"`
-	Edges          map[string]int  `json:"edges"`
-	Ambiguous      int             `json:"ambiguous"`
-	AmbiguityRate  float64         `json:"ambiguity_rate"`
-	Unresolved     int             `json:"unresolved"`
-	UnresolvedRate float64         `json:"unresolved_rate"`
-	LastIndexed    string          `json:"last_indexed,omitempty"`
-	GitHead        string          `json:"git_head,omitempty"`
-	CurrentHead    string          `json:"current_head,omitempty"`
-	Stale          bool            `json:"stale"`
-	DirtyFiles     int             `json:"dirty_files"`
-	Adapters       []adapter.Stats `json:"adapters,omitempty"`
-	Refresh        RefreshReport   `json:"refresh"`
+	Root            string          `json:"root"`
+	Indexed         bool            `json:"indexed"`
+	SchemaVersion   int             `json:"schema_version"`
+	Version         string          `json:"version,omitempty"`
+	Files           int             `json:"files"`
+	Nodes           int             `json:"nodes"`
+	NodesByKind     map[string]int  `json:"nodes_by_kind"`
+	ParseFailures   int             `json:"parse_failures"`
+	Entrypoints     int             `json:"entrypoints"`
+	EntrypointRules map[string]int  `json:"entrypoint_rules,omitempty"`
+	Edges           map[string]int  `json:"edges"`
+	Ambiguous       int             `json:"ambiguous"`
+	AmbiguityRate   float64         `json:"ambiguity_rate"`
+	Unresolved      int             `json:"unresolved"`
+	UnresolvedRate  float64         `json:"unresolved_rate"`
+	LastIndexed     string          `json:"last_indexed,omitempty"`
+	GitHead         string          `json:"git_head,omitempty"`
+	CurrentHead     string          `json:"current_head,omitempty"`
+	Stale           bool            `json:"stale"`
+	DirtyFiles      int             `json:"dirty_files"`
+	Adapters        []adapter.Stats `json:"adapters,omitempty"`
+	Refresh         RefreshReport   `json:"refresh"`
 }
 
 // Status reads the index counters and, unless refresh is false, runs the normal
@@ -77,6 +79,14 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 	if err != nil {
 		return StatusReport{}, err
 	}
+	entrypointRules, err := st.EntrypointCounts(ctx)
+	if err != nil {
+		return StatusReport{}, err
+	}
+	entrypoints := 0
+	for _, count := range entrypointRules {
+		entrypoints += count
+	}
 	adapters, err := adapter.SavedStats(ctx, st)
 	if err != nil {
 		return StatusReport{}, err
@@ -98,24 +108,26 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 	currentHead := gitHead(ctx, root)
 	gitHead := meta["git_head"]
 	return StatusReport{
-		Root:           root,
-		Indexed:        counts.Files > 0,
-		SchemaVersion:  store.SchemaVersion,
-		Files:          counts.Files,
-		Nodes:          counts.Nodes,
-		NodesByKind:    counts.ByKind,
-		ParseFailures:  counts.ParseFailures,
-		Edges:          edges,
-		Ambiguous:      ambiguous,
-		AmbiguityRate:  ambiguityRate,
-		Unresolved:     unresolved,
-		UnresolvedRate: unresolvedRate,
-		LastIndexed:    meta["indexed_at"],
-		GitHead:        gitHead,
-		CurrentHead:    currentHead,
-		Stale:          gitHead != "" && currentHead != "" && gitHead != currentHead,
-		DirtyFiles:     gitDirtyCount(ctx, root),
-		Adapters:       adapters,
+		Root:            root,
+		Indexed:         counts.Files > 0,
+		SchemaVersion:   store.SchemaVersion,
+		Files:           counts.Files,
+		Nodes:           counts.Nodes,
+		NodesByKind:     counts.ByKind,
+		ParseFailures:   counts.ParseFailures,
+		Entrypoints:     entrypoints,
+		EntrypointRules: entrypointRules,
+		Edges:           edges,
+		Ambiguous:       ambiguous,
+		AmbiguityRate:   ambiguityRate,
+		Unresolved:      unresolved,
+		UnresolvedRate:  unresolvedRate,
+		LastIndexed:     meta["indexed_at"],
+		GitHead:         gitHead,
+		CurrentHead:     currentHead,
+		Stale:           gitHead != "" && currentHead != "" && gitHead != currentHead,
+		DirtyFiles:      gitDirtyCount(ctx, root),
+		Adapters:        adapters,
 		Refresh: RefreshReport{
 			FilesIndexed: refreshed.Indexed,
 			FilesSkipped: refreshed.Unchanged,

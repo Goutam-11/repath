@@ -468,3 +468,68 @@ func (s *Store) UnresolvedNames(ctx context.Context, limit int) ([]string, error
 	}
 	return out, rows.Err()
 }
+
+// Entrypoint is one entrypoint row joined to its symbol and file.
+type Entrypoint struct {
+	EntrypointRow
+	Node NodeRow
+	File string
+}
+
+// Entrypoints lists every entrypoint, stable by file and line.
+func (s *Store) Entrypoints(ctx context.Context) ([]Entrypoint, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT ep.node_id, ep.file_id, ep.rule, ep.name, ep.confidence, ep.line,
+		       n.id, n.kind, n.name, n.qname, n.lang, n.file_id, n.arity, n.start_line, n.end_line, n.exported,
+		       f.path
+		FROM entrypoints ep
+		JOIN nodes n ON n.id = ep.node_id
+		JOIN files f ON f.id = ep.file_id
+		ORDER BY f.path, ep.line, ep.rule`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Entrypoint
+	for rows.Next() {
+		var ep Entrypoint
+		if err := rows.Scan(
+			&ep.NodeID, &ep.FileID, &ep.Rule, &ep.Name, &ep.Confidence, &ep.Line,
+			&ep.Node.ID, &ep.Node.Kind, &ep.Node.Name, &ep.Node.QName, &ep.Node.Lang,
+			&ep.Node.FileID, &ep.Node.Arity, &ep.Node.StartLine, &ep.Node.EndLine,
+			&ep.Node.Exported, &ep.File,
+		); err != nil {
+			return nil, err
+		}
+		out = append(out, ep)
+	}
+	return out, rows.Err()
+}
+
+// EntrypointCount counts the entrypoint dimension.
+func (s *Store) EntrypointCount(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM entrypoints`).Scan(&n)
+	return n, err
+}
+
+// EntrypointCounts counts entrypoints by rule.
+func (s *Store) EntrypointCounts(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT rule, COUNT(*) FROM entrypoints GROUP BY rule ORDER BY rule`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := map[string]int{}
+	for rows.Next() {
+		var rule string
+		var n int
+		if err := rows.Scan(&rule, &n); err != nil {
+			return nil, err
+		}
+		out[rule] = n
+	}
+	return out, rows.Err()
+}

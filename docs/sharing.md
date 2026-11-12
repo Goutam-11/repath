@@ -29,7 +29,7 @@ and a sidecar:
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "tool_version": "v0.5.0",
   "commit": "5c68771…",
   "file_count": 2,
@@ -76,7 +76,7 @@ does not survive that, and every developer's dirty state differs).
 The binary refuses an artifact whose `schema_version` it does not know:
 
 ```
-pull: artifact schema v99 is not supported by this binary (expects v4); upgrade repath or rebuild the artifact
+pull: artifact schema v99 is not supported by this binary (expects v5); upgrade repath or rebuild the artifact
 ```
 
 The refusal happens before `.repath/index.db` is replaced, so a failed pull

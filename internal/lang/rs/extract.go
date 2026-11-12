@@ -24,10 +24,11 @@ const (
 
 // Symbol, Ref, Import, and Result are the shared extraction-fact types.
 type (
-	Symbol = facts.Symbol
-	Ref    = facts.Ref
-	Import = facts.Import
-	Result = facts.Result
+	Symbol     = facts.Symbol
+	Ref        = facts.Ref
+	Import     = facts.Import
+	Entrypoint = facts.Entrypoint
+	Result     = facts.Result
 )
 
 // Extractor holds the Rust parser. It is not safe for concurrent use; index
@@ -186,10 +187,43 @@ func (w *walker) function(n sitter.Node, enclosing string, exported bool, implTy
 	arity := w.parameters(params, qname, implType != "" || inTrait)
 	exported = hasVisibility(n) || exported
 	w.add(kind, name, qname, arity, n, exported)
+	w.entrypointsFor(n, name, qname)
+	if kind == "function" && name == "main" {
+		w.addEntrypoint(name, qname, "rs.main", 0.95, n)
+	}
 
 	// Trait method bodies and impl methods are visited like functions.
 	w.children(params, qname, "", false)
 	w.children(n.ChildByFieldName("body"), qname, "", false)
+}
+
+// entrypointsFor anchors the two Rust entry conventions the graph can judge:
+// a `#[test]` function and a crate-root `main`. Attributes are previous named
+// siblings in the tree-sitter grammar.
+func (w *walker) entrypointsFor(n sitter.Node, name, qname string) {
+	if !hasAttribute(n, w.src, "test") {
+		return
+	}
+	w.addEntrypoint(name, qname, "rs.test", 0.90, n)
+}
+
+func (w *walker) addEntrypoint(name, qname, rule string, confidence float64, n sitter.Node) {
+	if name == "" || qname == "" {
+		return
+	}
+	w.res.Entrypoints = append(w.res.Entrypoints, Entrypoint{
+		QName: qname, Name: name, Rule: rule, Confidence: confidence,
+		Line: int(n.StartPoint().Row) + 1,
+	})
+}
+
+func hasAttribute(n sitter.Node, src []byte, want string) bool {
+	for prev := n.PrevNamedSibling(); !prev.IsNull() && prev.Type() == "attribute_item"; prev = prev.PrevNamedSibling() {
+		if strings.Contains(prev.Content(src), want) {
+			return true
+		}
+	}
+	return false
 }
 
 func (w *walker) functionSignature(n sitter.Node, enclosing string, exported bool, implType string, inTrait bool) {

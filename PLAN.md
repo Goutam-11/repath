@@ -5,7 +5,7 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **M0–M5 landed; v1.1 `check` and the SCIP adapter landed.** This document is the contract for v1 and its first v1.1 slice.
+Status: **M0–M5 landed; v1.1 `check`, the SCIP adapter, and entrypoint flows landed.** This document is the contract for v1 and its first v1.1 slice.
 Scope changes require editing the decision table, not just the code.
 
 ---
@@ -69,7 +69,7 @@ Two hard constraints inherited from the field:
 | 15 | Stack | Go; cgo only for tree-sitter (amended in M0) | No maintained pure-Go tree-sitter exists; cgo is confined to `internal/lang/*` |
 | 16 | Freshness | Hash + git-diff incremental; <1s/10 files; 50k in <3 min | Monorepo-viable without a daemon |
 | 17 | Cold start | Lazy auto-index at `.repath/index.db` | An agent never has to know `index` exists |
-| 18 | v1 cut | Exactly this spec — no UI, no embeddings, no entrypoints | Ship something trustworthy |
+| 18 | v1 cut | Exactly this spec — no UI, no embeddings, no entrypoints; v1.1 adds entrypoint detection as a symbol dimension (no new node kind) | Ship something trustworthy, then add the "how it works" story without changing identity |
 | 19 | Transport | CLI primary; `repath mcp` stdio adapter; SKILL.md | 49-tool MCP measured at 88.9× schema overhead; ~300 on-demand tokens beat ~1.5k always-on |
 | 20 | Worktrees | Per-worktree DB seeded by copying a commit-keyed cache | Parallel agents own separate trees; sub-second seed, zero lock contention |
 | 21 | Sharing | Commit-keyed CI artifact + local dirty overlay | Snapshot distribution like SCIP→Sourcegraph; never a network-FS database |
@@ -114,6 +114,14 @@ CREATE TABLE pending (name TEXT, file_id INT, kind TEXT, form TEXT, line INT);
 -- follow package/__init__.py and compat re-exports without re-parsing files
 CREATE TABLE imports (file_id INT, local TEXT, imported TEXT, source TEXT, line INT,
                        public INT);
+
+-- entrypoints are a dimension over symbols, not nodes; one symbol can anchor
+-- several rules (a main that is also a test).
+CREATE TABLE entrypoints (
+    id INTEGER PRIMARY KEY, node_id INT, file_id INT, rule TEXT,
+    name TEXT, confidence REAL, line INT,
+    UNIQUE (node_id, rule)
+);
 ```
 
 **Node kinds:** `function, method, class, struct, trait, interface, type, enum, const`.
@@ -216,7 +224,8 @@ Per-language rules that must exist before that language ships:
   module and `__init__.py` re-exports (including stdlib shims such as
   `requests.compat`), decorators recorded as reference edges, class and
   classmethod receivers, `self`/`cls` calls, and `Constructor()` receiver typing.
-  The `if __name__ == "__main__"` marker is deferred with entrypoints (§15).
+  The `if __name__ == "__main__"` marker is emitted as `py.main` when a
+  module-level `main()` exists (v1.1 entrypoints; see `docs/flows.md`).
 - **Rust:** `mod` tree, `use` with braces/globs/aliases and `pub use`
   re-exports, inherent vs trait `impl` blocks (methods keyed by receiver type),
   `Self`/`self`, associated functions, `pub` visibility, enum-variant
@@ -231,6 +240,7 @@ repath status [--json]
 repath find   <name>            [--module M] [--json]
 repath callers <sym>            [--depth 1] [--min-confidence 0.5] [--json]
 repath impact <sym|file:line>   [--depth 8] [--limit 50] [--json] [--module M]
+repath flows  <entrypoint>      [--depth 6] [--limit 20] [--json]
 repath path   <A> <B>           [--max-depth 8] [--alternates 3] [--json]
 repath map    [--max-tokens 2000] [--json]
 repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
@@ -427,7 +437,7 @@ excalidraw's `CALLS` fell 6,447 → 3,976, and the real hubs (`t`,
 
 **M3 landed** (Python): absolute/relative module resolution (root, `src/`,
 `lib/`), `__init__.py` and ordinary-module re-exports through a persisted
-`imports` table (schema v3, extended to v4 in M4), `self`/`cls` calls, class and classmethod receivers,
+`imports` table (schema v3, extended to v4 in M4, and to v5 for entrypoints), `self`/`cls` calls, class and classmethod receivers,
 constructor-style receiver typing, decorator references, and Python class bases.
 The fixture gate is 31/31 edges at precision 1.00 / recall 1.00 with 1 genuine
 unresolved callback parameter, above the 0.88/0.80 milestone gate (not loosened).
@@ -481,6 +491,16 @@ per-module unresolved rate (warning). `--fail-on none|error|warning|info` gates
 CI; `check` is the only command that returns exit code `5`. Definitions and
 limitations are in `docs/check.md`.
 
+**v1.1 entrypoint flows landed** (issue #14): `repath flows <entrypoint>`
+walks forward from a detected entrypoint and returns bounded leaf paths with
+per-edge rule/confidence, or the nearest frontier when no outgoing edge exists.
+Detection is a symbol dimension (`entrypoints` table, schema v5), not a new node
+kind: Express/Fastify route handlers, Next.js route exports, FastAPI/Flask route
+decorators, Python `test_` functions and `__main__` guards, Rust `main`, and
+Rust `#[test]` functions. `status`/`map` expose counts and rule ids in JSON.
+The heuristics and false positives are in `docs/flows.md`. No MCP tool was
+added; the six-tool surface is unchanged.
+
 **v1.1 adapter landed** (issue #13): `repath adapter --scip FILE` parses a
 SCIP index in-process and merges compiler facts only into tree-sitter `pending`
 references. Adapter edges carry `scip.ts.method`/`scip.ts.call`/`scip.ts.new`/
@@ -499,21 +519,21 @@ separate process so Linux `VmHWM` is that tree's own peak. Measured here:
 
 | Metric | 50k result | PLAN §10 target |
 |---|---|---|
-| Cold index | **16.3 s** | <3 min |
-| Peak RSS | **292 MiB** | <1 GB |
-| 10-file incremental | **660 ms** | <1 s |
-| `impact` p50/p95 | **56.5 / 60.8 ms** | <150 ms p95 |
-| `callers` p50/p95 | **33.1 / 35.9 ms** | <150 ms p95 |
-| `path` p50/p95 | **41.2 / 44.6 ms** | <250 ms p95 |
-| `map --max-tokens 2000` p50/p95 | **218.9 / 221.0 ms** | <300 ms p95 |
-| `check` | **474 ms** | no target |
-| artifact export / pull | **19.2 MiB · 125 ms / 11.1 ms** | no target |
-| MCP `impact` round-trip | **87 ms** | no target |
-| cold index + first query | **16.4 s** | — |
+| Cold index | **14.3 s** | <3 min |
+| Peak RSS | **298 MiB** | <1 GB |
+| 10-file incremental | **665 ms** | <1 s |
+| `impact` p50/p95 | **59.5 / 64.0 ms** | <150 ms p95 |
+| `callers` p50/p95 | **34.7 / 36.5 ms** | <150 ms p95 |
+| `path` p50/p95 | **43.1 / 46.9 ms** | <250 ms p95 |
+| `map --max-tokens 2000` p50/p95 | **225.9 / 228.1 ms** | <300 ms p95 |
+| `check` | **490 ms** | no target |
+| artifact export / pull | **19.2 MiB · 132 ms / 12.3 ms** | no target |
+| MCP `impact` round-trip | **88 ms** | no target |
+| cold index + first query | **14.3 s** | — |
 
 `map` first missed its p95 budget (432 ms) because `BuildMap` joined both
 endpoint symbols for every edge and allocated a map per PageRank iteration. It
-now reads edge skeletons (no joins) into dense slices: 50k p95 **221 ms**, and
+now reads edge skeletons (no joins) into dense slices: 50k p95 **221–228 ms**, and
 the 10k p95 fell from 187 ms to **82 ms**. The 10k budgets were not loosened.
 The synthetic files are one-line functions, so the 19.2 MiB artifact is not the
 250–400 MB real-repo estimate; the timings and memory are the 50k claim here.
@@ -564,8 +584,9 @@ ceiling and the first v1.1 candidate, together with entrypoint flows.
    single noisy edge can merge an SCC.
 3. SARIF ingestion from tsc/pyright/ruff/rustc, findings attached to symbols
    (bridge, don't rebuild).
-4. Entrypoint/flow detection (FastAPI, Express, pytest, `main`) — the "how it
-   works" story needs it.
+4. Entrypoint/flow detection (v1.1, landed): Express/Fastify/Next.js,
+   FastAPI/Flask, pytest, Python `__main__`, Rust `main`/`#[test]`; see
+   `docs/flows.md`. MCP still exposes the same six tools.
 5. Test-impact mapping ("which tests break").
 6. Adapter seam (v1.1, landed): SCIP facts merged into pending references; LSP
    and Python/Rust adapters are still deferred. See `docs/adapters.md`.

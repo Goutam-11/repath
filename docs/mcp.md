@@ -67,8 +67,9 @@ Every successful tool result is one JSON object in the MCP text content block:
   `rs.self.method`, …), so a client can audit why an edge exists.
 
 `status` includes `unresolved_rate` (unresolved / (resolved edges + unresolved)),
-`stale` (indexed commit differs from HEAD), and `adapters[]` (compiler-adapter
-coverage, skips, and conflicts; see `docs/adapters.md`).
+`stale` (indexed commit differs from HEAD), `entrypoints`/`entrypoint_rules`
+(the flow dimension), and `adapters[]` (compiler-adapter coverage, skips, and
+conflicts; see `docs/adapters.md` and `docs/flows.md`).
 
 ## Client configuration
 
