@@ -5,7 +5,7 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **M0–M4 landed.** This document is the contract for v1.
+Status: **M0–M5 landed.** This document is the contract for v1.
 Scope changes require editing the decision table, not just the code.
 
 ---
@@ -442,6 +442,27 @@ edit is 24 ms with unchanged counts. Remaining unresolved references are
 dominated by generic trait parameters, macro-generated impls, and external
 collection/formatting methods — the documented Rust ceiling.
 
+**M5 landed** (product surface): `repath mcp` is a hand-rolled stdio JSON-RPC
+adapter with exactly six tools and the §7 envelope; a pipe round-trip test and
+the official TypeScript MCP client SDK 2.2.0 both verified it. Artifacts export
+with `index --artifact out/` (consistent `VACUUM INTO` snapshot + manifest,
+`0444`) and `pull` seeds a laptop, overlays a dirty checkout, and refuses an
+unknown schema version with a one-line upgrade hint and no half-seeded index.
+Worktrees seed from
+`$GIT_COMMON_DIR/repath/commits/<sha>.db` under an `O_EXCL` lock, patch dirty
+trees without touching the cache, and evict LRU beyond five commits.
+
+The reproducible 10k-file synthetic tree (100 modules × 100 files, 9,900
+`CALLS`) is `make perf`: cold index **5.0 s**, 10-file incremental **237 ms**,
+`impact` p50/p95 **21.7 / 24.5 ms**, `callers` **12.4 / 13.1 ms**, `path`
+**15.9 / 17.1 ms**, `map` **183 / 197 ms**, MCP `impact` round-trip **38 ms**
+(p50/p95 over 20 samples; `map` over 5). A second worktree warms from the clean
+cache in **12.9 ms** (budget <2 s). A cold build of the binary (fresh Go build
+cache, modules already downloaded) is **21.8 s**, so README quickstart → first
+answer on the 10k tree is **~27 s** (budget <60 s). Every §10 budget is met; the
+artifact fixture (14 TS files) exports to **73,728 B** and pulls in **0.05 s**.
+Compression of artifacts is the one documented deviation (§4.1).
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -507,5 +528,8 @@ team artifact sharing, diagnostics scope. Output: the 22 decisions in §3.
 
 ---
 
-Next action: **M5** — MCP stdio adapter + `SKILL.md`, artifact export/pull,
-worktree seeding, final incremental/perf budget, and README quickstart.
+Next action: **v1.1 candidates** — `repath check` (import cycles, dead code,
+module-boundary violations, fan-in/out), entrypoint/flow detection, test-impact
+mapping, and the adapter seam for compiler-grade precision. The largest known
+gap remains member calls without typed receivers; it is the first target for
+that adapter and for `--min-confidence` guidance.
