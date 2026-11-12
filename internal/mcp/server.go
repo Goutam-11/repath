@@ -16,10 +16,17 @@ import (
 	"github.com/Goutam-11/repath/internal/query"
 )
 
-// protocolVersion is the MCP revision this adapter speaks. The six tools and
-// the content/isError result shape have been stable across the 2024-11 and
+// protocolVersion is the legacy MCP revision this adapter speaks. The six tools
+// and the content/isError result shape are stable across the 2024-11 and
 // 2025-03 revisions.
 const protocolVersion = "2024-11-05"
+
+// modernProtocolVersion is the handshake-free revision. A modern request carries
+// its version in params._meta; `server/discover` advertises it for stdio era
+// probing. Both eras share the six tools and the envelope.
+const modernProtocolVersion = "2026-07-28"
+
+const protocolVersionMetaKey = "io.modelcontextprotocol/protocolVersion"
 
 const usage = `repath mcp — stdio JSON-RPC server for MCP clients
 
@@ -102,6 +109,7 @@ type response struct {
 type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 func (s *server) handle(ctx context.Context, line []byte) {
@@ -112,7 +120,25 @@ func (s *server) handle(ctx context.Context, line []byte) {
 	}
 
 	notification := len(req.ID) == 0
+	modern := metaVersion(req.Params) != ""
+	if modern && metaVersion(req.Params) != modernProtocolVersion {
+		if !notification {
+			s.respondErrorData(req.ID, -32022, "Unsupported protocol version", map[string]any{
+				"supported": []string{modernProtocolVersion},
+				"requested": metaVersion(req.Params),
+			})
+		}
+		return
+	}
+
 	switch req.Method {
+	case "server/discover":
+		if notification {
+			return
+		}
+		s.respond(req.ID, s.discoverResult())
+		return
+
 	case "initialize":
 		if notification {
 			return
@@ -133,24 +159,38 @@ func (s *server) handle(ctx context.Context, line []byte) {
 
 	case "ping":
 		if !notification {
-			s.respond(req.ID, map[string]any{})
+			result := map[string]any{}
+			if modern {
+				result["resultType"] = "complete"
+			}
+			s.respond(req.ID, result)
 		}
 
 	case "tools/list":
 		if notification {
 			return
 		}
-		s.respond(req.ID, map[string]any{"tools": toolDefinitions()})
+		result := map[string]any{"tools": toolDefinitions()}
+		if modern {
+			result["resultType"] = "complete"
+			result["ttlMs"] = 3600000
+			result["cacheScope"] = "public"
+		}
+		s.respond(req.ID, result)
 
 	case "tools/call":
 		if notification {
 			return
 		}
-		s.handleToolCall(ctx, req.ID, req.Params)
+		s.handleToolCall(ctx, req.ID, req.Params, modern)
 
 	case "shutdown":
 		if !notification {
-			s.respond(req.ID, map[string]any{})
+			result := map[string]any{}
+			if modern {
+				result["resultType"] = "complete"
+			}
+			s.respond(req.ID, result)
 		}
 
 	default:
@@ -160,7 +200,7 @@ func (s *server) handle(ctx context.Context, line []byte) {
 	}
 }
 
-func (s *server) handleToolCall(ctx context.Context, id json.RawMessage, raw json.RawMessage) {
+func (s *server) handleToolCall(ctx context.Context, id json.RawMessage, raw json.RawMessage, modern bool) {
 	var params struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -176,14 +216,64 @@ func (s *server) handleToolCall(ctx context.Context, id json.RawMessage, raw jso
 
 	result, err := s.callTool(ctx, params.Name, params.Arguments)
 	if err != nil {
+		res := errorResult(1, err.Error(), nil)
 		if _, ok := err.(argumentError); ok {
-			s.respond(id, errorResult(2, err.Error(), nil))
-			return
+			res = errorResult(2, err.Error(), nil)
 		}
-		s.respond(id, errorResult(1, err.Error(), nil))
+		if modern {
+			res.ResultType = "complete"
+		}
+		s.respond(id, res)
 		return
 	}
+	if modern {
+		result.ResultType = "complete"
+	}
 	s.respond(id, result)
+}
+
+// discoverResult is the 2026-07-28 server advertisement. A dual-era server
+// lists only the modern revision; legacy clients still reach the initialize
+// path out of band.
+func (s *server) discoverResult() map[string]any {
+	return map[string]any{
+		"resultType":        "complete",
+		"supportedVersions": []string{modernProtocolVersion},
+		"capabilities":      map[string]any{"tools": map[string]any{}},
+		"_meta": map[string]any{
+			"io.modelcontextprotocol/serverInfo": map[string]string{
+				"name": "repath", "version": s.version,
+			},
+		},
+		"instructions": "repath answers structural questions. If you have a shell, " +
+			"prefer the CLI (`repath impact|path|map|find|callers`); these six " +
+			"tools are for clients without one.",
+		"ttlMs":      3600000,
+		"cacheScope": "public",
+	}
+}
+
+// metaVersion reads the modern per-request protocol version. An absent field
+// means a legacy client; an unsupported value gets UnsupportedProtocolVersionError.
+func metaVersion(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var params struct {
+		Meta map[string]json.RawMessage `json:"_meta"`
+	}
+	if err := json.Unmarshal(raw, &params); err != nil {
+		return ""
+	}
+	value, ok := params.Meta[protocolVersionMetaKey]
+	if !ok {
+		return ""
+	}
+	var version string
+	if err := json.Unmarshal(value, &version); err != nil {
+		return ""
+	}
+	return version
 }
 
 func (s *server) callTool(ctx context.Context, name string, raw json.RawMessage) (toolResult, error) {
@@ -238,7 +328,11 @@ func (s *server) respond(id json.RawMessage, result any) {
 }
 
 func (s *server) respondError(id json.RawMessage, code int, message string) {
-	s.write(response{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: message}})
+	s.respondErrorData(id, code, message, nil)
+}
+
+func (s *server) respondErrorData(id json.RawMessage, code int, message string, data any) {
+	s.write(response{JSONRPC: "2.0", ID: id, Error: &rpcError{Code: code, Message: message, Data: data}})
 }
 
 func (s *server) write(resp response) {

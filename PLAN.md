@@ -277,7 +277,7 @@ never reuse it.
 
 ## 7. MCP contract
 
-Six tools, all returning the same envelope:
+Six tools, all returning the same envelope, in two protocol eras:
 
 ```json
 {
@@ -299,7 +299,12 @@ Six tools, all returning the same envelope:
 | `status` | — | counts, unresolved rate, staleness, parse failures |
 
 No raw-edge CRUD tools, no `graph_query` DSL. Transport: stdio JSON-RPC,
-hand-rolled (~300 LOC) — `initialize`, `tools/list`, `tools/call`.
+hand-rolled (~300 LOC). Legacy era: `initialize`, `tools/list`, `tools/call`.
+Modern era (`2026-07-28`): no handshake; every request carries
+`params._meta.io.modelcontextprotocol/protocolVersion`, `server/discover`
+advertises `supportedVersions`/capabilities/identity, and unsupported versions
+return `-32022` with the supported list. Both eras keep exactly the six tools
+and the envelope.
 
 ### 7.1 Transport strategy — CLI first, MCP second
 
@@ -492,6 +497,15 @@ cross-module private access is a warning), fan-in/out hotspots (info), and
 per-module unresolved rate (warning). `--fail-on none|error|warning|info` gates
 CI; `check` is the only command that returns exit code `5`. Definitions and
 limitations are in `docs/check.md`.
+
+**v1.1 MCP negotiation landed** (issue #17): the adapter is dual-era. It still
+answers the legacy `initialize` handshake at 2024-11-05, and now implements the
+2026-07-28 `server/discover` path with per-request `_meta`, `resultType`,
+`ttlMs`/`cacheScope` on cacheable results, and `-32022` for an unsupported
+version. Exactly six tools and the envelope are unchanged; `tools/list` and
+`tools/call` were verified with `@modelcontextprotocol/client` 2.4.0 (modern,
+pinned) and `@modelcontextprotocol/sdk` 1.32.2 (legacy). The hand-rolled JSON-RPC
+server is still dependency-free. See `docs/mcp.md`.
 
 **v1.1 test-impact mapping landed** (issue #15): `repath tests <target>`
 returns the test files that structurally reach a changed symbol/line, with a

@@ -23,8 +23,9 @@ type content struct {
 }
 
 type toolResult struct {
-	Content []content `json:"content"`
-	IsError bool      `json:"isError,omitempty"`
+	ResultType string    `json:"resultType,omitempty"`
+	Content    []content `json:"content"`
+	IsError    bool      `json:"isError,omitempty"`
 }
 
 type candidate struct {

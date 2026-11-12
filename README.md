@@ -7,7 +7,7 @@ humans and for coding agents.
 **Status: pre-alpha (M5 + v1.1 `check`).** TypeScript/JS, Python, and Rust
 definitions and relations are indexed, and `impact`, `path`, `find`, `callers`,
 and `map` answer structural questions from SQLite. `repath mcp` serves the same
-six answers over stdio JSON-RPC, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
+six answers over stdio JSON-RPC in both the legacy and 2026-07-28 eras, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
 teaches shell-capable agents the CLI. `index --artifact` exports a commit-keyed
 snapshot, `pull` seeds it locally, parallel git worktrees warm from a shared
 immutable cache, `repath check` adds graph-native CI diagnostics, and
@@ -49,7 +49,9 @@ is the ~300-token cheat sheet. Shell-less clients use the MCP adapter; see
 Sharing, the manifest, and the schema gate are in
 [`docs/sharing.md`](docs/sharing.md); worktree seeding, locks, and LRU are in
 [`docs/worktrees.md`](docs/worktrees.md); the five checks, severities, and the
-check-only exit code `5` are in [`docs/check.md`](docs/check.md). The optional SCIP adapter, its merge rules,
+check-only exit code `5` are in [`docs/check.md`](docs/check.md). The MCP
+adapter's dual-era negotiation and client verification are in
+[`docs/mcp.md`](docs/mcp.md). The optional SCIP adapter, its merge rules,
 and the measured unresolved drop are in
 [`docs/adapters.md`](docs/adapters.md), and entrypoint detection/flow limits are
 in [`docs/flows.md`](docs/flows.md), and test-impact provenance/limits are in
