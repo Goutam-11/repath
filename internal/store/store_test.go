@@ -425,3 +425,36 @@ func TestMergeEdgesNeverOverwrites(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenReadOnlyDoesNotWrite(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.db")
+
+	w, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	ro, err := OpenReadOnly(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ro.Close()
+	if _, err := ro.Counts(ctx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if _, err := ro.db.ExecContext(ctx, `INSERT INTO meta (key, value) VALUES ('x', 'y')`); err == nil {
+		t.Fatal("read-only store accepted a write")
+	}
+
+	if _, err := OpenReadOnly(ctx, filepath.Join(dir, "missing.db")); err == nil {
+		t.Fatal("read-only open created a missing database")
+	}
+}

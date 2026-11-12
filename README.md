@@ -16,7 +16,9 @@ entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`),
 and `repath tests` maps a change (or a git `--diff` set) to the test files that
 structurally reach it.
 `repath check --sarif` now attaches external compiler/linter diagnostics (SARIF
-2.1.0) to the enclosing symbols without running those tools.
+2.1.0) to the enclosing symbols without running those tools, and `repath serve`
+answers the six structural questions over read-only HTTP for dashboards and
+shell-less clients.
 [`PLAN.md`](PLAN.md) is the specification.
 
 ## Build
@@ -37,6 +39,7 @@ make build
 ./bin/repath callers <symbol>          # who calls this
 ./bin/repath find <symbol>             # symbol card: callers, callees
 ./bin/repath mcp                       # stdio JSON-RPC for MCP clients
+./bin/repath serve --addr 127.0.0.1:0  # read-only HTTP answers
 ./bin/repath index --artifact out/     # export a snapshot (--compress for zstd)
 ./bin/repath pull out/                 # seed the local index from a snapshot
 ./bin/repath check --fail-on warning   # cycles, dead code, boundaries, hotspots
@@ -62,7 +65,8 @@ its merge rules, and the measured unresolved drops are in
 [`docs/adapters.md`](docs/adapters.md), and entrypoint detection/flow limits are
 in [`docs/flows.md`](docs/flows.md), and test-impact provenance, diff mode, and
 limits are in [`docs/tests.md`](docs/tests.md); real-repo measurements and misses are in
-[`docs/benchmarks.md`](docs/benchmarks.md).
+[`docs/benchmarks.md`](docs/benchmarks.md), and the read-only HTTP surface is in
+[`docs/serve.md`](docs/serve.md).
 
 The 50k artifact compresses from **19.2 MiB to 4.8 MiB** (25.2%) with
 `--compress`; the 10k tree goes from **3.8 MiB to 991 KiB** (25.3%). The

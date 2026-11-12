@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Goutam-11/repath/internal/graph"
 	"github.com/Goutam-11/repath/internal/output"
 	"github.com/Goutam-11/repath/internal/query"
 )
@@ -45,12 +44,11 @@ func resultOf(envelope output.Envelope) toolResult {
 }
 
 func errorResult(code int, message string, candidates []candidate) toolResult {
-	answer := map[string]any{"error": message, "code": code}
-	if len(candidates) > 0 {
-		answer["candidates"] = candidates
+	shared := make([]query.ErrorCandidate, 0, len(candidates))
+	for _, c := range candidates {
+		shared = append(shared, query.ErrorCandidate{QName: c.QName, Kind: c.Kind})
 	}
-	envelope := output.New(answer, message, 0, false, nil)
-	result := resultOf(envelope)
+	result := resultOf(query.ErrorEnvelope(code, message, shared))
 	result.IsError = true
 	return result
 }
@@ -227,14 +225,7 @@ func (s *server) findSymbol(ctx context.Context, args map[string]json.RawMessage
 		return targetError(code, name, answer.Target), nil
 	}
 
-	result := answer.Result
-	provenance := []output.Provenance{{
-		File: result.Symbol.File, Line: result.Symbol.Line, Rule: "definition",
-	}}
-	summary := fmt.Sprintf("%s %s at %s:%d · %d callers · %d callees",
-		result.Symbol.QName, result.Symbol.Kind, result.Symbol.File, result.Symbol.Line,
-		result.Callers, result.Callees)
-	return resultOf(output.New(result, summary, 1.0, false, provenance)), nil
+	return resultOf(query.FindEnvelope(answer)), nil
 }
 
 func (s *server) impact(ctx context.Context, args map[string]json.RawMessage) (toolResult, error) {
@@ -263,29 +254,7 @@ func (s *server) impact(ctx context.Context, args map[string]json.RawMessage) (t
 		return targetError(code, symbol, answer.Target), nil
 	}
 
-	result := answer.Result
-	payload := struct {
-		graph.Impact
-		MinConfidence float64 `json:"min_confidence"`
-	}{result, minConfidence}
-
-	provenance := make([]output.Provenance, 0, len(result.Dependents))
-	values := make([]float64, 0, len(result.Dependents))
-	for _, d := range result.Dependents {
-		line := d.CallLine
-		if line == 0 {
-			line = d.Line
-		}
-		provenance = append(provenance, output.Provenance{File: d.File, Line: line, Rule: d.Rule})
-		values = append(values, d.Confidence)
-	}
-
-	summary := fmt.Sprintf("%d dependents across %d files and %d modules (deepest depth %d, min confidence %.2f)",
-		len(result.Dependents), len(result.Files), len(result.Modules), result.Depth, minConfidence)
-	if len(result.Dependents) == 0 {
-		summary = fmt.Sprintf("nothing reaches %s at or above confidence %.2f", symbol, minConfidence)
-	}
-	return resultOf(output.New(payload, summary, weakest(values, 1.0), result.Truncated, provenance)), nil
+	return resultOf(query.ImpactEnvelope(answer)), nil
 }
 
 func (s *server) path(ctx context.Context, args map[string]json.RawMessage) (toolResult, error) {
@@ -321,29 +290,7 @@ func (s *server) path(ctx context.Context, args map[string]json.RawMessage) (too
 		return errorResult(code, "could not resolve path endpoints", nil), nil
 	}
 
-	result := answer.Result
-	payload := struct {
-		graph.PathResult
-		MinConfidence float64 `json:"min_confidence"`
-		MaxDepth      int     `json:"max_depth"`
-	}{result, minConfidence, answer.MaxDepth}
-
-	provenance := make([]output.Provenance, 0, len(result.Hops))
-	values := make([]float64, 0, len(result.Hops))
-	chain := []string{result.From.QName}
-	for _, hop := range result.Hops {
-		provenance = append(provenance, output.Provenance{File: hop.Dst.File, Line: hop.Line, Rule: hop.Rule})
-		values = append(values, hop.Confidence)
-		chain = append(chain, hop.Dst.QName)
-	}
-
-	summary := fmt.Sprintf("%d hops: %s; weakest link %.2f",
-		len(result.Hops), strings.Join(chain, " → "), weakest(values, 0))
-	if len(result.Hops) == 0 {
-		summary = fmt.Sprintf("no path from %s to %s within depth %d",
-			result.From.QName, result.To.QName, answer.MaxDepth)
-	}
-	return resultOf(output.New(payload, summary, weakest(values, 0), false, provenance)), nil
+	return resultOf(query.PathEnvelope(answer)), nil
 }
 
 func (s *server) callers(ctx context.Context, args map[string]json.RawMessage) (toolResult, error) {
@@ -371,24 +318,7 @@ func (s *server) callers(ctx context.Context, args map[string]json.RawMessage) (
 		return targetError(code, symbol, answer.Target), nil
 	}
 
-	result := answer.Result
-	provenance := make([]output.Provenance, 0, len(result.Callers))
-	values := make([]float64, 0, len(result.Callers))
-	for _, caller := range result.Callers {
-		line := caller.CallLine
-		if line == 0 {
-			line = caller.Line
-		}
-		provenance = append(provenance, output.Provenance{File: caller.File, Line: line, Rule: caller.Rule})
-		values = append(values, caller.Confidence)
-	}
-
-	summary := fmt.Sprintf("%d callers of %s at or above confidence %.2f",
-		len(result.Callers), result.Symbol.QName, result.MinConfidence)
-	if result.Truncated {
-		summary += " (truncated at " + fmt.Sprint(query.DefaultCallersLimit) + ")"
-	}
-	return resultOf(output.New(result, summary, weakest(values, 1.0), result.Truncated, provenance)), nil
+	return resultOf(query.CallersEnvelope(answer)), nil
 }
 
 func (s *server) repoMap(ctx context.Context, args map[string]json.RawMessage) (toolResult, error) {
@@ -406,25 +336,7 @@ func (s *server) repoMap(ctx context.Context, args map[string]json.RawMessage) (
 		return toolResult{}, err
 	}
 
-	result := answer.Result
-	payload := struct {
-		graph.MapResult
-		MaxTokens     int     `json:"max_tokens"`
-		MinConfidence float64 `json:"min_confidence"`
-	}{result, answer.MaxTokens, answer.MinConfidence}
-
-	provenance := make([]output.Provenance, 0, len(result.Top))
-	for _, symbol := range result.Top {
-		provenance = append(provenance, output.Provenance{File: symbol.File, Line: symbol.Line, Rule: "pagerank"})
-	}
-
-	top := "none"
-	if len(result.Top) > 0 {
-		top = fmt.Sprintf("%s (rank %.4f)", result.Top[0].QName, result.Top[0].Rank)
-	}
-	summary := fmt.Sprintf("%d modules, %d cycles, %d ranked symbols; top %s",
-		len(result.Modules), len(result.Cycles), len(result.Top), top)
-	return resultOf(output.New(payload, summary, 1.0, result.Truncated, provenance)), nil
+	return resultOf(query.MapEnvelope(answer)), nil
 }
 
 func (s *server) status(ctx context.Context) (toolResult, error) {
@@ -439,19 +351,7 @@ func (s *server) status(ctx context.Context) (toolResult, error) {
 	}
 	report.Version = s.version
 
-	totalEdges := 0
-	for _, n := range report.Edges {
-		totalEdges += n
-	}
-	summary := fmt.Sprintf("%d files, %d nodes, %d edges; unresolved %d (%.1f%%); %d parse failures",
-		report.Files, report.Nodes, totalEdges, report.Unresolved, report.UnresolvedRate*100, report.ParseFailures)
-	if report.Stale {
-		summary += "; index is stale"
-	}
-	if report.DirtyFiles > 0 {
-		summary += fmt.Sprintf("; %d dirty files", report.DirtyFiles)
-	}
-	return resultOf(output.New(report, summary, 1.0, false, nil)), nil
+	return resultOf(query.StatusEnvelope(report)), nil
 }
 
 func weakest(values []float64, fallback float64) float64 {

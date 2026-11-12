@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 
@@ -164,6 +165,32 @@ func Open(ctx context.Context, path string) (*Store, error) {
 		}
 	}
 
+	return &Store{db: db}, nil
+}
+
+// OpenReadOnly opens an existing index without creating, migrating, or writing
+// it. The serve command uses this so a read-only HTTP server cannot become a
+// second SQLite writer; query_only is enforced by SQLite as well.
+func OpenReadOnly(ctx context.Context, path string) (*Store, error) {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("open read-only %s: %w", path, err)
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return nil, fmt.Errorf("open read-only %s: %w", abs, err)
+	}
+
+	dsn := (&url.URL{Scheme: "file", Path: abs}).String() +
+		"?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)"
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return nil, fmt.Errorf("open read-only %s: %w", abs, err)
+	}
+	db.SetMaxOpenConns(1)
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("open read-only %s: %w", abs, err)
+	}
 	return &Store{db: db}, nil
 }
 
