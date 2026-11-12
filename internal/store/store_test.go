@@ -34,6 +34,37 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestMigrateAddsPendingForm(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	// Simulate an M2 index whose pending table predates the form column.
+	if _, err := st.db.ExecContext(ctx, `ALTER TABLE pending DROP COLUMN form`); err != nil {
+		t.Fatalf("drop form: %v", err)
+	}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate old schema: %v", err)
+	}
+
+	rows, err := st.db.QueryContext(ctx, `PRAGMA table_info(pending)`)
+	if err != nil {
+		t.Fatalf("table info: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if name == "form" {
+			return
+		}
+	}
+	t.Fatal("pending.form was not added by Migrate")
+}
+
 func TestWriteFileAndNodes(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
