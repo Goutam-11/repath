@@ -136,6 +136,15 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 				_ = tx.Rollback()
 				return err
 			}
+			ids, err := tx.NodeIDsByFile(ctx, fileID)
+			if err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+			if err := tx.ReplaceEntrypoints(ctx, fileID, toEntrypointRows(o.entries, ids)); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
 			o.fileID = fileID
 			res.Indexed++
 			res.Nodes += len(o.symbols)
@@ -348,6 +357,7 @@ type outcome struct {
 	symbols []store.Node
 	refs    []facts.Ref
 	imports []facts.Import
+	entries []facts.Entrypoint
 	skipped bool
 	fileID  int64
 }
@@ -377,6 +387,7 @@ func parseOne(src Source, ex *lang.Extractor, existing map[string]store.FileStat
 	}
 
 	result := ex.Extract(data, dialect)
+	augmentPathEntrypoints(src.Path, &result)
 	return &outcome{
 		src:     src,
 		lang:    langName,
@@ -386,6 +397,7 @@ func parseOne(src Source, ex *lang.Extractor, existing map[string]store.FileStat
 		symbols: toNodes(result.Symbols),
 		refs:    result.Refs,
 		imports: result.Imports,
+		entries: result.Entrypoints,
 	}
 }
 

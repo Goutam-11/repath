@@ -4,10 +4,11 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M5 + v1.1 `check` + SCIP adapter.** TypeScript/JS, Python, and
-Rust are indexed; the MCP adapter + skill, artifact export/pull, and worktree
-seeding are in, `repath check` adds graph-native CI diagnostics, and
-`repath adapter --scip` merges compiler facts into unresolved references. The
+**Current state: M5 + v1.1 `check`, SCIP adapter, and entrypoint flows.**
+TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
+export/pull, and worktree seeding are in, `repath check` adds graph-native CI
+diagnostics, `repath adapter --scip` merges compiler facts into unresolved
+references, and `repath flows` walks forward from detected entrypoints. The
 measured 10k and 50k budgets live in PLAN §12 and are reproducible with
 `make perf`.
 
@@ -43,6 +44,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath pull out/                     # seed the local index from one
 ./bin/repath check --fail-on warning       # graph-native diagnostics for CI
 ./bin/repath adapter --scip index.scip     # merge compiler facts, no overwrite
+./bin/repath flows <entrypoint>            # forward execution paths
 ```
 
 Sandbox note (this machine): Go lives at `/usr/local/go/bin` (not on `PATH`),
@@ -63,7 +65,7 @@ internal/index    discovery, hashing, batching, module detection, orchestration
 internal/lang     path → dialect; lang/{tsx,py,rs} extract symbols + refs + imports
 internal/resolve  global name index, confidence ladder, language-specific module rules
 internal/store    SQLite schema and queries only
-internal/graph    impact / path / map walkers over store queries
+internal/graph    impact / path / map / flows walkers over store queries
 internal/query    shared answer layer: open, resolve, six answers, status
 internal/output   the MCP envelope and provenance cap
 internal/mcp      hand-rolled stdio JSON-RPC adapter
@@ -181,6 +183,11 @@ the database.
   reading belongs to that tree. It is evidence, not a CI gate (timings are
   machine-dependent). The 50k target is <3 min and <1 GB RSS; the 10k budgets
   are unchanged and must stay green.
+- **Entrypoints are a dimension, not nodes.** The `entrypoints` table (schema
+  v5) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
+  `rs.main` to existing symbols. Do not turn them into a node kind or let
+  framework detection change node identity. `flows` follows forward edges only
+  at the confidence floor; it is structural, not a runtime trace.
 - **Adapter edges never overwrite tree-sitter edges.** `repath adapter --scip`
   only consumes `pending` references and `store.MergeEdges` reports conflicts
   instead of upserting. Adapter rules are prefixed `scip.ts.*` at confidence

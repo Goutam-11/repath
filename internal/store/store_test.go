@@ -29,8 +29,8 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("meta: %v", err)
 	}
-	if meta["schema_version"] != "4" {
-		t.Fatalf("schema_version = %q, want 4", meta["schema_version"])
+	if meta["schema_version"] != "5" {
+		t.Fatalf("schema_version = %q, want 5", meta["schema_version"])
 	}
 }
 

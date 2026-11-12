@@ -175,7 +175,7 @@ func TestPullRefusesUnknownSchemaVersion(t *testing.T) {
 		t.Fatal("pull accepted schema v99")
 	}
 	message := err.Error()
-	for _, want := range []string{"schema v99", "expects v4", "upgrade"} {
+	for _, want := range []string{"schema v99", "expects v5", "upgrade"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("error %q does not contain %q", message, want)
 		}

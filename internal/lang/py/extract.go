@@ -24,10 +24,11 @@ const (
 
 // Symbol, Ref, Import, and Result are the shared extraction-fact types.
 type (
-	Symbol = facts.Symbol
-	Ref    = facts.Ref
-	Import = facts.Import
-	Result = facts.Result
+	Symbol     = facts.Symbol
+	Ref        = facts.Ref
+	Import     = facts.Import
+	Entrypoint = facts.Entrypoint
+	Result     = facts.Result
 )
 
 // Extractor holds the Python parser. It is not safe for concurrent use; index
@@ -69,14 +70,18 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 	for i := uint32(0); i < root.NamedChildCount(); i++ {
 		w.node(root.NamedChild(i), "", true, false, nil)
 	}
+	if w.mainGuard {
+		w.mainEntrypoint()
+	}
 	return res
 }
 
 type walker struct {
-	src   []byte
-	res   *Result
-	seen  map[string]bool
-	types map[string]string // "enclosing:name" → type name
+	src       []byte
+	res       *Result
+	seen      map[string]bool
+	types     map[string]string // "enclosing:name" → type name
+	mainGuard bool
 }
 
 // node visits one statement or definition. enclosing is the qname of the symbol
@@ -106,6 +111,13 @@ func (w *walker) node(n sitter.Node, enclosing string, exported, inClass bool, d
 
 	case "class_definition":
 		w.class(n, enclosing, exported, decorators)
+		return
+
+	case "if_statement":
+		if isMainGuard(n, w.src) {
+			w.mainGuard = true
+		}
+		w.children(n, enclosing, inClass)
 		return
 
 	case "call":
@@ -159,6 +171,13 @@ func (w *walker) function(n sitter.Node, enclosing string, exported, inClass boo
 	}
 	w.add(kind, name, qname, arity, n, exported)
 	w.decoratorRefs(decorators, qname)
+	w.decoratorEntries(decorators, qname)
+	if strings.HasPrefix(name, "test_") {
+		w.res.Entrypoints = append(w.res.Entrypoints, Entrypoint{
+			QName: qname, Name: name, Rule: "py.test", Confidence: 0.90,
+			Line: int(n.StartPoint().Row) + 1,
+		})
+	}
 	w.children(params, qname, false)
 	w.children(n.ChildByFieldName("body"), qname, false)
 }
@@ -219,6 +238,94 @@ func (w *walker) typeRef(n sitter.Node, kind, enclosing string) {
 		if value := n.ChildByFieldName("value"); !value.IsNull() {
 			w.typeRef(value, kind, enclosing)
 		}
+	}
+}
+
+// decoratorEntries marks FastAPI/Flask route handlers. The decorator's first
+// string argument is kept as the display name; the route itself is not a node.
+func (w *walker) decoratorEntries(decorators []sitter.Node, enclosing string) {
+	for _, decorator := range decorators {
+		if decorator.IsNull() || decorator.NamedChildCount() == 0 {
+			continue
+		}
+		expr := decorator.NamedChild(0)
+		args := sitter.Node{}
+		if expr.Type() == "call" {
+			args = expr.ChildByFieldName("arguments")
+			expr = expr.ChildByFieldName("function")
+		}
+
+		name := ""
+		receiver := ""
+		switch expr.Type() {
+		case "identifier":
+			name = expr.Content(w.src)
+		case "attribute":
+			object := expr.ChildByFieldName("object")
+			attr := expr.ChildByFieldName("attribute")
+			if object.IsNull() || attr.IsNull() || object.Type() != "identifier" {
+				continue
+			}
+			name = attr.Content(w.src)
+			receiver = object.Content(w.src)
+		default:
+			continue
+		}
+
+		rule := ""
+		switch name {
+		case "route":
+			rule = "py.route.flask"
+		case "get", "post", "put", "patch", "delete", "websocket":
+			rule = "py.route.fastapi"
+		default:
+			continue
+		}
+		switch receiver {
+		case "app", "router", "bp", "blueprint", "api":
+		default:
+			continue
+		}
+
+		w.res.Entrypoints = append(w.res.Entrypoints, Entrypoint{
+			QName: enclosing, Name: firstString(args, w.src), Rule: rule,
+			Confidence: 0.90, Line: int(decorator.StartPoint().Row) + 1,
+		})
+	}
+}
+
+func firstString(n sitter.Node, src []byte) string {
+	if n.IsNull() {
+		return "route"
+	}
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		if child.Type() == "string" {
+			return strings.Trim(child.Content(src), `"'`)
+		}
+	}
+	return "route"
+}
+
+func isMainGuard(n sitter.Node, src []byte) bool {
+	condition := n.ChildByFieldName("condition")
+	if condition.IsNull() {
+		return false
+	}
+	text := condition.Content(src)
+	return strings.Contains(text, "__name__") && strings.Contains(text, "__main__")
+}
+
+func (w *walker) mainEntrypoint() {
+	for _, symbol := range w.res.Symbols {
+		if symbol.Name != "main" || strings.Contains(symbol.QName, ".") {
+			continue
+		}
+		w.res.Entrypoints = append(w.res.Entrypoints, Entrypoint{
+			QName: symbol.QName, Name: "__main__", Rule: "py.main",
+			Confidence: 0.90, Line: symbol.StartLine,
+		})
+		return
 	}
 }
 
