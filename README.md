@@ -4,14 +4,16 @@ Structural answers about a codebase — *what breaks if I change this*, *how doe
 A reach B*, *where is the important code* — from one deterministic graph, for
 humans and for coding agents.
 
-**Status: pre-alpha (M2).** TypeScript/JS definitions and relations are indexed,
-and `impact`, `path`, `find`, `callers`, and `map` answer structural questions
-from SQLite. Python and Rust, MCP, and sharing are not built yet; [`PLAN.md`](PLAN.md)
-is the specification.
+**Status: pre-alpha (M3).** TypeScript/JS and Python definitions and relations
+are indexed, and `impact`, `path`, `find`, `callers`, and `map` answer structural
+questions from SQLite. Rust, MCP, and sharing are not built yet;
+[`PLAN.md`](PLAN.md) is the specification.
 
 ## Build
 
-Requires Go 1.27+.
+Requires Go 1.27+ and a C toolchain: tree-sitter runs through cgo. Python
+(`.py`) resolves absolute and relative imports, package re-exports, class bases,
+decorators, and `self`/`classmethod`/typed-receiver calls.
 
 ```sh
 make build
@@ -23,7 +25,8 @@ make build
 ./bin/repath find <symbol>             # symbol card: callers, callees
 ```
 
-Add `.repath/` to your own `.gitignore`.
+Add `.repath/` to your own `.gitignore`. Languages today: TypeScript/JavaScript
+(`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`) and Python (`.py`).
 
 ## Shape
 

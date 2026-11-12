@@ -4,7 +4,7 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M2 merged.** TypeScript/JS only. Python is next (M3).
+**Current state: M3 merged.** TypeScript/JS and Python are indexed.
 
 ## Read first
 
@@ -49,8 +49,8 @@ export GOCACHE=$PWD/.cache/go-build GOPATH=$PWD/.cache/gopath \
 cmd/repath        entrypoint only
 internal/cli      commands, text renderers, JSON, exit codes
 internal/index    discovery, hashing, batching, module detection, orchestration
-internal/lang     path → dialect; lang/tsx extracts symbols + refs + imports
-internal/resolve  global name index, confidence ladder, tsconfig aliases
+internal/lang     path → dialect; lang/{tsx,py} extract symbols + refs + imports
+internal/resolve  global name index, confidence ladder, tsconfig aliases, Python module/re-export rules
 internal/store    SQLite schema and queries only
 internal/graph    impact / path / map walkers over store queries
 internal/eval     fixture gate (test-only)
@@ -69,7 +69,7 @@ internal/eval     fixture gate (test-only)
   Every edge carries `confidence` and a stable `rule` id; queries filter with
   `--min-confidence` (default 0.5).
 - Unresolved references go to `pending`. Each run prunes dangling edges and
-  retries pending names that now exist.
+  retries pending identifier names that now exist (members are never guessed).
 
 ## Repo rules
 
@@ -92,8 +92,9 @@ internal/eval     fixture gate (test-only)
 - **cgo is required.** There is no maintained pure-Go tree-sitter (decision 15,
   amended in M0). Builds need a C toolchain; cross-compiles need a target one.
 - **Grammar versions are pinned per module and they differ** (typescript
-  `v1.9.4`, tsx and javascript `v1.9.2`). Bumping one with `@latest` can drag the
-  binding API and break the others; change them deliberately and rebuild.
+  `v1.9.4`, tsx and javascript `v1.9.2`, python `v1.9.10`). Bumping one with
+  `@latest` can drag the binding API and break the others; change them
+  deliberately and rebuild.
 - **The parser rejects some valid TypeScript**, e.g.
   `call<typeof import("x")>()`. Those files are stored with `parse_ok=0` and
   partial symbols. Report the count; never hide it.
@@ -106,14 +107,28 @@ internal/eval     fixture gate (test-only)
   picking the first candidate.
 - **Top-level references** (outside any function) have no source symbol and are
   skipped.
+- **Python imports resolve at the repo root, `src/`, and `lib/` only.** There is
+  no `sys.path`/`PYTHONPATH` reading and namespace packages without `__init__.py`
+  are not resolved. That is a documented v1 gap, not a bug to paper over.
+- **Python inheritance is not walked for `self`.** `self.m()` resolves against
+  the enclosing class only; a method inherited from a base stays unresolved
+  (bases are still `EXTENDS` edges). Untyped locals stay unresolved too.
+- **Python re-exports are followed through the imports table.** `py.import.reexport`
+  covers `__init__.py` and ordinary modules such as `requests.compat`; a chain
+  ending at the standard library is external, not pending.
+- **Node ids are stable across re-index.** `ReplaceNodes` upserts by
+  `(qname, arity)` so a file edit does not orphan incoming edges; keep that
+  property when touching the indexer.
+- **Pending retries only re-link identifiers.** `pending.form` exists so an
+  untyped `obj.get()` is never retried as a repo-wide name guess.
 - **Module cycles** are computed on cross-module edges at ≥0.5; one noisy edge
   can merge modules into one SCC. Treat cycles as hints.
 - `.cache/` and `.repath/` are local artifacts. Never commit them.
 
 ## Adding a language (the M3 blueprint)
 
-1. `internal/lang/py/extract.go` returning the same `Result{Symbols, Refs, Imports}`
-   shape as `tsx`, with its own dialect type.
+1. `internal/lang/<lang>/extract.go` returning the shared
+   `facts.Result{Symbols, Refs, Imports}` shape, with its own dialect type.
 2. Register extensions in `internal/lang/lang.go`.
 3. Add resolution rules (relative imports, packages/`__init__` re-exports) in
    `internal/resolve`, with new rule ids and confidences in the ladder.
