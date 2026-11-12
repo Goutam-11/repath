@@ -251,6 +251,7 @@ repath find   <name>            [--module M] [--json]
 repath callers <sym>            [--depth 1] [--min-confidence 0.5] [--json]
 repath impact <sym|file:line>   [--depth 8] [--limit 50] [--json] [--module M]
 repath tests  <sym|file:line>   [--depth 8] [--limit 50] [--json]
+repath tests  --diff [base]     [--depth 8] [--limit 50] [--json]
 repath flows  <entrypoint>      [--depth 6] [--limit 20] [--json]
 repath path   <A> <B>           [--max-depth 8] [--alternates 3] [--json]
 repath map    [--max-tokens 2000] [--json]
@@ -662,7 +663,8 @@ reachability rather than runtime coverage. That remains the known ceiling.
    FastAPI/Flask, pytest, Python `__main__`, Rust `main`/`#[test]`; see
    `docs/flows.md`. MCP still exposes the same six tools.
 5. Test-impact mapping (v1.1, landed): `repath tests <target>` maps the
-   structural reverse closure to test files; see `docs/tests.md`.
+   structural reverse closure to test files; v1.2 adds `--diff [base]`, which
+   unions the per-file answer for a git change set. See `docs/tests.md`.
 6. Adapter seam (v1.1, landed): SCIP facts merged into pending references;
    Python landed in v1.2 under the separate `scip-python` adapter name. LSP and
    Rust adapters are still deferred. See `docs/adapters.md`.

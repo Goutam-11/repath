@@ -51,6 +51,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath adapter --scip index.scip     # merge compiler facts, no overwrite
 ./bin/repath flows <entrypoint>            # forward execution paths
 ./bin/repath tests <symbol|file:line>      # structurally affected test files
+./bin/repath tests --diff origin/main      # affected tests for a git change set
 ```
 
 Sandbox note (this machine): Go lives at `/usr/local/go/bin` (not on `PATH`),
@@ -197,8 +198,14 @@ the database.
 - **Test impact is structural reachability, not coverage.** `repath tests` uses
   graph reverse edges first, then path conventions and imports at 0.50; it must
   say so. The classifier is `internal/testpath.IsTest`, shared with `check`; do
-  not copy it. There is no `--diff` mode until it can reuse the existing git
-  discovery.
+  not copy it. `--diff [base]` discovers changed files once through
+  `index.ChangedFiles` (one `git diff --name-status -z` implementation), then
+  reuses the per-file `query.Tests` walker; do not add a second diff engine.
+  Each link carries `changed_file`; a changed test file is included as
+  `testpath.changed` at 1.00/depth 0; deleted/non-indexed paths go to
+  `diff.skipped`. Base order is explicit, `origin/main`, `main`, `HEAD`; bad
+  refs/non-git exit `3`, clean diffs exit `0` without opening an index, and
+  untracked files require `git add`.
 - **Entrypoints are a dimension, not nodes.** The `entrypoints` table (schema
   v5) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
   `rs.main` to existing symbols. Do not turn them into a node kind or let
