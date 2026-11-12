@@ -269,3 +269,49 @@ func placeholders(n int) string {
 	}
 	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }
+
+// MergeEdges writes edges that do not already exist and reports how many were
+// skipped because the (src, dst, kind) key was taken. Adapter ingestion uses
+// this instead of InsertEdges so an adapter fact can never silently overwrite a
+// tree-sitter edge.
+func (s *Store) MergeEdges(ctx context.Context, edges []Edge) (inserted, conflicts int, err error) {
+	if len(edges) == 0 {
+		return 0, 0, nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, err
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO edges (src, dst, kind, confidence, rule, line, candidates)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (src, dst, kind) DO NOTHING`)
+	if err != nil {
+		tx.Rollback()
+		return 0, 0, err
+	}
+	defer stmt.Close()
+
+	for _, e := range edges {
+		res, err := stmt.ExecContext(ctx, e.Src, e.Dst, e.Kind, e.Confidence, e.Rule, e.Line, e.Candidates)
+		if err != nil {
+			tx.Rollback()
+			return inserted, conflicts, err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			tx.Rollback()
+			return inserted, conflicts, err
+		}
+		if affected == 0 {
+			conflicts++
+		} else {
+			inserted++
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return inserted, conflicts, err
+	}
+	return inserted, conflicts, nil
+}

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/Goutam-11/repath/internal/adapter"
 	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/store"
 )
@@ -19,25 +20,26 @@ type RefreshReport struct {
 
 // StatusReport is the `status --json` contract, shared by the CLI and MCP.
 type StatusReport struct {
-	Root           string         `json:"root"`
-	Indexed        bool           `json:"indexed"`
-	SchemaVersion  int            `json:"schema_version"`
-	Version        string         `json:"version,omitempty"`
-	Files          int            `json:"files"`
-	Nodes          int            `json:"nodes"`
-	NodesByKind    map[string]int `json:"nodes_by_kind"`
-	ParseFailures  int            `json:"parse_failures"`
-	Edges          map[string]int `json:"edges"`
-	Ambiguous      int            `json:"ambiguous"`
-	AmbiguityRate  float64        `json:"ambiguity_rate"`
-	Unresolved     int            `json:"unresolved"`
-	UnresolvedRate float64        `json:"unresolved_rate"`
-	LastIndexed    string         `json:"last_indexed,omitempty"`
-	GitHead        string         `json:"git_head,omitempty"`
-	CurrentHead    string         `json:"current_head,omitempty"`
-	Stale          bool           `json:"stale"`
-	DirtyFiles     int            `json:"dirty_files"`
-	Refresh        RefreshReport  `json:"refresh"`
+	Root           string          `json:"root"`
+	Indexed        bool            `json:"indexed"`
+	SchemaVersion  int             `json:"schema_version"`
+	Version        string          `json:"version,omitempty"`
+	Files          int             `json:"files"`
+	Nodes          int             `json:"nodes"`
+	NodesByKind    map[string]int  `json:"nodes_by_kind"`
+	ParseFailures  int             `json:"parse_failures"`
+	Edges          map[string]int  `json:"edges"`
+	Ambiguous      int             `json:"ambiguous"`
+	AmbiguityRate  float64         `json:"ambiguity_rate"`
+	Unresolved     int             `json:"unresolved"`
+	UnresolvedRate float64         `json:"unresolved_rate"`
+	LastIndexed    string          `json:"last_indexed,omitempty"`
+	GitHead        string          `json:"git_head,omitempty"`
+	CurrentHead    string          `json:"current_head,omitempty"`
+	Stale          bool            `json:"stale"`
+	DirtyFiles     int             `json:"dirty_files"`
+	Adapters       []adapter.Stats `json:"adapters,omitempty"`
+	Refresh        RefreshReport   `json:"refresh"`
 }
 
 // Status reads the index counters and, unless refresh is false, runs the normal
@@ -75,6 +77,10 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 	if err != nil {
 		return StatusReport{}, err
 	}
+	adapters, err := adapter.SavedStats(ctx, st)
+	if err != nil {
+		return StatusReport{}, err
+	}
 
 	totalEdges := 0
 	for _, n := range edges {
@@ -109,6 +115,7 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 		CurrentHead:    currentHead,
 		Stale:          gitHead != "" && currentHead != "" && gitHead != currentHead,
 		DirtyFiles:     gitDirtyCount(ctx, root),
+		Adapters:       adapters,
 		Refresh: RefreshReport{
 			FilesIndexed: refreshed.Indexed,
 			FilesSkipped: refreshed.Unchanged,

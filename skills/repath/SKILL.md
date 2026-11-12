@@ -20,6 +20,7 @@ repath find <symbol> --json               # card: location, caller/callee counts
 repath map --max-tokens 1200 --json       # modules, cycles, ranked hubs
 repath status --json                      # counts, unresolved, ambiguity, parse failures
 repath check --fail-on warning --json     # cycles, dead code, boundaries, hotspots
+repath adapter --scip index.scip --json    # optional compiler facts for unresolved refs
 ```
 
 `--min-confidence` (default 0.5) is the precision/completeness dial: 0.9 keeps

@@ -66,8 +66,9 @@ Every successful tool result is one JSON object in the MCP text content block:
   rule id is the resolver rule (`ts.import.named`, `py.this.method`,
   `rs.self.method`, …), so a client can audit why an edge exists.
 
-`status` includes `unresolved_rate` (unresolved / (resolved edges + unresolved))
-and `stale` (indexed commit differs from HEAD) for freshness decisions.
+`status` includes `unresolved_rate` (unresolved / (resolved edges + unresolved)),
+`stale` (indexed commit differs from HEAD), and `adapters[]` (compiler-adapter
+coverage, skips, and conflicts; see `docs/adapters.md`).
 
 ## Client configuration
 

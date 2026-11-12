@@ -368,3 +368,60 @@ func TestGraphEdgeSkeletonsMatchGraphEdges(t *testing.T) {
 		t.Fatalf("skeleton = %+v, want %+v", got, edges[0])
 	}
 }
+
+func TestMergeEdgesNeverOverwrites(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	fileID, err := tx.UpsertFile(ctx, File{
+		Path: "src/a.ts", Lang: "typescript", Size: 10, MTime: 100, Hash: "abc", ParseOK: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert file: %v", err)
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileID, "typescript", []Node{
+		{Kind: "function", Name: "a", QName: "a", StartLine: 1, EndLine: 2, Exported: true},
+		{Kind: "function", Name: "b", QName: "b", StartLine: 4, EndLine: 5, Exported: true},
+	}); err != nil {
+		t.Fatalf("replace nodes: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	ids, err := st.NodeIDsByFile(ctx, fileID)
+	if err != nil {
+		t.Fatalf("node ids: %v", err)
+	}
+	existing := Edge{Src: ids["a"], Dst: ids["b"], Kind: "CALLS", Confidence: 1.0, Rule: "ts.import.named", Line: 2}
+	if _, err := st.InsertEdges(ctx, []Edge{existing}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	inserted, conflicts, err := st.MergeEdges(ctx, []Edge{
+		{Src: ids["a"], Dst: ids["b"], Kind: "CALLS", Confidence: 0.99, Rule: "scip.ts.method", Line: 9},
+		{Src: ids["b"], Dst: ids["a"], Kind: "REFERENCES", Confidence: 0.4, Rule: "ts.global.ambiguous", Line: 4},
+	})
+	if err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if inserted != 1 || conflicts != 1 {
+		t.Fatalf("merge inserted=%d conflicts=%d, want 1/1", inserted, conflicts)
+	}
+
+	edges, err := st.GraphEdges(ctx, 0)
+	if err != nil {
+		t.Fatalf("graph edges: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.Src == ids["a"] && edge.Dst == ids["b"] && edge.Kind == "CALLS" {
+			if edge.Rule != "ts.import.named" || edge.Confidence != 1.0 {
+				t.Fatalf("tree-sitter edge was overwritten: %+v", edge)
+			}
+		}
+	}
+}

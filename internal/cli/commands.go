@@ -89,6 +89,12 @@ func printStatus(out io.Writer, r statusReport) {
 			r.LastIndexed, r.Refresh.FilesIndexed, r.Refresh.FilesSkipped,
 			r.Refresh.FilesDeleted, r.Refresh.DurationMS)
 	}
+	if len(r.Adapters) > 0 {
+		for _, a := range r.Adapters {
+			fmt.Fprintf(out, "adapter %s: %d definitions · %d refs · %d matched · %d edges · %d conflicts · %d skipped\n",
+				a.Adapter, a.Definitions, a.References, a.Matched, a.Edges, a.Conflicts, a.Skipped)
+		}
+	}
 	if r.Stale {
 		fmt.Fprintf(out, "stale: index at %s, HEAD at %s\n", shortSHA(r.GitHead), shortSHA(r.CurrentHead))
 	}

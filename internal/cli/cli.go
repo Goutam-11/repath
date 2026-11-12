@@ -28,6 +28,7 @@ Usage:
   repath map     [--max-tokens N] [--json]
   repath check   [--root DIR] [--json] [--min-confidence N]
                  [--fail-on none|error|warning|info] [--max-findings N]
+  repath adapter --scip FILE [--root DIR] [--json]
   repath mcp     [--root DIR]
   repath version
 
@@ -41,6 +42,7 @@ Commands:
   path     how one symbol reaches another
   map      ranked overview: modules, cycles, hot symbols
   check    graph-native checks: cycles, dead code, boundaries, hotspots
+  adapter  merge compiler facts (SCIP) into unresolved references
   mcp      stdio JSON-RPC server for MCP clients (six answer tools)
   version  print the build version
 
@@ -84,6 +86,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return mapCmd(args[1:], stdout, stderr)
 	case "check":
 		return checkCmd(args[1:], stdout, stderr)
+	case "adapter":
+		return adapterCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s", args[0], usage)
 		return 2
@@ -102,6 +106,7 @@ type options struct {
 	maxTokens     int
 	module        string
 	artifact      string
+	scip          string
 	failOn        string
 	maxFindings   int
 }
@@ -156,6 +161,14 @@ func parseOptions(args []string) (options, []string, error) {
 			o.artifact = args[i]
 		case strings.HasPrefix(arg, "--artifact="):
 			o.artifact = strings.TrimPrefix(arg, "--artifact=")
+		case arg == "--scip":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--scip needs a SCIP file")
+			}
+			i++
+			o.scip = args[i]
+		case strings.HasPrefix(arg, "--scip="):
+			o.scip = strings.TrimPrefix(arg, "--scip=")
 		case arg == "--fail-on":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--fail-on needs none, error, warning, or info")
