@@ -80,5 +80,6 @@ their `.schema` sidecars are removed. The active database is never evicted.
 - a stale lock is recovered;
 - `.repath/` is ignored by the clean check.
 
-`make perf` reports the 10k-file cold/incremental/query/MCP numbers in
-`internal/index/perf_test.go`.
+`make perf` runs the 10k and 50k cold/incremental/query/check/artifact budgets
+in `internal/index/perf_test.go`; `make perf-50k` alone is the 50k claim. The
+numbers are recorded in PLAN §12 and the top level in `README.md`.

@@ -8,10 +8,12 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Goutam-11/repath/internal/artifact"
 	"github.com/Goutam-11/repath/internal/check"
 	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/mcp"
@@ -19,25 +21,63 @@ import (
 	"github.com/Goutam-11/repath/internal/store"
 )
 
-const (
-	perfModules    = 100
-	perfPerModule  = 100
-	perfFileCount  = perfModules * perfPerModule
-	perfSampleSize = 20
-)
+const perfSampleSize = 20
+
+// perfConfig describes one reproducible synthetic budget run. The tree shape
+// is deterministic: `modules` directories, each holding `perModule` TypeScript
+// files. Every file defines one exported function; file i>0 imports file i-1
+// and calls it, so a module is a 100-node call chain. The 10k tree has 100
+// modules and 9,900 CALLS; the 50k tree has 500 modules and 49,900 CALLS.
+type perfConfig struct {
+	name       string
+	modules    int
+	perModule  int
+	coldBudget time.Duration
+	rssBudget  uint64
+	artifact   bool
+}
 
 // TestPerf10k is the reproducible PLAN §10/M5 budget run. It is opt-in because
 // generating and indexing 10k files is not a unit test:
 //
-//	make perf
+//	make perf-10k
 func TestPerf10k(t *testing.T) {
+	runPerf(t, perfConfig{
+		name:       "10k",
+		modules:    100,
+		perModule:  100,
+		coldBudget: 60 * time.Second,
+	})
+}
+
+// TestPerf50k validates the 50k-file ceiling from PLAN §10 (cold <3 min,
+// RSS <1 GB) and measures artifact export/pull at that size. It is opt-in:
+//
+//	make perf-50k
+func TestPerf50k(t *testing.T) {
+	runPerf(t, perfConfig{
+		name:       "50k",
+		modules:    500,
+		perModule:  100,
+		coldBudget: 3 * time.Minute,
+		rssBudget:  1 << 30,
+		artifact:   true,
+	})
+}
+
+func runPerf(t *testing.T, cfg perfConfig) {
+	t.Helper()
 	if os.Getenv("REPATH_PERF") == "" {
-		t.Skip("set REPATH_PERF=1 (or run make perf) to exercise the 10k budget")
+		t.Skip("set REPATH_PERF=1 (or run make perf) to exercise the synthetic budget")
 	}
 
+	fileCount := cfg.modules * cfg.perModule
 	ctx := context.Background()
 	root := t.TempDir()
-	generateSynthetic(t, root, perfModules, perfPerModule)
+
+	start := time.Now()
+	generateSynthetic(t, root, cfg.modules, cfg.perModule)
+	t.Logf("generated %s tree: %d files in %s", cfg.name, fileCount, time.Since(start))
 
 	if err := os.MkdirAll(filepath.Join(root, ".repath"), 0o755); err != nil {
 		t.Fatal(err)
@@ -51,18 +91,20 @@ func TestPerf10k(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	start := time.Now()
+	start = time.Now()
 	cold, err := index.Run(ctx, st, root, index.Options{})
 	coldDuration := time.Since(start)
 	if err != nil {
 		st.Close()
 		t.Fatalf("cold index: %v", err)
 	}
-	if cold.Files != perfFileCount {
+	if cold.Files != fileCount {
 		st.Close()
-		t.Fatalf("cold files = %d, want %d", cold.Files, perfFileCount)
+		t.Fatalf("cold files = %d, want %d", cold.Files, fileCount)
 	}
-	t.Logf("cold index: %d files, %d nodes, %d edges in %s", cold.Files, cold.Nodes, cold.Edges, coldDuration)
+	coldRSS := peakRSSBytes()
+	t.Logf("cold index: %d files, %d nodes, %d edges in %s; peak RSS %s",
+		cold.Files, cold.Nodes, cold.Edges, coldDuration, formatBytes(coldRSS))
 
 	// Ten changed files through the normal incremental path.
 	for i := 0; i < 10; i++ {
@@ -101,9 +143,14 @@ func TestPerf10k(t *testing.T) {
 	impactSamples := make([]time.Duration, 0, perfSampleSize)
 	callerSamples := make([]time.Duration, 0, perfSampleSize)
 	pathSamples := make([]time.Duration, 0, perfSampleSize)
+	middle := cfg.perModule / 2
 	for i := 0; i < perfSampleSize; i++ {
-		module := i % perfModules
-		target := fmt.Sprintf("f_%03d_%03d", module, 40+i%20)
+		module := i % cfg.modules
+		file := middle + i%20
+		if file >= cfg.perModule {
+			file = middle
+		}
+		target := fmt.Sprintf("f_%03d_%03d", module, file)
 
 		start = time.Now()
 		answer, code, err := query.Impact(ctx, session.Store, target, 8, 0.5, 50)
@@ -125,8 +172,8 @@ func TestPerf10k(t *testing.T) {
 			t.Fatalf("callers %s returned none", target)
 		}
 
-		from := fmt.Sprintf("f_%03d_%03d", module, 49)
-		to := fmt.Sprintf("f_%03d_%03d", module, 41)
+		from := fmt.Sprintf("f_%03d_%03d", module, cfg.perModule-1)
+		to := fmt.Sprintf("f_%03d_%03d", module, cfg.perModule-9)
 		start = time.Now()
 		pathAnswer, code, err := query.Path(ctx, session.Store, from, to, 8, 0.5, 3)
 		pathSamples = append(pathSamples, time.Since(start))
@@ -161,7 +208,9 @@ func TestPerf10k(t *testing.T) {
 	t.Logf("map p50=%s p95=%s (budget p95 <300ms)", mapP50, mapP95)
 
 	// The MCP adapter opens the same active database and answers one call.
-	mcpRequest := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"impact","arguments":{"symbol":"f_000_040","depth":8}}}` + "\n"
+	mcpRequest := fmt.Sprintf(
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"impact","arguments":{"symbol":"f_000_%03d","depth":8}}}`+"\n",
+		middle)
 	var mcpOut bytes.Buffer
 	start = time.Now()
 	mcpCode := mcp.Run(ctx, root, "perf", strings.NewReader(mcpRequest), &mcpOut, io.Discard)
@@ -174,21 +223,55 @@ func TestPerf10k(t *testing.T) {
 	}
 	t.Logf("MCP impact round-trip: %s", mcpDuration)
 
-	// The v1.1 check reads the same graph; report its cost on 10k symbols.
+	// The v1.1 check reads the same graph; report its cost on the full tree.
 	start = time.Now()
 	checkReport, err := check.Run(ctx, session.Store, root, check.Options{MinConfidence: 0.5, MaxFindings: 200})
 	checkDuration := time.Since(start)
 	if err != nil {
 		t.Fatalf("check: %v", err)
 	}
-	t.Logf("check 10k: %s (%d findings)", checkDuration, len(checkReport.Findings))
+	t.Logf("check %s: %s (%d findings)", cfg.name, checkDuration, len(checkReport.Findings))
+
+	// Artifact export/pull at full size. Pull lands in an empty directory so the
+	// number measures the snapshot copy, not a 50k-file re-hash overlay.
+	if cfg.artifact {
+		outDir := t.TempDir()
+		start = time.Now()
+		exported, err := artifact.Export(ctx, session.Store, root, outDir, "perf")
+		exportDuration := time.Since(start)
+		if err != nil {
+			t.Fatalf("artifact export: %v", err)
+		}
+		info, err := os.Stat(exported.DBPath)
+		if err != nil {
+			t.Fatalf("stat artifact: %v", err)
+		}
+		pullRoot := t.TempDir()
+		start = time.Now()
+		manifest, err := artifact.Pull(ctx, outDir, pullRoot, "perf")
+		pullDuration := time.Since(start)
+		if err != nil {
+			t.Fatalf("artifact pull: %v", err)
+		}
+		if manifest.FileCount != cold.Files {
+			t.Fatalf("pulled manifest files = %d, want %d", manifest.FileCount, cold.Files)
+		}
+		t.Logf("artifact: %s export=%s pull=%s (schema v%d, %d files, %d nodes, %d edges)",
+			formatBytes(uint64(info.Size())), exportDuration, pullDuration,
+			manifest.SchemaVersion, manifest.FileCount, manifest.NodeCount, manifest.EdgeCount)
+	}
+
+	finalRSS := peakRSSBytes()
+	if finalRSS > coldRSS {
+		t.Logf("peak RSS after all measurements: %s", formatBytes(finalRSS))
+	}
 
 	// README quickstart: build is measured separately; this is cold index plus
 	// the first answer's graph work.
 	t.Logf("cold index + first query: %s (build excluded)", coldDuration+impactP50)
 
-	if coldDuration > 60*time.Second {
-		t.Errorf("cold 10k index = %s, budget <60s", coldDuration)
+	if coldDuration > cfg.coldBudget {
+		t.Errorf("cold %s index = %s, budget <%s", cfg.name, coldDuration, cfg.coldBudget)
 	}
 	if incrementalDuration > time.Second {
 		t.Errorf("10-file incremental = %s, budget <1s", incrementalDuration)
@@ -204,6 +287,15 @@ func TestPerf10k(t *testing.T) {
 	}
 	if mapP95 > 300*time.Millisecond {
 		t.Errorf("map p95 = %s, budget <300ms", mapP95)
+	}
+	if cfg.rssBudget > 0 {
+		peak := coldRSS
+		if finalRSS > peak {
+			peak = finalRSS
+		}
+		if peak > cfg.rssBudget {
+			t.Errorf("peak RSS = %s, budget <%s", formatBytes(peak), formatBytes(cfg.rssBudget))
+		}
 	}
 }
 
@@ -245,4 +337,49 @@ func percentile(samples []time.Duration) (p50, p95 time.Duration) {
 	}
 	p95 = sorted[index]
 	return p50, p95
+}
+
+// peakRSSBytes reads the Linux process high-water mark. Other platforms report
+// zero, and the budget check is skipped rather than guessed.
+func peakRSSBytes() uint64 {
+	data, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return 0
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.HasPrefix(line, "VmHWM:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0
+		}
+		kb, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			return 0
+		}
+		return kb * 1024
+	}
+	return 0
+}
+
+func formatBytes(n uint64) string {
+	if n == 0 {
+		return "unavailable"
+	}
+	const (
+		kib = 1024
+		mib = 1024 * kib
+		gib = 1024 * mib
+	)
+	switch {
+	case n >= gib:
+		return fmt.Sprintf("%.2f GiB", float64(n)/gib)
+	case n >= mib:
+		return fmt.Sprintf("%.1f MiB", float64(n)/mib)
+	case n >= kib:
+		return fmt.Sprintf("%.1f KiB", float64(n)/kib)
+	default:
+		return fmt.Sprintf("%d B", n)
+	}
 }

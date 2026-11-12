@@ -314,3 +314,57 @@ func TestDeleteFileRemovesNodes(t *testing.T) {
 		t.Fatalf("counts after delete = %+v", counts)
 	}
 }
+
+func TestGraphEdgeSkeletonsMatchGraphEdges(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	fileID, err := tx.UpsertFile(ctx, File{
+		Path: "src/a.ts", Lang: "typescript", Size: 10, MTime: 100, Hash: "abc", ParseOK: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert file: %v", err)
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileID, "typescript", []Node{
+		{Kind: "function", Name: "a", QName: "a", StartLine: 1, EndLine: 2, Exported: true},
+		{Kind: "function", Name: "b", QName: "b", StartLine: 4, EndLine: 5, Exported: true},
+	}); err != nil {
+		t.Fatalf("replace nodes: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	ids, err := st.NodeIDsByFile(ctx, fileID)
+	if err != nil {
+		t.Fatalf("node ids: %v", err)
+	}
+	edges := []Edge{
+		{Src: ids["a"], Dst: ids["b"], Kind: "CALLS", Confidence: 0.9, Rule: "ts.global.unique", Line: 2},
+		{Src: ids["b"], Dst: ids["a"], Kind: "REFERENCES", Confidence: 0.4, Rule: "ts.global.ambiguous", Line: 5},
+	}
+	if _, err := st.InsertEdges(ctx, edges); err != nil {
+		t.Fatalf("insert edges: %v", err)
+	}
+
+	full, err := st.GraphEdges(ctx, 0.5)
+	if err != nil {
+		t.Fatalf("graph edges: %v", err)
+	}
+	skeletons, err := st.GraphEdgeSkeletons(ctx, 0.5)
+	if err != nil {
+		t.Fatalf("skeletons: %v", err)
+	}
+	if len(skeletons) != len(full) || len(skeletons) != 1 {
+		t.Fatalf("skeletons = %d, full = %d, want 1 each", len(skeletons), len(full))
+	}
+	got := skeletons[0]
+	if got.Src != edges[0].Src || got.Dst != edges[0].Dst || got.Kind != edges[0].Kind ||
+		got.Confidence != edges[0].Confidence || got.Rule != edges[0].Rule || got.Line != edges[0].Line {
+		t.Fatalf("skeleton = %+v, want %+v", got, edges[0])
+	}
+}

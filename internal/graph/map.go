@@ -39,7 +39,7 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 	if err != nil {
 		return MapResult{}, err
 	}
-	all, err := st.GraphEdges(ctx, minConfidence)
+	all, err := st.GraphEdgeSkeletons(ctx, minConfidence)
 	if err != nil {
 		return MapResult{}, err
 	}
@@ -52,7 +52,7 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 		return MapResult{}, err
 	}
 
-	edges := make([]store.EdgeOut, 0, len(all))
+	edges := make([]store.EdgeSkeleton, 0, len(all))
 	for _, e := range all {
 		if e.Kind == "CALLS" || e.Kind == "REFERENCES" {
 			edges = append(edges, e)
@@ -66,7 +66,9 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 	// Module section: symbol counts and outgoing module dependencies.
 	moduleSymbols := map[string]int{}
 	moduleDeps := map[string]map[string]bool{}
+	nodeFile := make(map[int64]int64, len(nodes))
 	for _, n := range nodes {
+		nodeFile[n.ID] = n.FileID
 		name := moduleNames[moduleOf[n.FileID]]
 		if name == "" {
 			continue
@@ -74,8 +76,8 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 		moduleSymbols[name]++
 	}
 	for _, e := range edges {
-		from := moduleNames[moduleOf[e.SrcNode.FileID]]
-		to := moduleNames[moduleOf[e.DstNode.FileID]]
+		from := moduleNames[moduleOf[nodeFile[e.Src]]]
+		to := moduleNames[moduleOf[nodeFile[e.Dst]]]
 		if from == "" || to == "" || from == to {
 			continue
 		}
@@ -136,46 +138,68 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 
 // pageRank scores symbols by incoming calls, damping dangling mass back into
 // the graph. Returns ranks and caller counts.
-func pageRank(nodes []store.NodeRow, edges []store.EdgeOut) (map[int64]float64, map[int64]int) {
+func pageRank(nodes []store.NodeRow, edges []store.EdgeSkeleton) (map[int64]float64, map[int64]int) {
 	const damping = 0.85
 	const iterations = 20
 
 	total := float64(len(nodes))
-	ranks := make(map[int64]float64, len(nodes))
-	callers := make(map[int64]int, len(nodes))
-	outgoing := make(map[int64][]int64, len(nodes))
-
-	for _, n := range nodes {
-		ranks[n.ID] = 1.0 / total
+	// Dense slices keyed by position avoid allocating maps on every iteration;
+	// at 50k symbols the map-based loop was the map command's whole budget.
+	position := make(map[int64]int, len(nodes))
+	if len(nodes) == 0 {
+		return map[int64]float64{}, map[int64]int{}
 	}
+	for i, n := range nodes {
+		position[n.ID] = i
+	}
+
+	callers := make(map[int64]int, len(nodes))
+	outgoing := make([][]int32, len(nodes))
 	for _, e := range edges {
-		outgoing[e.Src] = append(outgoing[e.Src], e.Dst)
+		src, srcOK := position[e.Src]
+		dst, dstOK := position[e.Dst]
+		if !srcOK || !dstOK {
+			continue
+		}
+		outgoing[src] = append(outgoing[src], int32(dst))
 		callers[e.Dst]++
 	}
 
+	ranks := make([]float64, len(nodes))
+	next := make([]float64, len(nodes))
+	baseScore := 1.0 / total
+	for i := range ranks {
+		ranks[i] = baseScore
+	}
+
 	for i := 0; i < iterations; i++ {
-		next := make(map[int64]float64, len(nodes))
+		for j := range next {
+			next[j] = 0
+		}
 		leak := 0.0
-		for _, n := range nodes {
-			targets := outgoing[n.ID]
+		for src, targets := range outgoing {
 			if len(targets) == 0 {
-				leak += ranks[n.ID]
+				leak += ranks[src]
 				continue
 			}
-			share := damping * ranks[n.ID] / float64(len(targets))
+			share := damping * ranks[src] / float64(len(targets))
 			for _, dst := range targets {
 				next[dst] += share
 			}
 		}
 		// Dangling mass is spread evenly instead of vanishing.
 		base := (1-damping)/total + damping*leak/total
-		for _, n := range nodes {
-			next[n.ID] += base
+		for j := range next {
+			next[j] += base
 		}
-		ranks = next
+		ranks, next = next, ranks
 	}
 
-	return ranks, callers
+	out := make(map[int64]float64, len(nodes))
+	for i, n := range nodes {
+		out[n.ID] = ranks[i]
+	}
+	return out, callers
 }
 
 // Cycles returns strongly connected components with more than one module, plus

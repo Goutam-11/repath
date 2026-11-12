@@ -44,11 +44,13 @@ Sharing, the manifest, and the schema gate are in
 [`docs/worktrees.md`](docs/worktrees.md); the five checks, severities, and the
 check-only exit code `5` are in [`docs/check.md`](docs/check.md).
 
-The measured 10k-file synthetic tree (reproducible with `make perf`): cold
+The measured 10k-file synthetic tree (reproducible with `make perf-10k`): cold
 index **5.0 s**, 10-file incremental **237 ms**, `impact` p95 **24.5 ms**, a
 second worktree warm seed **12.9 ms**, and a cold build **21.8 s** — README
-quickstart to first answer **~27 s**, inside the 60 s budget. Every other
-PLAN §10 budget is in the same table (`PLAN.md` §12).
+quickstart to first answer **~27 s**, inside the 60 s budget. The 50k tree
+(`make perf-50k`): cold index **16.3 s**, peak RSS **292 MiB**, `impact` p95
+**60.8 ms**, `map` p95 **221 ms**, `check` **474 ms** — every PLAN §10 budget
+met. The full table is in `PLAN.md` §12.
 
 Add `.repath/` to your own `.gitignore`. Languages today:
 TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), Python
