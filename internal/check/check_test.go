@@ -184,6 +184,90 @@ func TestReportTruncationKeepsCounts(t *testing.T) {
 	}
 }
 
+func TestRustPrivateCrossing(t *testing.T) {
+	report := runCheck(t, map[string]string{
+		"alpha/lib.rs": `pub struct Thing { value: i32 }
+
+impl Thing {
+    pub fn new() -> Thing { Thing { value: 1 } }
+    fn hidden_method(&self) -> i32 { self.value }
+}
+
+fn hidden() -> i32 { 1 }
+
+pub fn visible() -> i32 { hidden() }
+`,
+		"beta/lib.rs": `fn run() -> i32 {
+    let thing = Thing::new();
+    thing.hidden_method() + hidden()
+}
+`,
+	}, Options{MinConfidence: 0.5})
+
+	crossings := find(report, "module-boundary", "boundary.private")
+	got := map[string]Finding{}
+	for _, finding := range crossings {
+		got[finding.QName] = finding
+	}
+	for _, want := range []string{"hidden", "Thing.hidden_method"} {
+		finding, ok := got[want]
+		if !ok {
+			t.Fatalf("missing private crossing for %q: %+v", want, crossings)
+		}
+		if finding.Severity != SeverityWarning || finding.Module != "beta" {
+			t.Fatalf("private crossing %q = %+v", want, finding)
+		}
+	}
+	if len(crossings) != 2 {
+		t.Fatalf("private crossings = %d, want 2: %+v", len(crossings), crossings)
+	}
+}
+
+func TestTSMethodPrivacyInheritsClassExport(t *testing.T) {
+	report := runCheck(t, map[string]string{
+		"src/app.ts": `class Internal {
+  hidden(): number { return 1; }
+}
+
+export class Public {
+  visible(): number { return 2; }
+}
+
+export function makePublic(): Public { return new Public(); }
+`,
+	}, Options{MinConfidence: 0.5})
+
+	dead := find(report, "dead-code", "dead.unreferenced")
+	if len(dead) != 1 {
+		t.Fatalf("dead code = %d, want only Internal.hidden: %+v", len(dead), dead)
+	}
+	if dead[0].QName != "Internal.hidden" {
+		t.Fatalf("dead code = %+v, want Internal.hidden (the exported class method stays public)", dead[0])
+	}
+}
+
+func TestPythonDunderAndEntrypointNamesAreNotDead(t *testing.T) {
+	report := runCheck(t, map[string]string{
+		"svc/app.py": `def main():
+    pass
+
+def __init__():
+    pass
+
+def __main__():
+    pass
+
+def _unused_helper():
+    pass
+`,
+	}, Options{MinConfidence: 0.5})
+
+	dead := find(report, "dead-code", "dead.unreferenced")
+	if len(dead) != 1 || dead[0].QName != "_unused_helper" {
+		t.Fatalf("dead code = %+v, want only _unused_helper", dead)
+	}
+}
+
 func TestTestPathClassifier(t *testing.T) {
 	cases := map[string]bool{
 		"src/a.ts":             false,
@@ -195,7 +279,14 @@ func TestTestPathClassifier(t *testing.T) {
 		"pkg/conftest.py":      true,
 		"src/__tests__/a.ts":   true,
 		"tests/integration.rs": true,
+		"testdata/fixture.ts":  true,
+		"pkg/__tests__/a.js":   true,
+		"src/a.test.jsx":       true,
+		"src/a.spec.jsx":       true,
+		"pkg/test_client.py":   true,
+		"tests/conftest.py":    true,
 		"contest/winner.ts":    false,
+		"testament/play.ts":    false,
 	}
 	for path, want := range cases {
 		if got := isTestPath(path); got != want {
