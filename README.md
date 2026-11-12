@@ -13,7 +13,8 @@ immutable cache, `repath check` adds graph-native CI diagnostics, and
 `repath adapter --scip` merges TypeScript or Python compiler facts into unresolved references without
 overwriting tree-sitter edges, and `repath flows` walks forward from detected
 entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`),
-and `repath tests` maps a change to the test files that structurally reach it.
+and `repath tests` maps a change (or a git `--diff` set) to the test files that
+structurally reach it.
 `repath check --sarif` now attaches external compiler/linter diagnostics (SARIF
 2.1.0) to the enclosing symbols without running those tools.
 [`PLAN.md`](PLAN.md) is the specification.
@@ -43,6 +44,7 @@ make build
 ./bin/repath adapter --scip index.scip # merge TS/Python SCIP facts into pending refs
 ./bin/repath flows <entrypoint>        # forward execution paths
 ./bin/repath tests <symbol|file:line>  # affected test files (structural)
+./bin/repath tests --diff origin/main  # affected test files for a change set
 ```
 
 An agent with a shell should prefer the CLI; [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
@@ -58,8 +60,8 @@ adapter's dual-era negotiation and client verification are in
 [`docs/mcp.md`](docs/mcp.md). The optional SCIP adapter (TypeScript and Python),
 its merge rules, and the measured unresolved drops are in
 [`docs/adapters.md`](docs/adapters.md), and entrypoint detection/flow limits are
-in [`docs/flows.md`](docs/flows.md), and test-impact provenance/limits are in
-[`docs/tests.md`](docs/tests.md).
+in [`docs/flows.md`](docs/flows.md), and test-impact provenance, diff mode, and
+limits are in [`docs/tests.md`](docs/tests.md).
 
 The 50k artifact compresses from **19.2 MiB to 4.8 MiB** (25.2%) with
 `--compress`; the 10k tree goes from **3.8 MiB to 991 KiB** (25.3%). The

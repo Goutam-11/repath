@@ -21,6 +21,7 @@ repath map --max-tokens 1200 --json       # modules, cycles, ranked hubs
 repath status --json                      # counts, unresolved, ambiguity, parse failures
 repath flows <entrypoint> --json          # forward execution paths
 repath tests <symbol|file:line> --json    # structurally affected test files
+repath tests --diff origin/main --json   # affected tests for a change set
 repath check --fail-on warning --json     # cycles, dead code, boundaries, hotspots
 repath check --sarif tsc.sarif --json     # attach external SARIF 2.1.0 diagnostics
 repath adapter --scip index.scip --json    # optional TS/Python compiler facts for unresolved refs

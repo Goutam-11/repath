@@ -25,6 +25,7 @@ Usage:
   repath callers <symbol> [--root DIR] [--json] [--min-confidence N]
   repath impact  <symbol|file:line> [--depth N] [--limit N] [--json]
   repath tests   <symbol|file:line> [--depth N] [--limit N] [--json]
+  repath tests   --diff [base] [--depth N] [--limit N] [--json]
   repath path    <from> <to> [--max-depth N] [--json]
   repath map     [--max-tokens N] [--json]
   repath flows   <entrypoint> [--depth N] [--limit N] [--json]
@@ -119,6 +120,8 @@ type options struct {
 	compress      bool
 	scip          string
 	sarif         []string
+	diff          bool
+	diffBase      string
 	failOn        string
 	maxFindings   int
 }
@@ -191,6 +194,15 @@ func parseOptions(args []string) (options, []string, error) {
 			o.sarif = append(o.sarif, args[i])
 		case strings.HasPrefix(arg, "--sarif="):
 			o.sarif = append(o.sarif, strings.TrimPrefix(arg, "--sarif="))
+		case arg == "--diff":
+			o.diff = true
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				i++
+				o.diffBase = args[i]
+			}
+		case strings.HasPrefix(arg, "--diff="):
+			o.diff = true
+			o.diffBase = strings.TrimPrefix(arg, "--diff=")
 		case arg == "--fail-on":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--fail-on needs none, error, warning, or info")

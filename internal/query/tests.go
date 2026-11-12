@@ -4,9 +4,11 @@ import (
 	"context"
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Goutam-11/repath/internal/graph"
+	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/store"
 	"github.com/Goutam-11/repath/internal/testpath"
 )
@@ -22,12 +24,29 @@ type TestLink struct {
 	Confidence     float64 `json:"confidence"`
 	Rule           string  `json:"rule"`
 	CallLine       int     `json:"call_line,omitempty"`
+	// ChangedFile is set only in --diff mode: the changed path whose impact
+	// pulled this test file in.
+	ChangedFile string `json:"changed_file,omitempty"`
 }
 
 // TestFile is one test file and the evidence that reaches it.
 type TestFile struct {
 	File  string     `json:"file"`
 	Links []TestLink `json:"links"`
+}
+
+// ChangedFile is one changed path in a diff answer.
+type ChangedFile struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+}
+
+// DiffInfo is the `tests --diff` provenance: the base, every changed file, and
+// the ones that could not be mapped to current symbols (deleted or non-code).
+type DiffInfo struct {
+	Base    string        `json:"base"`
+	Changed []ChangedFile `json:"changed"`
+	Skipped []ChangedFile `json:"skipped,omitempty"`
 }
 
 // TestsResult is the `tests` payload.
@@ -37,6 +56,7 @@ type TestsResult struct {
 	Depth         int              `json:"depth"`
 	MinConfidence float64          `json:"min_confidence"`
 	Truncated     bool             `json:"truncated"`
+	Diff          *DiffInfo        `json:"diff,omitempty"`
 }
 
 // TestsAnswer carries the resolved target and the test-impact answer.
@@ -242,4 +262,150 @@ func importCandidates(base string) []string {
 		path.Join(base, "index.js"), path.Join(base, "index.jsx"),
 	}
 	return out
+}
+
+// TestsDiff unions the test-impact answer for every changed file. Changed test
+// files include themselves (a test that changed must run); production files go
+// through the same Tests walker as `repath tests <file>`. The diff itself is
+// discovered once by index.ChangedFiles and passed in, so there is no second
+// diff walker and no extra git call.
+func TestsDiff(ctx context.Context, st *store.Store, base string, changed []index.ChangedFile,
+	depth int, minConfidence float64, limit int) (TestsResult, error) {
+
+	if depth <= 0 {
+		depth = DefaultDepth
+	}
+	if limit <= 0 {
+		limit = DefaultLimit
+	}
+
+	result := TestsResult{
+		Targets:       make([]graph.Endpoint, 0),
+		Tests:         make([]TestFile, 0),
+		Depth:         depth,
+		MinConfidence: minConfidence,
+		Diff: &DiffInfo{
+			Base:    base,
+			Changed: make([]ChangedFile, 0, len(changed)),
+		},
+	}
+	result.Diff.Changed = append(result.Diff.Changed, changedFiles(changed)...)
+
+	byFile := make(map[string]*TestFile)
+	seenLinks := make(map[string]bool)
+	seenTargets := make(map[int64]bool)
+
+	addLink := func(testFile string, link TestLink) {
+		key := strings.Join([]string{
+			link.TestFile, link.TestSymbol, link.AffectedSymbol, link.AffectedFile,
+			link.ChangedFile, strconv.Itoa(link.Depth),
+			strconv.FormatFloat(link.Confidence, 'f', 4, 64),
+			link.Rule, strconv.Itoa(link.CallLine),
+		}, "\x00")
+		if seenLinks[key] {
+			return
+		}
+		seenLinks[key] = true
+		file := byFile[testFile]
+		if file == nil {
+			file = &TestFile{File: testFile}
+			byFile[testFile] = file
+		}
+		file.Links = append(file.Links, link)
+	}
+
+	for _, file := range changed {
+		if file.Status == "deleted" {
+			result.Diff.Skipped = append(result.Diff.Skipped, ChangedFile(file))
+			continue
+		}
+		_, found, err := st.FileByPath(ctx, file.Path)
+		if err != nil {
+			return result, err
+		}
+		if !found {
+			// Not indexed: a non-code file, a binary, or a generated file.
+			result.Diff.Skipped = append(result.Diff.Skipped, ChangedFile(file))
+			continue
+		}
+
+		if testpath.IsTest(file.Path) {
+			// A changed test must run even when no production file reaches it.
+			addLink(file.Path, TestLink{
+				TestFile: file.Path, AffectedFile: file.Path, ChangedFile: file.Path,
+				Depth: 0, Confidence: 1, Rule: "testpath.changed",
+			})
+			continue
+		}
+
+		answer, code, err := Tests(ctx, st, file.Path, depth, minConfidence, limit)
+		if err != nil {
+			return result, err
+		}
+		if code != 0 {
+			result.Diff.Skipped = append(result.Diff.Skipped, ChangedFile(file))
+			continue
+		}
+		for _, target := range answer.Result.Targets {
+			if seenTargets[target.ID] {
+				continue
+			}
+			seenTargets[target.ID] = true
+			result.Targets = append(result.Targets, target)
+		}
+		for _, test := range answer.Result.Tests {
+			for _, link := range test.Links {
+				link.ChangedFile = file.Path
+				addLink(test.File, link)
+			}
+		}
+		if answer.Result.Truncated {
+			result.Truncated = true
+		}
+	}
+
+	files := make([]TestFile, 0, len(byFile))
+	for _, file := range byFile {
+		sort.Slice(file.Links, func(i, j int) bool {
+			if file.Links[i].Depth != file.Links[j].Depth {
+				return file.Links[i].Depth < file.Links[j].Depth
+			}
+			if file.Links[i].Rule != file.Links[j].Rule {
+				return file.Links[i].Rule < file.Links[j].Rule
+			}
+			return file.Links[i].ChangedFile < file.Links[j].ChangedFile
+		})
+		files = append(files, *file)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].File < files[j].File })
+	if len(files) > limit {
+		files = files[:limit]
+		result.Truncated = true
+	}
+	result.Tests = append(result.Tests, files...)
+	return result, nil
+}
+
+func changedFiles(files []index.ChangedFile) []ChangedFile {
+	out := make([]ChangedFile, 0, len(files))
+	for _, file := range files {
+		out = append(out, ChangedFile(file))
+	}
+	return out
+}
+
+// EmptyTestsDiff is the explicit clean-diff answer: no targets and no tests,
+// but the base is still named so the caller can tell "nothing changed" from
+// "nothing reaches this target".
+func EmptyTestsDiff(base string, depth int, minConfidence float64) TestsResult {
+	if depth <= 0 {
+		depth = DefaultDepth
+	}
+	return TestsResult{
+		Targets:       make([]graph.Endpoint, 0),
+		Tests:         make([]TestFile, 0),
+		Depth:         depth,
+		MinConfidence: minConfidence,
+		Diff:          &DiffInfo{Base: base, Changed: make([]ChangedFile, 0)},
+	}
 }
