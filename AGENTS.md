@@ -4,7 +4,7 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M5 + v1.1 `check`, SCIP adapter, entrypoint flows, test-impact mapping, and dual-era MCP.**
+**Current state: M5 + v1.1 `check`, SCIP adapter, entrypoint flows, test-impact mapping, dual-era MCP, and opt-in artifact compression.**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath adapter --scip` merges compiler facts into unresolved
@@ -43,6 +43,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath impact x --min-confidence 0.9 # import/this/local edges only
 ./bin/repath mcp                           # stdio JSON-RPC, six tools
 ./bin/repath index --artifact out/         # export an artifact + manifest
+./bin/repath index --artifact out/ --compress # zstd artifact (opt-in)
 ./bin/repath pull out/                     # seed the local index from one
 ./bin/repath check --fail-on warning       # graph-native diagnostics for CI
 ./bin/repath adapter --scip index.scip     # merge compiler facts, no overwrite
@@ -105,7 +106,9 @@ the database.
   why, what changed, the one diagram that explains it, a validation table with
   real numbers, and an honest "not verified" line.
 - No new dependency without a stated reason. Today's tree: tree-sitter grammar
-  modules + `go-tree-sitter-bare` (cgo), and `modernc.org/sqlite` (pure Go).
+  modules + `go-tree-sitter-bare` (cgo), `modernc.org/sqlite` (pure Go), and
+  `github.com/klauspost/compress/zstd` (pure Go, opt-in artifact compression,
+  approved for #18).
 - Exit codes are contract: `0` ok, `1` internal, `2` usage, `3` not found,
   `4` ambiguous. `check` alone adds `5` for findings at or above `--fail-on`;
   never reuse it elsewhere.
@@ -168,10 +171,12 @@ the database.
   can be misclassified.
 - **Module cycles** are computed on cross-module edges at ≥0.5; one noisy edge
   can merge modules into one SCC. Treat cycles as hints.
-- **Artifacts are uncompressed SQLite in M5.** PLAN §4.1 sketched
-  `.sqlite.zst`; adding zstd would break the two-dependency rule, so
-  `manifest.format` records `sqlite` and the deviation is documented. Do not
-  change the container silently.
+- **Artifacts default to uncompressed SQLite; zstd is opt-in.** `--compress`
+  writes `manifest.format: "sqlite+zstd"` and `pull` reads both forms. The
+  schema gate runs for both. The only compression dependency is the approved
+  `github.com/klauspost/compress/zstd`, imported by `internal/artifact`; keep
+  the default path dependency-free at runtime and never change the container
+  silently.
 - **Worktree cache is immutable.** `$GIT_COMMON_DIR/repath/commits/<sha>.db`
   is chmod `0444` and only copied into a worktree's active
   `.repath/index.db`; never open it for writes and never put a live database on

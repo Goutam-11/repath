@@ -8,8 +8,7 @@ humans and for coding agents.
 definitions and relations are indexed, and `impact`, `path`, `find`, `callers`,
 and `map` answer structural questions from SQLite. `repath mcp` serves the same
 six answers over stdio JSON-RPC in both the legacy and 2026-07-28 eras, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
-teaches shell-capable agents the CLI. `index --artifact` exports a commit-keyed
-snapshot, `pull` seeds it locally, parallel git worktrees warm from a shared
+teaches shell-capable agents the CLI. `index --artifact` exports a commit-keyed snapshot (with opt-in `--compress`), `pull` seeds it locally, parallel git worktrees warm from a shared
 immutable cache, `repath check` adds graph-native CI diagnostics, and
 `repath adapter --scip` merges compiler facts into unresolved references without
 overwriting tree-sitter edges, and `repath flows` walks forward from detected
@@ -35,7 +34,7 @@ make build
 ./bin/repath callers <symbol>          # who calls this
 ./bin/repath find <symbol>             # symbol card: callers, callees
 ./bin/repath mcp                       # stdio JSON-RPC for MCP clients
-./bin/repath index --artifact out/     # export a shareable snapshot
+./bin/repath index --artifact out/     # export a snapshot (--compress for zstd)
 ./bin/repath pull out/                 # seed the local index from a snapshot
 ./bin/repath check --fail-on warning   # cycles, dead code, boundaries, hotspots
 ./bin/repath adapter --scip index.scip # merge SCIP facts into pending refs
@@ -57,7 +56,9 @@ and the measured unresolved drop are in
 in [`docs/flows.md`](docs/flows.md), and test-impact provenance/limits are in
 [`docs/tests.md`](docs/tests.md).
 
-The measured 10k-file synthetic tree (reproducible with `make perf-10k`): cold
+The 50k artifact compresses from **19.2 MiB to 4.8 MiB** (25.2%) with
+`--compress`; the 10k tree goes from **3.8 MiB to 991 KiB** (25.3%). The
+measured 10k-file synthetic tree (reproducible with `make perf-10k`): cold
 index **5.0 s**, 10-file incremental **237 ms**, `impact` p95 **24.5 ms**, a
 second worktree warm seed **12.9 ms**, and a cold build **21.8 s** — README
 quickstart to first answer **~27 s**, inside the 60 s budget. The 50k tree

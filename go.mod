@@ -9,6 +9,7 @@ require (
 	github.com/alexaandru/go-sitter-forest/tsx v1.9.2
 	github.com/alexaandru/go-sitter-forest/typescript v1.9.4
 	github.com/alexaandru/go-tree-sitter-bare v1.11.0
+	github.com/klauspost/compress v1.20.4
 	modernc.org/sqlite v1.61.1
 )
 

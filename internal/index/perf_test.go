@@ -47,6 +47,7 @@ func TestPerf10k(t *testing.T) {
 		modules:    100,
 		perModule:  100,
 		coldBudget: 60 * time.Second,
+		artifact:   true,
 	})
 }
 
@@ -259,6 +260,31 @@ func runPerf(t *testing.T, cfg perfConfig) {
 		t.Logf("artifact: %s export=%s pull=%s (schema v%d, %d files, %d nodes, %d edges)",
 			formatBytes(uint64(info.Size())), exportDuration, pullDuration,
 			manifest.SchemaVersion, manifest.FileCount, manifest.NodeCount, manifest.EdgeCount)
+
+		zstDir := t.TempDir()
+		start = time.Now()
+		compressed, err := artifact.ExportWithOptions(ctx, session.Store, root, zstDir, "perf", artifact.Options{Compress: true})
+		zstExport := time.Since(start)
+		if err != nil {
+			t.Fatalf("compressed artifact export: %v", err)
+		}
+		zstInfo, err := os.Stat(compressed.DBPath)
+		if err != nil {
+			t.Fatalf("stat compressed artifact: %v", err)
+		}
+		zstPullRoot := t.TempDir()
+		start = time.Now()
+		zstManifest, err := artifact.Pull(ctx, zstDir, zstPullRoot, "perf")
+		zstPull := time.Since(start)
+		if err != nil {
+			t.Fatalf("compressed artifact pull: %v", err)
+		}
+		if zstManifest.Format != "sqlite+zstd" {
+			t.Fatalf("compressed manifest format = %q", zstManifest.Format)
+		}
+		t.Logf("artifact zstd: %s export=%s pull=%s (%.1f%% of uncompressed)",
+			formatBytes(uint64(zstInfo.Size())), zstExport, zstPull,
+			100*float64(zstInfo.Size())/float64(info.Size()))
 	}
 
 	finalRSS := peakRSSBytes()

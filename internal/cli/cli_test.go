@@ -450,3 +450,50 @@ func TestIndexArtifactAndPull(t *testing.T) {
 		t.Fatalf("refused pull wrote an index: %v", err)
 	}
 }
+
+func TestIndexCompressedArtifactAndPull(t *testing.T) {
+	ci := t.TempDir()
+	writeFile(t, ci, "src/a.ts", "export function add(a: number, b: number): number {\n  return a + b;\n}\n")
+	writeFile(t, ci, "src/b.ts", "import { add } from \"./a\";\n\nexport function sum(): number {\n  return add(1, 2);\n}\n")
+	outDir := t.TempDir()
+
+	code, out, errOut := run(t, "index", "--root", ci, "--artifact", outDir, "--compress", "--json")
+	if code != 0 {
+		t.Fatalf("index --compress exit = %d: %s", code, errOut)
+	}
+	var indexed struct {
+		Artifact *artifact.ExportResult `json:"artifact"`
+	}
+	if err := json.Unmarshal([]byte(out), &indexed); err != nil {
+		t.Fatal(err)
+	}
+	if indexed.Artifact == nil || indexed.Artifact.Manifest.Format != "sqlite+zstd" {
+		t.Fatalf("artifact = %+v", indexed.Artifact)
+	}
+	if !strings.HasSuffix(indexed.Artifact.Manifest.DBFile, ".sqlite.zst") {
+		t.Fatalf("db_file = %q", indexed.Artifact.Manifest.DBFile)
+	}
+	if _, err := os.Stat(indexed.Artifact.DBPath); err != nil {
+		t.Fatalf("compressed file missing: %v", err)
+	}
+
+	laptop := t.TempDir()
+	writeFile(t, laptop, "src/a.ts", "export function add(a: number, b: number): number {\n  return a + b;\n}\n")
+	writeFile(t, laptop, "src/b.ts", "import { add } from \"./a\";\n\nexport function sum(): number {\n  return add(1, 2);\n}\n")
+	code, _, errOut = run(t, "pull", outDir, "--root", laptop)
+	if code != 0 {
+		t.Fatalf("pull compressed exit = %d: %s", code, errOut)
+	}
+	code, out, errOut = run(t, "impact", "add", "--root", laptop, "--json")
+	if code != 0 {
+		t.Fatalf("impact after compressed pull exit = %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, `"sum"`) {
+		t.Fatalf("impact after compressed pull: %s", out)
+	}
+
+	code, _, errOut = run(t, "index", "--root", ci, "--compress")
+	if code != 2 || !strings.Contains(errOut, "--compress requires --artifact") {
+		t.Fatalf("compress without artifact exit = %d, stderr = %q", code, errOut)
+	}
+}
