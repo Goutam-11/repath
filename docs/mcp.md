@@ -12,18 +12,36 @@ go to stderr.
 
 ## Lifecycle
 
+The adapter is **dual-era**:
+
 ```
-client → initialize                       → protocolVersion 2024-11-05, tools capability
-client → notifications/initialized        (no response)
-client → tools/list                       → exactly six tools with JSON Schemas
-client → tools/call {name, arguments}     → {content:[{type:"text",text:"<envelope>"}]}
-client → ping                             → {}
+modern client (2026-07-28)
+  client → server/discover {_meta: {protocolVersion, clientInfo, …}}
+           ← supportedVersions ["2026-07-28"], capabilities, serverInfo
+  client → tools/list      {…_meta}   ← resultType "complete", ttlMs, cacheScope
+  client → tools/call      {…_meta}   ← resultType "complete", content
+  client → ping             {…_meta}   ← resultType "complete"
+
+legacy client (2024-11-05 and earlier)
+  client → initialize                   ← protocolVersion 2024-11-05, tools capability
+  client → notifications/initialized    (no response)
+  client → tools/list                   ← exactly six tools
+  client → tools/call {name, arguments} ← {content:[{type:"text",text:"<envelope>"}]}
 ```
+
+Modern requests carry
+`params._meta["io.modelcontextprotocol/protocolVersion"]`. An unsupported
+version returns JSON-RPC `-32022` with `data.supported` and `data.requested`, as
+the specification requires. `server/discover` returns `resultType:"complete"`,
+`supportedVersions:["2026-07-28"]`, `capabilities.tools`, `_meta.serverInfo`,
+`ttlMs`, and `cacheScope`. A request without `_meta` is treated as legacy and
+keeps the `initialize` path byte-for-byte.
 
 Unknown methods return JSON-RPC `-32601`; malformed JSON returns `-32700`;
 invalid tool-call params return `-32602`. Tool failures (not found, ambiguous,
 bad argument, internal) are **tool results** with `isError: true`, so the client
-sees the answer envelope instead of losing it to a protocol error.
+sees the answer envelope instead of losing it to a protocol error. Modern tool
+results also carry `resultType:"complete"`.
 
 The index is opened lazily on the first tool call and kept open for the process
 lifetime. The server never indexes Go files (not a v1 language), so on repath
@@ -74,7 +92,8 @@ conflicts; see `docs/adapters.md` and `docs/flows.md`).
 ## Client configuration
 
 A client that launches servers from a config file needs one entry. The exact
-format is client-specific; the command and arguments are:
+format is client-specific; the command and arguments are the same for both
+eras:
 
 ```json
 {
@@ -88,7 +107,19 @@ format is client-specific; the command and arguments are:
 ## Verification
 
 The pipe round-trip test (`internal/mcp/server_test.go`) drives initialize,
-tools/list, every tool, and the error paths through real `io.Pipe`s. One
-end-to-end call was also verified with the official TypeScript MCP client SDK
-`@modelcontextprotocol/client` 2.2.0 (legacy handshake): `listTools` returned the
-six tools and `impact` returned the expected two dependents for the fixture.
+tools/list, every tool, and the error paths through real `io.Pipe`s.
+`TestModernProtocolNegotiation` covers `server/discover`, modern tools/list and
+tools/call, modern tool errors, the unsupported-version error, legacy
+initialize, and legacy tools/list.
+
+Real clients were also exercised:
+
+| Client | SDK | Era | Result |
+| --- | --- | --- | --- |
+| modern | `@modelcontextprotocol/client` **2.4.0**, `mode: {pin: "2026-07-28"}` | modern (`getProtocolEra() === "modern"`) | six tools; `impact` returned the expected dependents |
+| legacy | `@modelcontextprotocol/sdk` **1.32.2** | legacy initialize | six tools; `impact` returned the expected dependents |
+| legacy (M5) | `@modelcontextprotocol/client` 2.2.0 | legacy | six tools; `impact` worked |
+
+The modern client is a different SDK generation from the M5 verification, so
+both the probe path and the legacy fallback are covered by real clients, not
+only by the pipe test.

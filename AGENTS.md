@@ -4,13 +4,14 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M5 + v1.1 `check`, SCIP adapter, entrypoint flows, and test-impact mapping.**
+**Current state: M5 + v1.1 `check`, SCIP adapter, entrypoint flows, test-impact mapping, and dual-era MCP.**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath adapter --scip` merges compiler facts into unresolved
-references, `repath flows` walks forward from detected entrypoints, and
-`repath tests` maps a change to structurally reachable test files. The
-measured 10k and 50k budgets live in PLAN §12 and are reproducible with
+references, `repath flows` walks forward from detected entrypoints,
+`repath tests` maps a change to structurally reachable test files, and
+`repath mcp` speaks both the legacy handshake and the 2026-07-28 discovery era.
+The measured 10k and 50k budgets live in PLAN §12 and are reproducible with
 `make perf`.
 
 ## Read first
@@ -196,6 +197,11 @@ the database.
   `rs.main` to existing symbols. Do not turn them into a node kind or let
   framework detection change node identity. `flows` follows forward edges only
   at the confidence floor; it is structural, not a runtime trace.
+- **MCP is dual-era and stays six tools.** Legacy `initialize` is retained at
+  2024-11-05. Modern requests carry `_meta` protocol version; `server/discover`
+  advertises 2026-07-28, unsupported versions return `-32022`, and cacheable
+  results carry `resultType`/`ttlMs`/`cacheScope`. Do not add a seventh tool,
+  an SDK, or a schema generator.
 - **Adapter edges never overwrite tree-sitter edges.** `repath adapter --scip`
   only consumes `pending` references and `store.MergeEdges` reports conflicts
   instead of upserting. Adapter rules are prefixed `scip.ts.*` at confidence

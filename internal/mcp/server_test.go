@@ -360,3 +360,112 @@ func TestMainRejectsUnknownFlag(t *testing.T) {
 		t.Fatalf("stdout = %q, want empty", out.String())
 	}
 }
+
+type modernResponse struct {
+	Result map[string]any `json:"result"`
+	Error  *struct {
+		Code    int            `json:"code"`
+		Message string         `json:"message"`
+		Data    map[string]any `json:"data"`
+	} `json:"error"`
+}
+
+func runServerLines(t *testing.T, dir string, requests ...string) []modernResponse {
+	t.Helper()
+	var out bytes.Buffer
+	s := &server{root: dir, version: "test-version", out: &out, stderr: io.Discard}
+	defer s.close()
+
+	for _, request := range requests {
+		s.handle(context.Background(), []byte(request))
+	}
+	var responses []modernResponse
+	for _, line := range bytes.Split(out.Bytes(), []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var resp modernResponse
+		if err := json.Unmarshal(line, &resp); err != nil {
+			t.Fatalf("decode response %s: %v", line, err)
+		}
+		responses = append(responses, resp)
+	}
+	return responses
+}
+
+func TestModernProtocolNegotiation(t *testing.T) {
+	dir := t.TempDir()
+	writeTestFile(t, dir, "a.ts", "export function add(a: number, b: number): number { return a + b; }\n")
+
+	meta := `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","clientInfo":{"name":"modern-test","version":"1"},"clientCapabilities":{}}`
+	responses := runServerLines(t, dir,
+		`{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{`+meta+`}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{`+meta+`}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"impact","arguments":{"symbol":"add"},`+meta+`}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"1900-01-01"}}}`,
+		`{"jsonrpc":"2.0","id":5,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"legacy-test","version":"1"}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/list"}`,
+		`{"jsonrpc":"2.0","id":7,"method":"no/such/method","params":{`+meta+`}}`,
+		`{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{"name":"not_a_tool","arguments":{},`+meta+`}}`,
+	)
+	if len(responses) != 8 {
+		t.Fatalf("responses = %d, want 8", len(responses))
+	}
+
+	discover := responses[0].Result
+	if discover["resultType"] != "complete" {
+		t.Fatalf("discover resultType = %v", discover["resultType"])
+	}
+	versions, _ := discover["supportedVersions"].([]any)
+	if len(versions) != 1 || versions[0] != "2026-07-28" {
+		t.Fatalf("supportedVersions = %+v", discover["supportedVersions"])
+	}
+	metaOut, _ := discover["_meta"].(map[string]any)
+	if metaOut == nil {
+		t.Fatalf("discover _meta missing: %+v", discover)
+	}
+	serverInfo, _ := metaOut["io.modelcontextprotocol/serverInfo"].(map[string]any)
+	if serverInfo["name"] != "repath" || serverInfo["version"] != "test-version" {
+		t.Fatalf("serverInfo = %+v", serverInfo)
+	}
+
+	list := responses[1].Result
+	if list["resultType"] != "complete" {
+		t.Fatalf("tools/list resultType = %v", list["resultType"])
+	}
+	tools, _ := list["tools"].([]any)
+	if len(tools) != 6 {
+		t.Fatalf("tools = %d, want 6", len(tools))
+	}
+
+	call := responses[2].Result
+	if call["resultType"] != "complete" {
+		t.Fatalf("tools/call resultType = %v", call["resultType"])
+	}
+	content, _ := call["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("tools/call content = %+v", call)
+	}
+
+	if responses[3].Error == nil || responses[3].Error.Code != -32022 {
+		t.Fatalf("unsupported version error = %+v", responses[3].Error)
+	}
+	if got := responses[3].Error.Data["requested"]; got != "1900-01-01" {
+		t.Fatalf("unsupported version data = %+v", responses[3].Error.Data)
+	}
+
+	if responses[4].Result["protocolVersion"] != "2024-11-05" {
+		t.Fatalf("legacy initialize = %+v", responses[4].Result)
+	}
+	if _, ok := responses[5].Result["resultType"]; ok {
+		t.Fatalf("legacy tools/list unexpectedly has resultType: %+v", responses[5].Result)
+	}
+	if responses[6].Error == nil || responses[6].Error.Code != -32601 {
+		t.Fatalf("unknown modern method error = %+v", responses[6].Error)
+	}
+	toolErr := responses[7].Result
+	if toolErr["resultType"] != "complete" || toolErr["isError"] != true {
+		t.Fatalf("modern tool error = %+v", toolErr)
+	}
+}
