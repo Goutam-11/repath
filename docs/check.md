@@ -41,11 +41,12 @@ Only **private** `function`/`method` symbols are candidates:
 The check skips:
 
 - exported/public API (it may be consumed outside the repository);
-- test paths (`test/`, `tests/`, `__tests__/`, `testdata/`, `*.test.*`,
-  `*.spec.*`, `test_*.py`, `conftest.py`);
+- test paths (`test/`, `tests/`, `__tests__/`, `testdata/` anywhere, or at the
+  repo root; `*.test.ts|tsx|js|jsx`, `*.spec.ts|tsx|js|jsx`, `*.test.py`,
+  `*.spec.py`, `test_*.py`, `conftest.py`);
 - files with `parse_ok=0` (partial facts);
 - framework/entrypoint names (`main`, `constructor`, `setUp`, `tearDown`,
-  dunder methods).
+  lowercase `setup`/`teardown`, `__init__`, and any other `__x__` dunder).
 
 Top-level references have no source symbol, so a private function referenced
 only from module top level can still be reported. That is the documented v1
@@ -135,6 +136,14 @@ Exit `5` is the gate; the JSON report is the annotation payload.
 
 `internal/check/check_test.go` covers a two-module cycle, a dead private
 function vs a used helper, production→test and cross-module private boundaries,
-a 10-caller fan-in hotspot, a module with 5 unresolved refs, truncation counts,
-and the test-path classifier. `internal/cli/check_test.go` covers the text
+a Rust private function and private method crossing a module boundary, the
+TypeScript rule that a non-exported class's methods inherit the class export
+flag, Python dunder/entrypoint name exclusions, a 10-caller fan-in hotspot, a
+module with 5 unresolved refs, truncation counts, and the full test-path
+classifier (including `testdata/`, `__tests__/`, `*.test.*`, `*.spec.*`,
+`test_*.py`, and `conftest.py`). `internal/cli/check_test.go` covers the text
 report, JSON, `--fail-on` thresholds, and usage errors.
+
+On the reproducible 50k tree from `make perf-50k`, `check` takes **474 ms**
+(0 findings); the 10k tree takes **164 ms**. The 50k tree is synthetic and has
+no violations, so this is runtime evidence, not a false-positive benchmark.
