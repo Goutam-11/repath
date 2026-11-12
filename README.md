@@ -61,7 +61,8 @@ adapter's dual-era negotiation and client verification are in
 its merge rules, and the measured unresolved drops are in
 [`docs/adapters.md`](docs/adapters.md), and entrypoint detection/flow limits are
 in [`docs/flows.md`](docs/flows.md), and test-impact provenance, diff mode, and
-limits are in [`docs/tests.md`](docs/tests.md).
+limits are in [`docs/tests.md`](docs/tests.md); real-repo measurements and misses are in
+[`docs/benchmarks.md`](docs/benchmarks.md).
 
 The 50k artifact compresses from **19.2 MiB to 4.8 MiB** (25.2%) with
 `--compress`; the 10k tree goes from **3.8 MiB to 991 KiB** (25.3%). The
@@ -72,6 +73,13 @@ quickstart to first answer **~27 s**, inside the 60 s budget. The 50k tree
 (`make perf-50k`): cold index **13.4 s**, peak RSS **278 MiB**, `impact` p95
 **61.1 ms**, `map` p95 **223 ms**, `check` **464 ms** — every PLAN §10 budget
 met. The full table is in `PLAN.md` §12.
+
+A pinned real-repo run (`make bench-real`, Kibana `x-pack/solutions` at
+`0551196`, 38,548 TS files) is in [`docs/benchmarks.md`](docs/benchmarks.md):
+peak RSS **853 MiB**, `impact`/`callers`/`path` p95 **118.9 / 73.0 / 130.1 ms**,
+and artifact **65.6 MiB → 17.2 MiB** (26.3%), but cold **4 min 29 s**,
+incremental **4.81 s**, and `map` p95 **455.6 ms** missed their targets. The
+synthetic budgets above remain the gate.
 
 Add `.repath/` to your own `.gitignore`. Languages today:
 TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), Python

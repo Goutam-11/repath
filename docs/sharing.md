@@ -59,10 +59,14 @@ shell-out to an external `zstd` binary, and gives a measurable size win:
 | --- | --- | --- | --- | --- | --- |
 | 10k synthetic | 3.8 MiB | 990 KiB | 25.3% | 25.4 → 41.2 ms | 3.9 → 8.7 ms |
 | 50k synthetic | 19.2 MiB | 4.8 MiB | 25.2% | 127 → 190 ms | 11.8 → 30.9 ms |
+| Kibana `x-pack/solutions` (38,548 real TS files) | 65.6 MiB | 17.2 MiB | 26.3% | 408 → 659 ms | 41 → 126 ms |
 
-The 50k tree's tiny one-line functions are not the 250–400 MB real-repo
-estimate, so treat the ratio as the claim, not the absolute size. The schema
-gate is unchanged and runs for both formats.
+The real-repository run corrects the old 250–400 MB estimate: a 38.5k-file
+TypeScript snapshot is **65.6 MiB**, not hundreds of megabytes, because the
+artifact stores compact symbol rows rather than source text. The compression
+ratio is stable at ~25–26% across synthetic and real trees. The schema gate is
+unchanged and runs for both formats. Full method and budget misses are in
+`docs/benchmarks.md`.
 
 ## Pull
 

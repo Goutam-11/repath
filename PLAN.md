@@ -154,8 +154,10 @@ out/repath-<sha>.sqlite + manifest.json       CI artifact, read-only
 
 - Paths are stored **repo-relative POSIX only**, plus `meta.root` for validation.
   That is what lets an artifact move from CI to laptop to teammate.
-- Expected size at 50k files: ~250–400 MB, ~60–90 MB zstd. Unmeasured — M5
-  reports actuals instead of defending the estimate.
+- Measured size on a real 38,548-file TypeScript tree: **65.6 MiB
+  uncompressed, 17.2 MiB zstd (26.3%)**. The earlier 250–400 MB estimate was
+  wrong by roughly 4× because the artifact holds compact symbol rows and no
+  source text; see `docs/benchmarks.md`.
 - An artifact contains structure (names, paths, kinds, line refs), never source
   text. Still internal: symbol names leak intent, so no public caches.
 - `manifest.json`: `schema_version, tool_version, commit, file_count,
@@ -585,8 +587,10 @@ separate process so Linux `VmHWM` is that tree's own peak. Measured here:
 endpoint symbols for every edge and allocated a map per PageRank iteration. It
 now reads edge skeletons (no joins) into dense slices: 50k p95 **217–228 ms**, and
 the 10k p95 fell from 187 ms to **82 ms**. The 10k budgets were not loosened.
-The synthetic files are one-line functions, so the 19.2 MiB artifact is not the
-250–400 MB real-repo estimate; the timings and memory are the 50k claim here.
+The synthetic files are one-line functions, so the 19.2 MiB artifact was not
+evidence for the old 250–400 MB real-repo estimate; the real measurement is
+**65.6 MiB** for 38,548 files (see `docs/benchmarks.md`), and the timings and
+memory here remain the synthetic 50k claim.
 
 **v1.2 SARIF diagnostics landed** (issue #28): `repath check --sarif FILE|DIR`
 reads SARIF **2.1.0** only, attaches each result to the symbol enclosing its
@@ -610,6 +614,32 @@ fixture unresolved goes **2 → 0**; on `psf/requests` @ `3c7baaa` it goes
 **0** conflicts, and a **0.27 s** adapter run. The tree-sitter fixture gates are
 unchanged; the adapter-on gate is `TestPythonSCIPAdapterGate`. No Go dependency
 was added. See `docs/adapters.md`.
+
+**v1.2 test-impact diff landed** (issue #30): `repath tests --diff [base]`
+discovers changed files with one git command (`git diff --relative
+--name-status -z`), refreshes the current tree, and unions the existing
+per-file `query.Tests` answer. Each link gains `changed_file`; a changed test
+file is included directly as `testpath.changed` at 1.00/depth 0; deleted and
+non-indexed paths are listed under `diff.skipped` instead of being guessed. The
+base order is explicit, `origin/main`, `main`, `HEAD`; a bad ref or non-git
+directory exits `3`, a clean diff exits `0` without opening an index. Untracked
+files still require `git add`. See `docs/tests.md`.
+
+**v1.2 real-repository validation landed** (issue #31): the pinned target is
+`elastic/kibana` @ `05511966780217f7357b98253299f369dc40199b`, subtree
+`x-pack/solutions` (42,491 files, 38,562 TS/JS; the full tree has 114,967 TS/JS
+and is out of the 100k+ scope), measured with `make bench-real`. repath indexed
+**38,548** files / 87,478 nodes / 61,894 edges; peak RSS **853 MiB** cold and
+**987 MiB** overall. The synthetic §10 table above is **unchanged and still
+green** (this run: 10k cold 6.0 s, 10k incremental 247 ms, 50k cold 15.2 s, 50k
+incremental 709 ms, 50k map p95 245.7 ms, zstd 25.2%). The real tree honestly
+**missed** three targets: cold **4 min 29 s** vs <3 min, 10-file incremental
+**4.81 s** vs <1 s, and `map` p95 **455.6 ms** vs <300 ms; `impact`/`callers`/
+`path` passed at p95 **118.9 / 73.0 / 130.1 ms**, and the artifact is **65.6 MiB
+→ 17.2 MiB (26.3%)**, export **408 → 659 ms**, pull **41 → 126 ms**. No code
+optimization was attempted in this validation issue; the numbers and the
+not-verified list are in `docs/benchmarks.md`. `make bench-real` stays opt-in
+and is not a CI gate.
 
 ## 13. Evaluation harness
 
