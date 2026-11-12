@@ -50,6 +50,9 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 			return StatusReport{}, err
 		}
 		refreshed = result
+		// Keep the commit cache warm after an explicit refresh. Cache writes
+		// are best-effort and never fail the status answer.
+		_ = index.StoreCommit(ctx, root, st)
 	}
 
 	counts, err := st.Counts(ctx)

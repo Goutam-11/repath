@@ -123,6 +123,7 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "index: %v\n", err)
 		return 1
 	}
+	_ = index.StoreCommit(ctx, root, st.Store)
 
 	var exported *artifact.ExportResult
 	if opts.artifact != "" {

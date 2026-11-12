@@ -5,7 +5,6 @@ package query
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,29 +67,10 @@ func ResolveRoot(flag string) (string, error) {
 // is set it also performs the lazy auto-index that makes first use work without
 // a separate command (PLAN.md decision 17).
 func Open(ctx context.Context, root string, noBuild bool) (*Session, error) {
-	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
+	st, err := index.Prepare(ctx, root, noBuild)
 	if err != nil {
-		return nil, fmt.Errorf("open index: %w", err)
+		return nil, err
 	}
-	if err := st.Migrate(ctx); err != nil {
-		st.Close()
-		return nil, fmt.Errorf("migrate index: %w", err)
-	}
-
-	if !noBuild {
-		counts, err := st.Counts(ctx)
-		if err != nil {
-			st.Close()
-			return nil, fmt.Errorf("read index: %w", err)
-		}
-		if counts.Files == 0 {
-			if _, err := index.Run(ctx, st, root, index.Options{}); err != nil {
-				st.Close()
-				return nil, fmt.Errorf("index: %w", err)
-			}
-		}
-	}
-
 	return &Session{Root: root, Store: st}, nil
 }
 
