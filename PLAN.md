@@ -135,7 +135,7 @@ Invariants:
 ```
 <repo>/.repath/index.db                        working copy (WAL, gitignored)
 $GIT_COMMON_DIR/repath/commits/<sha>.db        immutable, shared across worktrees
-out/repath-<sha>.sqlite.zst + manifest.json    CI artifact, read-only
+out/repath-<sha>.sqlite + manifest.json       CI artifact, read-only
 ```
 
 - Paths are stored **repo-relative POSIX only**, plus `meta.root` for validation.
@@ -147,6 +147,13 @@ out/repath-<sha>.sqlite.zst + manifest.json    CI artifact, read-only
 - `manifest.json`: `schema_version, tool_version, commit, file_count,
   node_count, edge_count, unresolved_rate, indexed_at`. A binary refuses an
   artifact whose `schema_version` it does not know, with a one-line upgrade hint.
+
+> **M5 amendment — artifact compression.** The sketch above named
+> `.sqlite.zst`. M5 ships an uncompressed `.sqlite` instead: zstd would add a
+> dependency beyond the two the project allows (§11), and the manifest schema
+> gate does not depend on the container. The format is explicit in
+> `manifest.format`, so a compressed artifact can arrive later without
+> ambiguity. Compression is a v1.1 candidate, not a silent format change.
 
 ### 4.2 Worktrees — the primary multi-agent case
 
