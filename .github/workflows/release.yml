@@ -1,0 +1,40 @@
+name: release
+
+# A release only happens on an explicit tag push. This workflow never creates a
+# tag; GoReleaser creates a DRAFT GitHub release that a human publishes.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  goreleaser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # cgo is required, so this is a real cross-compile: install the target C
+      # toolchain for linux/arm64 rather than pretending a pure-Go build exists.
+      - name: Install arm64 C toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "2.20.2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
