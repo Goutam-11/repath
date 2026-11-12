@@ -4,9 +4,9 @@ repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no server.
 
-**Current state: M5 in progress.** TypeScript/JS, Python, and Rust are indexed;
-the MCP adapter, skill, and artifact export/pull have landed. Worktree seeding
-and the final performance budget are the remaining M5 pieces.
+**Current state: M5 landed.** TypeScript/JS, Python, and Rust are indexed; the
+MCP adapter + skill, artifact export/pull, and worktree seeding are in. The
+measured 10k budget lives in PLAN §12 and is reproducible with `make perf`.
 
 ## Read first
 
@@ -25,6 +25,7 @@ same PR with the reason. Silent drift is the one thing this repo does not allow.
 make build      # bin/repath
 make check      # gofmt + vet + tests — the PR gate
 make test
+make perf       # opt-in 10k synthetic budget (outside make check)
 
 ./bin/repath status --json                 # indexes lazily, prints counts
 ./bin/repath index --full                  # rebuild
@@ -154,6 +155,18 @@ internal/eval     fixture gate (test-only)
   `.sqlite.zst`; adding zstd would break the two-dependency rule, so
   `manifest.format` records `sqlite` and the deviation is documented. Do not
   change the container silently.
+- **Worktree cache is immutable.** `$GIT_COMMON_DIR/repath/commits/<sha>.db`
+  is chmod `0444` and only copied into a worktree's active
+  `.repath/index.db`; never open it for writes and never put a live database on
+  a network filesystem. Dirty trees patch the active DB and must not write the
+  cache.
+- **`.repath/` must not count as dirty.** The worktree clean check filters it;
+  a user repo may not have added it to `.gitignore` yet.
+- **The cache schema is sidecar-checked.** `<sha>.db` is trusted only when
+  `<sha>.db.schema` matches `store.SchemaVersion`; bumping the schema rebuilds
+  old caches instead of seeding them.
+- **`make perf` is opt-in.** `TestPerf10k` skips without `REPATH_PERF=1`; it is
+  evidence, not a CI gate (timings are machine-dependent).
 - `.cache/` and `.repath/` are local artifacts. Never commit them.
 
 ## Adding a language
@@ -174,6 +187,7 @@ command + renderer → tests → docs.
 
 ```sh
 make check                                   # must be clean
+make perf                                    # when touching index worktree/query paths
 ./bin/repath status --json                   # on this repo, sanity
 ./bin/repath impact <symbol> --json | head   # smoke on a fixture copy
 go test ./internal/eval -v                   # logs precision/recall

@@ -57,7 +57,12 @@ make build   # bin/repath
 make check   # gofmt + vet + tests
 make test    # tests only
 make fmt     # gofmt -w
+make perf    # opt-in 10k synthetic budget (cold, incremental, query p50/p95, MCP)
 ```
+
+`make perf` is deliberately outside `make check`: it generates 10,000 files and
+takes a few seconds. It is the reproducible source of the numbers in PLAN §12
+and `README.md`.
 
 Local Go lives at `/usr/local/go/bin` if `go` is not on your PATH.
 

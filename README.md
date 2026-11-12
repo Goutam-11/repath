@@ -4,13 +4,13 @@ Structural answers about a codebase — *what breaks if I change this*, *how doe
 A reach B*, *where is the important code* — from one deterministic graph, for
 humans and for coding agents.
 
-**Status: pre-alpha (M5 in progress).** TypeScript/JS, Python, and Rust
-definitions and relations are indexed, and `impact`, `path`, `find`, `callers`,
-and `map` answer structural questions from SQLite. `repath mcp` serves the same
-six answers over stdio JSON-RPC, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
+**Status: pre-alpha (M5).** TypeScript/JS, Python, and Rust definitions and
+relations are indexed, and `impact`, `path`, `find`, `callers`, and `map`
+answer structural questions from SQLite. `repath mcp` serves the same six
+answers over stdio JSON-RPC, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
 teaches shell-capable agents the CLI. `index --artifact` exports a commit-keyed
-snapshot and `pull` seeds it locally; worktree seeding is next.
-[`PLAN.md`](PLAN.md) is the specification.
+snapshot, `pull` seeds it locally, and parallel git worktrees warm from a
+shared immutable cache. [`PLAN.md`](PLAN.md) is the specification.
 
 ## Build
 
@@ -38,7 +38,14 @@ An agent with a shell should prefer the CLI; [`skills/repath/SKILL.md`](skills/r
 is the ~300-token cheat sheet. Shell-less clients use the MCP adapter; see
 [`docs/mcp.md`](docs/mcp.md) for the transport, six tools, and envelope.
 Sharing, the manifest, and the schema gate are in
-[`docs/sharing.md`](docs/sharing.md).
+[`docs/sharing.md`](docs/sharing.md); worktree seeding, locks, and LRU are in
+[`docs/worktrees.md`](docs/worktrees.md).
+
+The measured 10k-file synthetic tree (reproducible with `make perf`): cold
+index **5.0 s**, 10-file incremental **237 ms**, `impact` p95 **24.5 ms**, a
+second worktree warm seed **12.9 ms**, and a cold build **21.8 s** — README
+quickstart to first answer **~27 s**, inside the 60 s budget. Every other
+PLAN §10 budget is in the same table (`PLAN.md` §12).
 
 Add `.repath/` to your own `.gitignore`. Languages today:
 TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), Python

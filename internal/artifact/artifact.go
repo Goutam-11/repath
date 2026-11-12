@@ -210,6 +210,9 @@ func Pull(ctx context.Context, source, root, version string) (Manifest, error) {
 		if _, err := index.Run(ctx, st, root, index.Options{}); err != nil {
 			return manifest, fmt.Errorf("overlay checkout: %w", err)
 		}
+		// If the checkout is clean, the overlaid database is now the cache for
+		// the local commit. StoreCommit is a no-op for a dirty tree.
+		_ = index.StoreCommit(ctx, root, st)
 	}
 
 	return manifest, nil
