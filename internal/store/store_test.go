@@ -128,6 +128,63 @@ func TestWriteFileAndImports(t *testing.T) {
 	}
 }
 
+func TestReplaceNodesKeepsStableIds(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	fileID, err := tx.UpsertFile(ctx, File{
+		Path: "pkg/mod.py", Lang: "python", Size: 10, MTime: 100, Hash: "abc", ParseOK: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert file: %v", err)
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileID, "python", []Node{
+		{Kind: "function", Name: "keep", QName: "keep", Arity: 1, StartLine: 1, EndLine: 2, Exported: true},
+		{Kind: "function", Name: "drop", QName: "drop", Arity: 0, StartLine: 4, EndLine: 5, Exported: true},
+	}); err != nil {
+		t.Fatalf("first replace: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	before, err := st.NodeIDsByFile(ctx, fileID)
+	if err != nil {
+		t.Fatalf("ids: %v", err)
+	}
+
+	tx, err = st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin second: %v", err)
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileID, "python", []Node{
+		{Kind: "function", Name: "keep", QName: "keep", Arity: 1, StartLine: 1, EndLine: 3, Exported: true},
+		{Kind: "class", Name: "added", QName: "added", Arity: 0, StartLine: 7, EndLine: 9, Exported: true},
+	}); err != nil {
+		t.Fatalf("second replace: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit second: %v", err)
+	}
+	after, err := st.NodeIDsByFile(ctx, fileID)
+	if err != nil {
+		t.Fatalf("ids after: %v", err)
+	}
+
+	if after["keep"] != before["keep"] {
+		t.Fatalf("keep id changed: %d -> %d", before["keep"], after["keep"])
+	}
+	if _, found := after["drop"]; found {
+		t.Fatal("drop symbol survived a re-index")
+	}
+	if _, found := after["added"]; !found {
+		t.Fatal("added symbol missing")
+	}
+}
+
 func TestUpsertKeepsOneRowPerPath(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)

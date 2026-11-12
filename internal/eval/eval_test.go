@@ -244,6 +244,70 @@ func TestPythonRuleIDs(t *testing.T) {
 	}
 }
 
+// TestIncrementalReindexKeepsEdges guards the incremental contract: editing a
+// file without changing its symbols must not orphan incoming edges or retry
+// member references by bare name.
+func TestIncrementalReindexKeepsEdges(t *testing.T) {
+	dir, st, _ := indexFixture(t, "py")
+	ctx := context.Background()
+
+	before := edgeSet(t, st)
+	pendingBefore, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+
+	path := filepath.Join(dir, "app", "service.py")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("open for append: %v", err)
+	}
+	if _, err := f.WriteString("\n# no-op comment: same symbols, same edges\n"); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	result, err := index.Run(ctx, st, dir, index.Options{})
+	if err != nil {
+		t.Fatalf("re-index: %v", err)
+	}
+	if result.Indexed != 1 || result.Unchanged == 0 {
+		t.Fatalf("incremental run indexed=%d unchanged=%d, want 1 changed file", result.Indexed, result.Unchanged)
+	}
+
+	after := edgeSet(t, st)
+	if len(after) != len(before) {
+		t.Fatalf("edges changed after a no-op edit: %d -> %d", len(before), len(after))
+	}
+	for key, confidence := range before {
+		if after[key] != confidence {
+			t.Errorf("edge %q changed or disappeared: %.2f -> %.2f", key, confidence, after[key])
+		}
+	}
+	pendingAfter, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatalf("pending after: %v", err)
+	}
+	if pendingAfter != pendingBefore {
+		t.Fatalf("unresolved changed after a no-op edit: %d -> %d", pendingBefore, pendingAfter)
+	}
+}
+
+func edgeSet(t *testing.T, st *store.Store) map[string]float64 {
+	t.Helper()
+	edges, err := st.Edges(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+	out := make(map[string]float64, len(edges))
+	for _, e := range edges {
+		out[edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)] = e.Confidence
+	}
+	return out
+}
+
 // splitLeft/splitRight separate "src/util.ts:add" without breaking Windows
 // paths that contain a colon.
 func splitLeft(ref string) string {

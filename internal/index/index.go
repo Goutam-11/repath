@@ -282,7 +282,7 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 				})
 			default:
 				pending = append(pending, store.PendingRef{
-					Name: ref.Name, FileID: o.fileID, Kind: ref.Kind, Line: ref.Line,
+					Name: ref.Name, FileID: o.fileID, Kind: ref.Kind, Form: ref.Form, Line: ref.Line,
 				})
 			}
 		}
@@ -303,6 +303,12 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 	var retried []store.Edge
 	for _, p := range rows {
 		if changed[p.FileID] {
+			continue
+		}
+		// A member reference has no import context here; retrying it by bare
+		// name would be the guessing policy repath removed. Only identifiers
+		// can be re-linked safely when a symbol later appears.
+		if p.Form != "" && p.Form != "ident" {
 			continue
 		}
 		r, ok := ix.ResolvePending(p.FileID, p.Kind, p.Name)
