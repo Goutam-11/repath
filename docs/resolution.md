@@ -128,7 +128,7 @@ symbol when `name` is defined in `pkg/__init__.py`, and binds a submodule when
 m` and `import pkg.mod` both keep the dotted path, so `pkg.mod.f()` and
 `m.f()` resolve.
 
-Import bindings are persisted per file in the `imports` table (schema v3). They
+Import bindings are persisted per file in the `imports` table (schema v4). They
 are resolution inputs, never nodes or edges. Storing them is what lets a package
 `__init__.py` (or a compat module such as `requests.compat`) re-export a name to
 a file that was not re-parsed in the current incremental run. A re-export chain
@@ -172,6 +172,8 @@ imports define the same name the last one wins, matching Python execution.
   items are still indexed with a `mod.item` qname.
 - **Workspace cross-crate imports.** `use other_crate::...` is external; workspace
   member sources are not linked yet.
+- **Glob re-exports.** Named `pub use` bindings are followed; `pub use foo::*`
+  is not expanded.
 - **Generic bounds and associated types.** A method call on a type parameter
   (`T: Trait`) is not resolved through the bound, and return-type/iterator
   inference is not attempted.

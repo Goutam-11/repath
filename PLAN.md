@@ -410,7 +410,7 @@ excalidraw's `CALLS` fell 6,447 → 3,976, and the real hubs (`t`,
 
 **M3 landed** (Python): absolute/relative module resolution (root, `src/`,
 `lib/`), `__init__.py` and ordinary-module re-exports through a persisted
-`imports` table (schema v3), `self`/`cls` calls, class and classmethod receivers,
+`imports` table (schema v3, extended to v4 in M4), `self`/`cls` calls, class and classmethod receivers,
 constructor-style receiver typing, decorator references, and Python class bases.
 The fixture gate is 31/31 edges at precision 1.00 / recall 1.00 with 1 genuine
 unresolved callback parameter, above the 0.88/0.80 milestone gate (not loosened).
