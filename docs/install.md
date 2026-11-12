@@ -9,9 +9,10 @@ pure-Go build. Linux amd64 and arm64 are the v1.2 release targets.
 Download the archive and checksums from the [GitHub releases page](https://github.com/Goutam-11/repath/releases):
 
 ```sh
-version=v0.0.0   # replace with the release tag
+version=1.2.0    # release version WITHOUT the leading v (GoReleaser .Version)
+tag="v${version}"
 arch=amd64       # amd64 or arm64
-base="https://github.com/Goutam-11/repath/releases/download/${version}"
+base="https://github.com/Goutam-11/repath/releases/download/${tag}"
 
 curl -LO "${base}/repath_${version}_linux_${arch}.tar.gz"
 curl -LO "${base}/checksums.txt"
