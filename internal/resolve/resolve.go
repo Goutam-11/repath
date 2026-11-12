@@ -39,6 +39,7 @@ type Index struct {
 	files   map[string]int64
 	paths   map[int64]string
 	imports map[int64]map[string]facts.Import
+	crates  []string
 	aliases *Aliases
 }
 
@@ -65,6 +66,7 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 		files:   make(map[string]int64, len(paths)),
 		paths:   paths,
 		imports: make(map[int64]map[string]facts.Import),
+		crates:  loadRustCrates(root),
 		aliases: LoadAliases(root),
 	}
 
@@ -91,7 +93,8 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 			ix.imports[imp.FileID] = make(map[string]facts.Import)
 		}
 		ix.imports[imp.FileID][imp.Local] = facts.Import{
-			Local: imp.Local, Imported: imp.Imported, Source: imp.Source, Line: imp.Line,
+			Local: imp.Local, Imported: imp.Imported, Source: imp.Source,
+			Line: imp.Line, Public: imp.Public,
 		}
 	}
 	return ix, nil
@@ -100,8 +103,11 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 // Resolve returns where ref points. The file's own imports come from the index,
 // so a reference in an unchanged file still resolves after an incremental run.
 func (ix *Index) Resolve(fromFile int64, fromPath string, ref facts.Ref) Resolution {
-	if ix.language(fromFile) == "python" {
+	switch ix.language(fromFile) {
+	case "python":
 		return ix.resolvePython(fromFile, fromPath, ref)
+	case "rust":
+		return ix.resolveRust(fromFile, fromPath, ref)
 	}
 	return ix.resolveTS(fromFile, fromPath, ref, ix.imports[fromFile])
 }
@@ -711,8 +717,12 @@ func (ix *Index) ResolvePending(fileID int64, kind, name string) (Resolution, bo
 }
 
 func (ix *Index) language(fileID int64) string {
-	if strings.HasSuffix(ix.paths[fileID], ".py") {
+	path := ix.paths[fileID]
+	switch {
+	case strings.HasSuffix(path, ".py"):
 		return "python"
+	case strings.HasSuffix(path, ".rs"):
+		return "rust"
 	}
 	return "typescript"
 }

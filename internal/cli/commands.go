@@ -26,6 +26,8 @@ type statusReport struct {
 	NodesByKind   map[string]int `json:"nodes_by_kind"`
 	ParseFailures int            `json:"parse_failures"`
 	Edges         map[string]int `json:"edges"`
+	Ambiguous     int            `json:"ambiguous"`
+	AmbiguityRate float64        `json:"ambiguity_rate"`
 	Unresolved    int            `json:"unresolved"`
 	LastIndexed   string         `json:"last_indexed,omitempty"`
 	GitHead       string         `json:"git_head,omitempty"`
@@ -90,6 +92,19 @@ func statusCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "read pending: %v\n", err)
 		return 1
 	}
+	ambiguous, err := st.AmbiguousEdges(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "read ambiguity: %v\n", err)
+		return 1
+	}
+	totalEdges := 0
+	for _, n := range edges {
+		totalEdges += n
+	}
+	ambiguityRate := 0.0
+	if totalEdges > 0 {
+		ambiguityRate = float64(ambiguous) / float64(totalEdges)
+	}
 
 	report := statusReport{
 		Root:          root,
@@ -101,6 +116,8 @@ func statusCmd(args []string, stdout, stderr io.Writer) int {
 		NodesByKind:   counts.ByKind,
 		ParseFailures: counts.ParseFailures,
 		Edges:         edges,
+		Ambiguous:     ambiguous,
+		AmbiguityRate: ambiguityRate,
 		Unresolved:    unresolved,
 		LastIndexed:   meta["indexed_at"],
 		GitHead:       meta["git_head"],
@@ -147,7 +164,8 @@ func printStatus(out io.Writer, r statusReport) {
 		for _, kind := range kinds {
 			parts = append(parts, fmt.Sprintf("%s %d", kind, r.Edges[kind]))
 		}
-		fmt.Fprintf(out, "edges %s · unresolved %d\n", strings.Join(parts, " · "), r.Unresolved)
+		fmt.Fprintf(out, "edges %s · ambiguous %d (%.1f%%) · unresolved %d\n",
+			strings.Join(parts, " · "), r.Ambiguous, r.AmbiguityRate*100, r.Unresolved)
 	}
 
 	if r.LastIndexed != "" {

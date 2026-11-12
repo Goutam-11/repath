@@ -423,6 +423,15 @@ func (s *Store) CountPending(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// AmbiguousEdges counts 0.40-confidence ambiguity edges, which are excluded by
+// the default query threshold but must stay visible in status.
+func (s *Store) AmbiguousEdges(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM edges WHERE rule LIKE '%.ambiguous'`).Scan(&n)
+	return n, err
+}
+
 // CallerCount and CalleeCount are cheap counts for the find card.
 func (s *Store) CallerCount(ctx context.Context, nodeID int64, minConfidence float64) (int, error) {
 	var n int

@@ -142,6 +142,29 @@ func TestStatusNoRefreshSkipsIndexing(t *testing.T) {
 	}
 }
 
+func TestStatusReportsAmbiguity(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.ts", "export function run(): void {}\n")
+	writeFile(t, dir, "b.ts", "export function run(): void {}\n")
+	writeFile(t, dir, "c.ts", "export function go(): void {\n  run();\n}\n")
+
+	code, out, errOut := run(t, "status", "--json", "--root", dir)
+	if code != 0 {
+		t.Fatalf("status exit = %d: %s", code, errOut)
+	}
+
+	var report statusReport
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("stdout is not JSON: %v\n%s", err, out)
+	}
+	if report.Ambiguous == 0 {
+		t.Fatal("ambiguous edge count is not visible in status")
+	}
+	if report.AmbiguityRate <= 0 || report.AmbiguityRate > 1 {
+		t.Fatalf("ambiguity_rate = %v, want (0,1]", report.AmbiguityRate)
+	}
+}
+
 func TestCallersAndFind(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.ts", "export function add(a: number, b: number): number {\n  return a + b;\n}\n")
