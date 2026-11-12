@@ -40,13 +40,16 @@ type Symbol struct {
 
 // Ref is one use of a name: a call, a constructor, or a heritage clause.
 type Ref struct {
-	Kind      string // call | new | extends | implements
-	Name      string
-	Form      string // ident | this | member
-	Receiver  string // identifier before the dot, when Form is member
-	Arity     int
-	Line      int
-	Enclosing string // qname of the symbol the reference sits inside
+	Kind     string // call | new | extends | implements
+	Name     string
+	Form     string // ident | this | member
+	Receiver string // identifier before the dot, when Form is member
+	// ReceiverType is the locally inferred type of Receiver ("Cart"), from a
+	// variable annotation, a constructor, or a parameter annotation.
+	ReceiverType string
+	Arity        int
+	Line         int
+	Enclosing    string // qname of the symbol the reference sits inside
 }
 
 // Import is one local binding created by an import statement.
@@ -110,7 +113,7 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 		}
 	}
 
-	w := &walker{src: src, res: &res, seen: make(map[string]bool)}
+	w := &walker{src: src, res: &res, seen: make(map[string]bool), types: make(map[string]string)}
 	for i := uint32(0); i < root.NamedChildCount(); i++ {
 		w.node(root.NamedChild(i), "", false)
 	}
@@ -118,9 +121,10 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 }
 
 type walker struct {
-	src  []byte
-	res  *Result
-	seen map[string]bool
+	src   []byte
+	res   *Result
+	seen  map[string]bool
+	types map[string]string // "enclosing:name" → type name
 }
 
 // node visits one declaration or expression. enclosing is the qname of the
@@ -145,6 +149,7 @@ func (w *walker) node(n sitter.Node, enclosing string, exported bool) {
 		name := nameOf(n, w.src)
 		qname := join(enclosing, name)
 		w.add("function", name, qname, paramCount(n), n, exported)
+		w.parameters(n.ChildByFieldName("parameters"), qname)
 		w.children(n.ChildByFieldName("parameters"), qname)
 		w.children(n.ChildByFieldName("body"), qname)
 		return
@@ -226,10 +231,12 @@ func (w *walker) variables(n sitter.Node, enclosing string, exported bool) {
 			continue
 		}
 		name := nameOf(decl, w.src)
+		w.declaredType(decl, enclosing)
 		switch value.Type() {
 		case "arrow_function", "function_expression", "function":
 			qname := join(enclosing, name)
 			w.add("function", name, qname, paramCount(value), decl, exported)
+			w.parameters(value.ChildByFieldName("parameters"), qname)
 			w.children(value.ChildByFieldName("parameters"), qname)
 			w.children(value.ChildByFieldName("body"), qname)
 		default:
@@ -255,6 +262,7 @@ func (w *walker) methods(class sitter.Node, classQName string, exported bool) {
 		}
 		qname := classQName + "." + name
 		w.add("method", name, qname, paramCount(method), method, exported)
+		w.parameters(method.ChildByFieldName("parameters"), qname)
 		w.children(method.ChildByFieldName("parameters"), qname)
 		w.children(method.ChildByFieldName("body"), qname)
 	}
@@ -325,6 +333,7 @@ func (w *walker) call(n sitter.Node, enclosing string) {
 			ref.Form = "this"
 		} else if obj.Type() == "identifier" {
 			ref.Receiver = obj.Content(w.src)
+			ref.ReceiverType = w.types[scopeKey(enclosing, ref.Receiver)]
 		}
 		w.res.Refs = append(w.res.Refs, ref)
 	}
@@ -343,6 +352,72 @@ func (w *walker) ctor(n sitter.Node, enclosing string) {
 		Kind: "new", Name: name, Form: "ident",
 		Line: int(n.StartPoint().Row) + 1, Enclosing: enclosing,
 	})
+}
+
+// parameters records parameter type annotations so obj.m() can be resolved when
+// obj is a typed parameter ("function f(cart: Cart)").
+func (w *walker) parameters(params sitter.Node, enclosing string) {
+	if params.IsNull() {
+		return
+	}
+	for i := uint32(0); i < params.NamedChildCount(); i++ {
+		param := params.NamedChild(i)
+		pattern := param.ChildByFieldName("pattern")
+		if pattern.IsNull() || pattern.Type() != "identifier" {
+			continue
+		}
+		typeNode := param.ChildByFieldName("type")
+		if typeNode.IsNull() {
+			continue
+		}
+		if name := typeName(typeNode, w.src); name != "" {
+			w.types[scopeKey(enclosing, pattern.Content(w.src))] = name
+		}
+	}
+}
+
+// declaredType records "const cart: Cart = …" and "const cart = new Cart()".
+func (w *walker) declaredType(decl sitter.Node, enclosing string) {
+	name := decl.ChildByFieldName("name")
+	if name.IsNull() || name.Type() != "identifier" {
+		return
+	}
+	value := decl.ChildByFieldName("value")
+
+	typ := ""
+	if annotation := decl.ChildByFieldName("type"); !annotation.IsNull() {
+		typ = typeName(annotation, w.src)
+	}
+	if typ == "" && !value.IsNull() && value.Type() == "new_expression" {
+		if ctor := value.ChildByFieldName("constructor"); !ctor.IsNull() {
+			typ = lastSegment(ctor.Content(w.src))
+		}
+	}
+	if typ != "" {
+		w.types[scopeKey(enclosing, name.Content(w.src))] = typ
+	}
+}
+
+func scopeKey(enclosing, name string) string {
+	return enclosing + ":" + name
+}
+
+// typeName reduces a type annotation to its base name; unions and literals are
+// ignored because they cannot identify one receiver type.
+func typeName(node sitter.Node, src []byte) string {
+	switch node.Type() {
+	case "type_annotation":
+		return typeName(node.NamedChild(0), src)
+	case "type_identifier", "identifier":
+		return node.Content(src)
+	case "generic_type":
+		if name := node.ChildByFieldName("name"); !name.IsNull() {
+			return name.Content(src)
+		}
+	case "predefined_type":
+		return node.Content(src)
+	}
+	return ""
 }
 
 func (w *walker) importStatement(n sitter.Node) {
