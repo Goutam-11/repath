@@ -412,10 +412,10 @@ constructor-style receiver typing, decorator references, and Python class bases.
 The fixture gate is 31/31 edges at precision 1.00 / recall 1.00 with 1 genuine
 unresolved callback parameter, above the 0.88/0.80 milestone gate (not loosened).
 On `psf/requests` @ `3c7baaa`: 37 files, 787 nodes, 0 parse failures, 707
-`CALLS` + 281 `REFERENCES` + 41 `EXTENDS` in 80 ms; 544 references stay
+`CALLS` + 283 `REFERENCES` + 41 `EXTENDS` in 81 ms; 543 references stay
 unresolved, dominated by untyped member calls (`get`, `send`, `append`, `json`)
 and inheritance (`Session.should_strip_auth`), the documented ceiling. A 1-file
-incremental edit is 25 ms; node ids are now stable across re-index, so a no-op
+incremental edit is 27 ms; node ids are now stable across re-index, so a no-op
 edit leaves the edge set and unresolved count unchanged.
 
 ## 13. Evaluation harness
