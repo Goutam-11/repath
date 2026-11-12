@@ -52,6 +52,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath flows <entrypoint>            # forward execution paths
 ./bin/repath tests <symbol|file:line>      # structurally affected test files
 ./bin/repath tests --diff origin/main      # affected tests for a git change set
+make bench-real REPATH_BENCH_ROOT=...       # opt-in real-repo evidence (not CI)
 ```
 
 Sandbox note (this machine): Go lives at `/usr/local/go/bin` (not on `PATH`),
@@ -190,6 +191,14 @@ the database.
 - **The cache schema is sidecar-checked.** `<sha>.db` is trusted only when
   `<sha>.db.schema` matches `store.SchemaVersion`; bumping the schema rebuilds
   old caches instead of seeding them.
+- **`make bench-real` is opt-in evidence, not a gate.** It pins
+  `elastic/kibana` @ `05511966780217f7357b98253299f369dc40199b`, subtree
+  `x-pack/solutions` (38,548 indexed TS files), in `docs/benchmarks.md`. It
+  removes the clone's `.repath/`, briefly touches ten source files and restores
+  them, and logs budget misses instead of failing. The real run missed cold
+  (<3 min), 10-file incremental (<1 s), and `map` p95 (<300 ms), while RSS,
+  `impact`, `callers`, `path`, and the 26.3% zstd ratio passed. Do not turn it
+  into CI, and do not weaken the synthetic `make perf` budgets because of it.
 - **`make perf` is opt-in.** `TestPerf10k` and `TestPerf50k` skip without
   `REPATH_PERF=1`; `make perf` runs each in its own process so the Linux VmHWM
   reading belongs to that tree. It is evidence, not a CI gate (timings are
