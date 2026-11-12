@@ -24,6 +24,7 @@ Usage:
   repath find    <symbol> [--root DIR] [--json] [--min-confidence N]
   repath callers <symbol> [--root DIR] [--json] [--min-confidence N]
   repath impact  <symbol|file:line> [--depth N] [--limit N] [--json]
+  repath tests   <symbol|file:line> [--depth N] [--limit N] [--json]
   repath path    <from> <to> [--max-depth N] [--json]
   repath map     [--max-tokens N] [--json]
   repath flows   <entrypoint> [--depth N] [--limit N] [--json]
@@ -40,6 +41,7 @@ Commands:
   find     symbol card: location, kind, caller and callee counts
   callers  who calls this symbol
   impact   transitive blast radius of a change
+  tests    test files that structurally reach a changed target
   path     how one symbol reaches another
   map      ranked overview: modules, cycles, hot symbols
   flows    forward execution paths from a detected entrypoint
@@ -82,6 +84,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return callersCmd(args[1:], stdout, stderr)
 	case "impact":
 		return impactCmd(args[1:], stdout, stderr)
+	case "tests":
+		return testsCmd(args[1:], stdout, stderr)
 	case "path":
 		return pathCmd(args[1:], stdout, stderr)
 	case "map":
