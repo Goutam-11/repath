@@ -18,7 +18,8 @@ var version = "dev"
 const usage = `repath — structural answers about a codebase
 
 Usage:
-  repath index   [--root DIR] [--full] [--json]
+  repath index   [--root DIR] [--full] [--json] [--artifact DIR]
+  repath pull    <path|url> [--root DIR] [--json]
   repath status  [--root DIR] [--json] [--no-refresh]
   repath find    <symbol> [--root DIR] [--json] [--min-confidence N]
   repath callers <symbol> [--root DIR] [--json] [--min-confidence N]
@@ -29,7 +30,8 @@ Usage:
   repath version
 
 Commands:
-  index    build or update .repath/index.db
+  index    build or update .repath/index.db (optionally export an artifact)
+  pull     seed the local index from a repath artifact (path or URL)
   status   report index state, refreshing it first
   find     symbol card: location, kind, caller and callee counts
   callers  who calls this symbol
@@ -63,6 +65,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "index":
 		return indexCmd(args[1:], stdout, stderr)
+	case "pull":
+		return pullCmd(args[1:], stdout, stderr)
 	case "status":
 		return statusCmd(args[1:], stdout, stderr)
 	case "find":
@@ -92,6 +96,7 @@ type options struct {
 	limit         int
 	maxTokens     int
 	module        string
+	artifact      string
 }
 
 // parseOptions returns the flags and the positional arguments.
@@ -136,6 +141,14 @@ func parseOptions(args []string) (options, []string, error) {
 			if _, err := fmt.Sscanf(args[i], "%d", &o.depth); err != nil {
 				return o, nil, fmt.Errorf("%s %q is not a number", arg, args[i])
 			}
+		case arg == "--artifact":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--artifact needs a directory")
+			}
+			i++
+			o.artifact = args[i]
+		case strings.HasPrefix(arg, "--artifact="):
+			o.artifact = strings.TrimPrefix(arg, "--artifact=")
 		case arg == "--module":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--module needs a name")
