@@ -36,6 +36,7 @@ type PendingRef struct {
 	Name   string
 	FileID int64
 	Kind   string
+	Form   string
 	Line   int
 }
 
@@ -139,7 +140,7 @@ func (s *Store) PruneEdges(ctx context.Context) (int64, error) {
 
 // Pending lists references still waiting for a target.
 func (s *Store) Pending(ctx context.Context) ([]PendingRef, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT name, file_id, kind, line FROM pending`)
+	rows, err := s.db.QueryContext(ctx, `SELECT name, file_id, kind, form, line FROM pending`)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +149,7 @@ func (s *Store) Pending(ctx context.Context) ([]PendingRef, error) {
 	var out []PendingRef
 	for rows.Next() {
 		var p PendingRef
-		if err := rows.Scan(&p.Name, &p.FileID, &p.Kind, &p.Line); err != nil {
+		if err := rows.Scan(&p.Name, &p.FileID, &p.Kind, &p.Form, &p.Line); err != nil {
 			return nil, err
 		}
 		out = append(out, p)
@@ -166,14 +167,14 @@ func (s *Store) ReplacePending(ctx context.Context, fileID int64, refs []Pending
 		tx.Rollback()
 		return err
 	}
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO pending (name, file_id, kind, line) VALUES (?, ?, ?, ?)`)
+	stmt, err := tx.PrepareContext(ctx, `INSERT INTO pending (name, file_id, kind, form, line) VALUES (?, ?, ?, ?, ?)`)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 	defer stmt.Close()
 	for _, p := range refs {
-		if _, err := stmt.ExecContext(ctx, p.Name, fileID, p.Kind, p.Line); err != nil {
+		if _, err := stmt.ExecContext(ctx, p.Name, fileID, p.Kind, p.Form, p.Line); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -181,11 +182,63 @@ func (s *Store) ReplacePending(ctx context.Context, fileID int64, refs []Pending
 	return tx.Commit()
 }
 
+// ImportRow is one local binding created by an import statement. Imports are
+// resolution inputs, never graph edges.
+type ImportRow struct {
+	FileID   int64
+	Local    string
+	Imported string
+	Source   string
+	Line     int
+}
+
+// Imports reads every stored import binding.
+func (s *Store) Imports(ctx context.Context) ([]ImportRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT file_id, local, imported, source, line FROM imports ORDER BY rowid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []ImportRow
+	for rows.Next() {
+		var imp ImportRow
+		if err := rows.Scan(&imp.FileID, &imp.Local, &imp.Imported, &imp.Source, &imp.Line); err != nil {
+			return nil, err
+		}
+		out = append(out, imp)
+	}
+	return out, rows.Err()
+}
+
+// ReplaceImports swaps the import bindings for one file, in a transaction.
+func (t *Tx) ReplaceImports(ctx context.Context, fileID int64, imports []ImportRow) error {
+	if _, err := t.tx.ExecContext(ctx, `DELETE FROM imports WHERE file_id = ?`, fileID); err != nil {
+		return err
+	}
+	if len(imports) == 0 {
+		return nil
+	}
+	stmt, err := t.tx.PrepareContext(ctx,
+		`INSERT INTO imports (file_id, local, imported, source, line) VALUES (?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, imp := range imports {
+		if _, err := stmt.ExecContext(ctx, fileID, imp.Local, imp.Imported, imp.Source, imp.Line); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DeletePending removes one pending row.
 func (s *Store) DeletePending(ctx context.Context, p PendingRef) error {
 	_, err := s.db.ExecContext(ctx,
-		`DELETE FROM pending WHERE name = ? AND file_id = ? AND kind = ? AND line = ?`,
-		p.Name, p.FileID, p.Kind, p.Line)
+		`DELETE FROM pending WHERE name = ? AND file_id = ? AND kind = ? AND form = ? AND line = ?`,
+		p.Name, p.FileID, p.Kind, p.Form, p.Line)
 	return err
 }
 

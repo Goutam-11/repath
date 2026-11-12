@@ -1,8 +1,9 @@
 // Package eval measures the graph against hand-labelled expectations.
 //
-// The fixture is the gate from PLAN.md §12: CALLS precision ≥ 0.90 and recall
-// ≥ 0.75 at the default confidence, with few unresolved references. It is not a
-// benchmark; it is a regression net for resolution rules.
+// The fixtures are the gate from PLAN.md §12: TS CALLS precision ≥ 0.90 and
+// recall ≥ 0.75; Python precision ≥ 0.88 and recall ≥ 0.80, at the default 0.5
+// confidence. It is not a benchmark; it is a regression net for resolution
+// rules.
 package eval
 
 import (
@@ -12,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/Goutam-11/repath/internal/index"
@@ -24,8 +26,19 @@ type expectedEdge struct {
 	Kind string `json:"kind"`
 }
 
+type fixtureSpec struct {
+	name          string
+	precision     float64
+	recall        float64
+	maxUnresolved int
+}
+
 func edgeKey(srcPath, srcQName, dstPath, dstQName, kind string) string {
 	return fmt.Sprintf("%s:%s -> %s:%s %s", srcPath, srcQName, dstPath, dstQName, kind)
+}
+
+func expectedKey(edge expectedEdge) string {
+	return edgeKey(splitLeft(edge.Src), splitRight(edge.Src), splitLeft(edge.Dst), splitRight(edge.Dst), edge.Kind)
 }
 
 func copyTree(t *testing.T, src, dst string) {
@@ -53,8 +66,11 @@ func copyTree(t *testing.T, src, dst string) {
 	}
 }
 
-func TestFixturePrecisionAndRecall(t *testing.T) {
-	fixture := filepath.Join("..", "..", "testdata", "fixtures", "ts")
+// indexFixture copies one fixture into a temp repo, indexes it, and returns the
+// repo path, the live store, and the run result.
+func indexFixture(t *testing.T, name string) (string, *store.Store, index.Result) {
+	t.Helper()
+	fixture := filepath.Join("..", "..", "testdata", "fixtures", name)
 	dir := t.TempDir()
 	copyTree(t, fixture, dir)
 
@@ -63,7 +79,7 @@ func TestFixturePrecisionAndRecall(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	defer st.Close()
+	t.Cleanup(func() { st.Close() })
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -75,106 +91,222 @@ func TestFixturePrecisionAndRecall(t *testing.T) {
 	if result.ParseFailures != 0 {
 		t.Fatalf("parse failures = %d, fixture must parse cleanly", result.ParseFailures)
 	}
+	return dir, st, result
+}
 
-	expected := loadExpected(t, filepath.Join(fixture, "expected.json"))
-	edges, err := st.Edges(ctx, 0.5)
-	if err != nil {
-		t.Fatalf("read edges: %v", err)
+func TestFixturePrecisionAndRecall(t *testing.T) {
+	specs := []fixtureSpec{
+		{name: "ts", precision: 0.90, recall: 0.75, maxUnresolved: 3},
+		{name: "py", precision: 0.88, recall: 0.80, maxUnresolved: 2},
 	}
 
-	got := make(map[string]bool, len(edges))
-	for _, e := range edges {
-		got[edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)] = true
-	}
+	for _, spec := range specs {
+		t.Run(spec.name, func(t *testing.T) {
+			fixture := filepath.Join("..", "..", "testdata", "fixtures", spec.name)
+			_, st, result := indexFixture(t, spec.name)
 
-	matched := 0
-	var missing, unexpected []string
-	for _, want := range expected {
-		key := edgeKey(splitLeft(want.Src), splitRight(want.Src), splitLeft(want.Dst), splitRight(want.Dst), want.Kind)
-		if got[key] {
-			matched++
-			continue
-		}
-		missing = append(missing, key)
-	}
-	for key := range got {
-		found := false
-		for _, want := range expected {
-			if key == edgeKey(splitLeft(want.Src), splitRight(want.Src), splitLeft(want.Dst), splitRight(want.Dst), want.Kind) {
-				found = true
-				break
+			expected := loadExpected(t, filepath.Join(fixture, "expected.json"))
+			edges, err := st.Edges(context.Background(), 0.5)
+			if err != nil {
+				t.Fatalf("read edges: %v", err)
 			}
-		}
-		if !found {
-			unexpected = append(unexpected, key)
-		}
-	}
 
-	precision := 1.0
-	if len(got) > 0 {
-		precision = float64(matched) / float64(len(got))
-	}
-	recall := 0.0
-	if len(expected) > 0 {
-		recall = float64(matched) / float64(len(expected))
-	}
+			got := make(map[string]bool, len(edges))
+			for _, e := range edges {
+				got[edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)] = true
+			}
 
-	sort.Strings(missing)
-	sort.Strings(unexpected)
-	t.Logf("edges=%d expected=%d matched=%d precision=%.2f recall=%.2f unresolved=%d",
-		len(got), len(expected), matched, precision, recall, result.Unresolved)
+			want := make(map[string]bool, len(expected))
+			matched := 0
+			var missing []string
+			for _, edge := range expected {
+				key := expectedKey(edge)
+				want[key] = true
+				if got[key] {
+					matched++
+				} else {
+					missing = append(missing, key)
+				}
+			}
 
-	if precision < 0.90 {
-		t.Errorf("precision %.2f < 0.90; unexpected edges:\n  %v", precision, unexpected)
-	}
-	if recall < 0.75 {
-		t.Errorf("recall %.2f < 0.75; missing edges:\n  %v", recall, missing)
-	}
-	if result.Unresolved > 3 {
-		t.Errorf("unresolved references = %d, want <= 3; the fixture has one genuine unknown (React.createElement)",
-			result.Unresolved)
+			var unexpected []string
+			for key := range got {
+				if !want[key] {
+					unexpected = append(unexpected, key)
+				}
+			}
+
+			precision := 1.0
+			if len(got) > 0 {
+				precision = float64(matched) / float64(len(got))
+			}
+			recall := 0.0
+			if len(expected) > 0 {
+				recall = float64(matched) / float64(len(expected))
+			}
+
+			sort.Strings(missing)
+			sort.Strings(unexpected)
+			t.Logf("edges=%d expected=%d matched=%d precision=%.2f recall=%.2f unresolved=%d",
+				len(got), len(expected), matched, precision, recall, result.Unresolved)
+
+			if precision < spec.precision {
+				t.Errorf("precision %.2f < %.2f; unexpected edges:\n  %v", precision, spec.precision, unexpected)
+			}
+			if recall < spec.recall {
+				t.Errorf("recall %.2f < %.2f; missing edges:\n  %v", recall, spec.recall, missing)
+			}
+			if result.Unresolved > spec.maxUnresolved {
+				t.Errorf("unresolved references = %d, want <= %d", result.Unresolved, spec.maxUnresolved)
+			}
+		})
 	}
 }
 
 func TestAmbiguousEdgesAreLowConfidence(t *testing.T) {
-	fixture := filepath.Join("..", "..", "testdata", "fixtures", "ts")
-	dir := t.TempDir()
-	copyTree(t, fixture, dir)
-
-	ctx := context.Background()
-	st, err := store.Open(ctx, filepath.Join(dir, ".repath", "index.db"))
-	if err != nil {
-		t.Fatalf("open store: %v", err)
-	}
-	defer st.Close()
-	if err := st.Migrate(ctx); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	if _, err := index.Run(ctx, st, dir, index.Options{}); err != nil {
-		t.Fatalf("index: %v", err)
+	specs := []struct {
+		fixture string
+		rule    string
+	}{
+		{fixture: "ts", rule: "ts.global.ambiguous"},
+		{fixture: "py", rule: "py.global.ambiguous"},
 	}
 
-	edges, err := st.Edges(ctx, 0.35)
+	for _, spec := range specs {
+		t.Run(spec.fixture, func(t *testing.T) {
+			_, st, _ := indexFixture(t, spec.fixture)
+
+			edges, err := st.Edges(context.Background(), 0.35)
+			if err != nil {
+				t.Fatalf("read edges: %v", err)
+			}
+
+			ambiguous := 0
+			highConfidence := 0
+			for _, e := range edges {
+				if e.Rule != spec.rule {
+					continue
+				}
+				ambiguous++
+				if e.Confidence >= 0.5 {
+					highConfidence++
+				}
+			}
+			if ambiguous == 0 {
+				t.Fatalf("expected %s edges for duplicated run() symbols", spec.rule)
+			}
+			if highConfidence != 0 {
+				t.Fatalf("%d ambiguous edges are above the default threshold", highConfidence)
+			}
+		})
+	}
+}
+
+// TestPythonRuleIDs pins the Python ladder: every new rule id must be reachable
+// from the fixture, and a Python file must never produce a ts.* rule.
+func TestPythonRuleIDs(t *testing.T) {
+	_, st, _ := indexFixture(t, "py")
+	edges, err := st.Edges(context.Background(), 0.5)
 	if err != nil {
 		t.Fatalf("read edges: %v", err)
 	}
 
-	ambiguous := 0
-	highConfidence := 0
+	got := make(map[string]string, len(edges))
 	for _, e := range edges {
-		if e.Rule == "ts.global.ambiguous" {
-			ambiguous++
-			if e.Confidence >= 0.5 {
-				highConfidence++
-			}
+		got[edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)] = e.Rule
+	}
+
+	want := map[string]string{
+		"app/util.py:parse -> app/util.py:clamp CALLS":                       "py.local",
+		"app/service.py:Service -> app/models.py:Base EXTENDS":               "py.import.named",
+		"app/service.py:Service -> app/decorators.py:logged REFERENCES":      "py.import.named",
+		"app/worker.py:measure -> app/util.py:parse CALLS":                   "py.import.alias",
+		"app/worker.py:measure -> app/util.py:clamp CALLS":                   "py.module.relative",
+		"app/module_use.py:measure -> app/util.py:clamp CALLS":               "py.import.module",
+		"app/module_use.py:measure_plain -> app/util.py:clamp CALLS":         "py.import.module",
+		"app/star.py:bounded -> app/util.py:clamp CALLS":                     "py.import.star",
+		"app/reexports_use.py:start -> app/service.py:Service REFERENCES":    "py.import.reexport",
+		"app/compat_use.py:cap -> app/util.py:clamp CALLS":                   "py.import.reexport",
+		"app/service.py:Service.label -> app/service.py:Service.total CALLS": "py.this.method",
+		"app/service.py:build -> app/service.py:Service.total CALLS":         "py.typed.method",
+		"app/service.py:make -> app/service.py:Service.create CALLS":         "py.class.method",
+		"app/unique_use.py:call_global -> app/util.py:parse CALLS":           "py.global.unique",
+	}
+	for key, rule := range want {
+		if got[key] != rule {
+			t.Errorf("edge %q rule = %q, want %q", key, got[key], rule)
 		}
 	}
-	if ambiguous == 0 {
-		t.Fatal("expected ambiguous edges for the duplicated run() fixture")
+
+	for key, rule := range got {
+		if strings.HasPrefix(rule, "ts.") {
+			t.Errorf("Python edge %q used TypeScript rule %q", key, rule)
+		}
 	}
-	if highConfidence != 0 {
-		t.Fatalf("%d ambiguous edges are above the default threshold", highConfidence)
+}
+
+// TestIncrementalReindexKeepsEdges guards the incremental contract: editing a
+// file without changing its symbols must not orphan incoming edges or retry
+// member references by bare name.
+func TestIncrementalReindexKeepsEdges(t *testing.T) {
+	dir, st, _ := indexFixture(t, "py")
+	ctx := context.Background()
+
+	before := edgeSet(t, st)
+	pendingBefore, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatalf("pending: %v", err)
 	}
+
+	path := filepath.Join(dir, "app", "service.py")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatalf("open for append: %v", err)
+	}
+	if _, err := f.WriteString("\n# no-op comment: same symbols, same edges\n"); err != nil {
+		t.Fatalf("append: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	result, err := index.Run(ctx, st, dir, index.Options{})
+	if err != nil {
+		t.Fatalf("re-index: %v", err)
+	}
+	if result.Indexed != 1 || result.Unchanged == 0 {
+		t.Fatalf("incremental run indexed=%d unchanged=%d, want 1 changed file", result.Indexed, result.Unchanged)
+	}
+
+	after := edgeSet(t, st)
+	if len(after) != len(before) {
+		t.Fatalf("edges changed after a no-op edit: %d -> %d", len(before), len(after))
+	}
+	for key, confidence := range before {
+		if after[key] != confidence {
+			t.Errorf("edge %q changed or disappeared: %.2f -> %.2f", key, confidence, after[key])
+		}
+	}
+	pendingAfter, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatalf("pending after: %v", err)
+	}
+	if pendingAfter != pendingBefore {
+		t.Fatalf("unresolved changed after a no-op edit: %d -> %d", pendingBefore, pendingAfter)
+	}
+}
+
+func edgeSet(t *testing.T, st *store.Store) map[string]float64 {
+	t.Helper()
+	edges, err := st.Edges(context.Background(), 0)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+	out := make(map[string]float64, len(edges))
+	for _, e := range edges {
+		out[edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)] = e.Confidence
+	}
+	return out
 }
 
 // splitLeft/splitRight separate "src/util.ts:add" without breaking Windows

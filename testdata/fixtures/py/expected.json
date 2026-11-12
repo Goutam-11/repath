@@ -1,0 +1,157 @@
+[
+  {
+    "src": "app/util.py:parse",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/models.py:User",
+    "dst": "app/models.py:Base",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/models.py:User.label",
+    "dst": "app/models.py:User.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:Service",
+    "dst": "app/models.py:Base",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/service.py:Service",
+    "dst": "app/decorators.py:logged",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/service.py:Service.total",
+    "dst": "app/decorators.py:route",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/service.py:Service.total",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:Service.label",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:build",
+    "dst": "app/service.py:Service",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/service.py:build",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/worker.py:measure",
+    "dst": "app/util.py:parse",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/worker.py:measure",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/plugins/hook.py:run",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/star.py:bounded",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/dup.py:go",
+    "dst": "app/dup_a.py:run",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/typing_use.py:describe",
+    "dst": "app/models.py:User",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/typing_use.py:describe",
+    "dst": "app/service.py:Service",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/typing_use.py:describe",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/typing_use.py:describe",
+    "dst": "app/models.py:User.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/reexports_use.py:start",
+    "dst": "app/service.py:Service",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/reexports_use.py:start",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/entry.py:main",
+    "dst": "app/service.py:Service",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/entry.py:main",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/extends_use.py:Child",
+    "dst": "app/models.py:Base",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/nested.py:outer",
+    "dst": "app/nested.py:outer.inner",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/unique_use.py:call_global",
+    "dst": "app/util.py:parse",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/module_use.py:measure",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/compat_use.py:cap",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:make",
+    "dst": "app/service.py:Service.create",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:make",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/module_use.py:measure_plain",
+    "dst": "app/util.py:clamp",
+    "kind": "CALLS"
+  }
+]

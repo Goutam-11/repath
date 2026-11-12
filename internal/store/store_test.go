@@ -29,9 +29,40 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("meta: %v", err)
 	}
-	if meta["schema_version"] != "2" {
-		t.Fatalf("schema_version = %q, want 2", meta["schema_version"])
+	if meta["schema_version"] != "3" {
+		t.Fatalf("schema_version = %q, want 3", meta["schema_version"])
 	}
+}
+
+func TestMigrateAddsPendingForm(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	// Simulate an M2 index whose pending table predates the form column.
+	if _, err := st.db.ExecContext(ctx, `ALTER TABLE pending DROP COLUMN form`); err != nil {
+		t.Fatalf("drop form: %v", err)
+	}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate old schema: %v", err)
+	}
+
+	rows, err := st.db.QueryContext(ctx, `PRAGMA table_info(pending)`)
+	if err != nil {
+		t.Fatalf("table info: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, pk int
+		var name, typ string
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		if name == "form" {
+			return
+		}
+	}
+	t.Fatal("pending.form was not added by Migrate")
 }
 
 func TestWriteFileAndNodes(t *testing.T) {
@@ -74,6 +105,114 @@ func TestWriteFileAndNodes(t *testing.T) {
 	}
 	if counts.ByKind["function"] != 1 {
 		t.Fatalf("by kind = %+v", counts.ByKind)
+	}
+}
+
+func TestWriteFileAndImports(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	id, err := tx.UpsertFile(ctx, File{
+		Path: "pkg/__init__.py", Lang: "python", Size: 10, MTime: 100, Hash: "abc", ParseOK: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert file: %v", err)
+	}
+	if err := tx.ReplaceImports(ctx, id, []ImportRow{
+		{Local: "Service", Imported: "Service", Source: ".service", Line: 1},
+		{Local: "util", Imported: "*", Source: "util", Line: 2},
+	}); err != nil {
+		t.Fatalf("replace imports: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	imports, err := st.Imports(ctx)
+	if err != nil {
+		t.Fatalf("imports: %v", err)
+	}
+	if len(imports) != 2 || imports[0].Local != "Service" || imports[0].Source != ".service" {
+		t.Fatalf("imports = %+v", imports)
+	}
+
+	tx, err = st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin replace: %v", err)
+	}
+	if err := tx.ReplaceImports(ctx, id, []ImportRow{{Local: "util", Imported: "*", Source: "util"}}); err != nil {
+		t.Fatalf("replace imports: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit replace: %v", err)
+	}
+	imports, err = st.Imports(ctx)
+	if err != nil {
+		t.Fatalf("imports after replace: %v", err)
+	}
+	if len(imports) != 1 || imports[0].Local != "util" {
+		t.Fatalf("imports after replace = %+v, want one util binding", imports)
+	}
+}
+
+func TestReplaceNodesKeepsStableIds(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	fileID, err := tx.UpsertFile(ctx, File{
+		Path: "pkg/mod.py", Lang: "python", Size: 10, MTime: 100, Hash: "abc", ParseOK: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert file: %v", err)
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileID, "python", []Node{
+		{Kind: "function", Name: "keep", QName: "keep", Arity: 1, StartLine: 1, EndLine: 2, Exported: true},
+		{Kind: "function", Name: "drop", QName: "drop", Arity: 0, StartLine: 4, EndLine: 5, Exported: true},
+	}); err != nil {
+		t.Fatalf("first replace: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	before, err := st.NodeIDsByFile(ctx, fileID)
+	if err != nil {
+		t.Fatalf("ids: %v", err)
+	}
+
+	tx, err = st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin second: %v", err)
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileID, "python", []Node{
+		{Kind: "function", Name: "keep", QName: "keep", Arity: 1, StartLine: 1, EndLine: 3, Exported: true},
+		{Kind: "class", Name: "added", QName: "added", Arity: 0, StartLine: 7, EndLine: 9, Exported: true},
+	}); err != nil {
+		t.Fatalf("second replace: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit second: %v", err)
+	}
+	after, err := st.NodeIDsByFile(ctx, fileID)
+	if err != nil {
+		t.Fatalf("ids after: %v", err)
+	}
+
+	if after["keep"] != before["keep"] {
+		t.Fatalf("keep id changed: %d -> %d", before["keep"], after["keep"])
+	}
+	if _, found := after["drop"]; found {
+		t.Fatal("drop symbol survived a re-index")
+	}
+	if _, found := after["added"]; !found {
+		t.Fatal("added symbol missing")
 	}
 }
 

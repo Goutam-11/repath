@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/Goutam-11/repath/internal/lang"
-	"github.com/Goutam-11/repath/internal/lang/tsx"
+	"github.com/Goutam-11/repath/internal/lang/facts"
 	"github.com/Goutam-11/repath/internal/resolve"
 	"github.com/Goutam-11/repath/internal/store"
 )
@@ -79,7 +79,7 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ex := tsx.New()
+			ex := lang.NewExtractor()
 			for src := range jobs {
 				parsed <- parseOne(src, ex, existing, opts.Full)
 			}
@@ -129,6 +129,10 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 				return err
 			}
 			if _, err := tx.ReplaceNodes(ctx, fileID, o.lang, o.symbols); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+			if err := tx.ReplaceImports(ctx, fileID, toImportRows(o.imports)); err != nil {
 				_ = tx.Rollback()
 				return err
 			}
@@ -236,11 +240,6 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 	for _, o := range written {
 		changed[o.fileID] = true
 
-		imports := make(map[string]tsx.Import, len(o.imports))
-		for _, imp := range o.imports {
-			imports[imp.Local] = imp
-		}
-
 		ids, err := st.NodeIDsByFile(ctx, o.fileID)
 		if err != nil {
 			return err
@@ -255,7 +254,11 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 				continue
 			}
 
-			r := ix.Resolve(o.fileID, o.src.Path, ref, imports)
+			r := ix.Resolve(o.fileID, o.src.Path, ref)
+			kind := edgeKind(ref.Kind)
+			if r.Kind != "" {
+				kind = r.Kind
+			}
 			switch {
 			case r.External:
 			case r.Found && len(r.Candidates) > 0:
@@ -264,7 +267,7 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 						continue
 					}
 					edges = append(edges, store.Edge{
-						Src: src, Dst: candidate, Kind: edgeKind(ref.Kind),
+						Src: src, Dst: candidate, Kind: kind,
 						Confidence: r.Confidence, Rule: r.Rule, Line: ref.Line,
 						Candidates: joinIDs(r.Candidates),
 					})
@@ -274,12 +277,12 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 					continue
 				}
 				edges = append(edges, store.Edge{
-					Src: src, Dst: r.Dst, Kind: edgeKind(ref.Kind),
+					Src: src, Dst: r.Dst, Kind: kind,
 					Confidence: r.Confidence, Rule: r.Rule, Line: ref.Line,
 				})
 			default:
 				pending = append(pending, store.PendingRef{
-					Name: ref.Name, FileID: o.fileID, Kind: ref.Kind, Line: ref.Line,
+					Name: ref.Name, FileID: o.fileID, Kind: ref.Kind, Form: ref.Form, Line: ref.Line,
 				})
 			}
 		}
@@ -302,7 +305,13 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		if changed[p.FileID] {
 			continue
 		}
-		dst, ok := ix.ResolveName(p.Name)
+		// A member reference has no import context here; retrying it by bare
+		// name would be the guessing policy repath removed. Only identifiers
+		// can be re-linked safely when a symbol later appears.
+		if p.Form != "" && p.Form != "ident" {
+			continue
+		}
+		r, ok := ix.ResolvePending(p.FileID, p.Kind, p.Name)
 		if !ok {
 			continue
 		}
@@ -310,12 +319,16 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		if err != nil {
 			return err
 		}
-		if !ok || src == dst {
+		if !ok || src == r.Dst {
 			continue
 		}
+		kind := edgeKind(p.Kind)
+		if r.Kind != "" {
+			kind = r.Kind
+		}
 		retried = append(retried, store.Edge{
-			Src: src, Dst: dst, Kind: edgeKind(p.Kind),
-			Confidence: 0.60, Rule: "ts.global.unique", Line: p.Line,
+			Src: src, Dst: r.Dst, Kind: kind,
+			Confidence: r.Confidence, Rule: r.Rule, Line: p.Line,
 		})
 		if err := st.DeletePending(ctx, p); err != nil {
 			return err
@@ -333,13 +346,13 @@ type outcome struct {
 	ok      bool
 	errMsg  string
 	symbols []store.Node
-	refs    []tsx.Ref
-	imports []tsx.Import
+	refs    []facts.Ref
+	imports []facts.Import
 	skipped bool
 	fileID  int64
 }
 
-func parseOne(src Source, ex *tsx.Extractor, existing map[string]store.FileState, full bool) *outcome {
+func parseOne(src Source, ex *lang.Extractor, existing map[string]store.FileState, full bool) *outcome {
 	data, err := os.ReadFile(src.Abs)
 	if err != nil {
 		return &outcome{src: src, ok: false, errMsg: err.Error()}
@@ -378,7 +391,7 @@ func parseOne(src Source, ex *tsx.Extractor, existing map[string]store.FileState
 
 // toNodes converts extractor output into rows; the store must not depend on a
 // language package.
-func toNodes(symbols []tsx.Symbol) []store.Node {
+func toNodes(symbols []facts.Symbol) []store.Node {
 	nodes := make([]store.Node, 0, len(symbols))
 	for _, s := range symbols {
 		nodes = append(nodes, store.Node{
@@ -392,6 +405,18 @@ func toNodes(symbols []tsx.Symbol) []store.Node {
 		})
 	}
 	return nodes
+}
+
+// toImportRows converts extractor imports into rows. Imports are resolution
+// inputs and are stored separately from edges and nodes.
+func toImportRows(imports []facts.Import) []store.ImportRow {
+	rows := make([]store.ImportRow, 0, len(imports))
+	for _, imp := range imports {
+		rows = append(rows, store.ImportRow{
+			Local: imp.Local, Imported: imp.Imported, Source: imp.Source, Line: imp.Line,
+		})
+	}
+	return rows
 }
 
 func edgeKind(refKind string) string {

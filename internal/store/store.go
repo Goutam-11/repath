@@ -14,7 +14,7 @@ import (
 
 // SchemaVersion is bumped whenever the schema below changes. A binary refuses
 // an index written by a newer version.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta    (key TEXT PRIMARY KEY, value TEXT);
@@ -58,12 +58,23 @@ CREATE TABLE IF NOT EXISTS pending (
     name    TEXT NOT NULL,
     file_id INTEGER NOT NULL,
     kind    TEXT NOT NULL,
+    form    TEXT NOT NULL DEFAULT '',
     line    INTEGER NOT NULL DEFAULT 0
+);
+-- imports are resolution inputs, not edges: they let a later run follow
+-- __init__.py re-exports without keeping every file's AST in memory.
+CREATE TABLE IF NOT EXISTS imports (
+    file_id  INTEGER NOT NULL,
+    local    TEXT NOT NULL,
+    imported TEXT NOT NULL,
+    source   TEXT NOT NULL,
+    line     INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS edges_rev    ON edges (dst, kind, confidence);
 CREATE INDEX IF NOT EXISTS nodes_qn     ON nodes (qname);
 CREATE INDEX IF NOT EXISTS nodes_loc    ON nodes (file_id, start_line);
 CREATE INDEX IF NOT EXISTS pending_name ON pending (name);
+CREATE INDEX IF NOT EXISTS imports_file ON imports (file_id);
 CREATE UNIQUE INDEX IF NOT EXISTS modules_root ON modules (root);
 `
 
@@ -146,8 +157,41 @@ func (s *Store) Migrate(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, schema); err != nil {
 		return fmt.Errorf("apply schema: %w", err)
 	}
+	// Additive columns are migrated in place so an M2 index keeps its symbols
+	// and edges instead of requiring a full rebuild.
+	if err := s.ensureColumn(ctx, "pending", "form", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	if err := s.SetMeta(ctx, "schema_version", fmt.Sprint(SchemaVersion)); err != nil {
 		return err
+	}
+	return nil
+}
+
+func (s *Store) ensureColumn(ctx context.Context, table, column, ddl string) error {
+	rows, err := s.db.QueryContext(ctx, "PRAGMA table_info("+table+")")
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", table, err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notNull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == column {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := s.db.ExecContext(ctx, "ALTER TABLE "+table+" ADD COLUMN "+column+" "+ddl); err != nil {
+		return fmt.Errorf("add %s.%s: %w", table, column, err)
 	}
 	return nil
 }
@@ -272,42 +316,89 @@ func (t *Tx) UpsertFile(ctx context.Context, f File) (int64, error) {
 	return id, nil
 }
 
-// ReplaceNodes deletes the file's current nodes and inserts the new ones.
-//
-// Edges that pointed at deleted nodes are left for the resolver to prune; M0
-// stores no edges yet.
+// ReplaceNodes upserts the file's symbols and removes the ones that are gone.
+// Node ids are kept when (qname, arity) still exists, so an unrelated edit does
+// not orphan the incoming edges of every other symbol in the file.
 func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes []Node) (int, error) {
-	if _, err := t.tx.ExecContext(ctx, `DELETE FROM nodes WHERE file_id = ?`, fileID); err != nil {
+	type nodeKey struct {
+		qname string
+		arity int
+	}
+	keyOf := func(qname string, arity int) nodeKey { return nodeKey{qname: qname, arity: arity} }
+
+	rows, err := t.tx.QueryContext(ctx, `SELECT id, qname, arity FROM nodes WHERE file_id = ?`, fileID)
+	if err != nil {
 		return 0, err
 	}
+	existing := make(map[nodeKey]int64)
+	for rows.Next() {
+		var id int64
+		var qname string
+		var arity int
+		if err := rows.Scan(&id, &qname, &arity); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		existing[keyOf(qname, arity)] = id
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return 0, err
+	}
+	rows.Close()
 
 	stmt, err := t.tx.PrepareContext(ctx, `
 		INSERT INTO nodes (kind, name, qname, file_id, lang, arity, start_line, end_line, exported)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (lang, qname, file_id, arity) DO NOTHING`)
+		ON CONFLICT (lang, qname, file_id, arity) DO UPDATE SET
+			kind = excluded.kind,
+			name = excluded.name,
+			start_line = excluded.start_line,
+			end_line = excluded.end_line,
+			exported = excluded.exported
+		RETURNING id`)
 	if err != nil {
 		return 0, err
 	}
 	defer stmt.Close()
 
-	inserted := 0
+	seen := make(map[nodeKey]bool, len(nodes))
+	written := 0
 	for _, n := range nodes {
-		res, err := stmt.ExecContext(ctx,
-			n.Kind, n.Name, n.QName, fileID, lang, n.Arity, n.StartLine, n.EndLine, boolInt(n.Exported))
-		if err != nil {
-			return inserted, err
+		key := keyOf(n.QName, n.Arity)
+		if seen[key] {
+			continue
 		}
-		if rows, err := res.RowsAffected(); err == nil && rows > 0 {
-			inserted++
+		seen[key] = true
+
+		var id int64
+		if err := stmt.QueryRowContext(ctx,
+			n.Kind, n.Name, n.QName, fileID, lang, n.Arity, n.StartLine, n.EndLine, boolInt(n.Exported)).
+			Scan(&id); err != nil {
+			return written, err
+		}
+		written++
+	}
+
+	for key, id := range existing {
+		if seen[key] {
+			continue
+		}
+		if _, err := t.tx.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id); err != nil {
+			return written, err
 		}
 	}
-	return inserted, nil
+	return written, nil
 }
 
-// DeleteFile removes a file row and its nodes.
+// DeleteFile removes a file row and its nodes and import bindings.
 func (t *Tx) DeleteFile(ctx context.Context, path string) error {
 	if _, err := t.tx.ExecContext(ctx,
 		`DELETE FROM nodes WHERE file_id = (SELECT id FROM files WHERE path = ?)`, path); err != nil {
+		return err
+	}
+	if _, err := t.tx.ExecContext(ctx,
+		`DELETE FROM imports WHERE file_id = (SELECT id FROM files WHERE path = ?)`, path); err != nil {
 		return err
 	}
 	_, err := t.tx.ExecContext(ctx, `DELETE FROM files WHERE path = ?`, path)

@@ -5,7 +5,7 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **spec locked, no code yet.** This document is the contract for v1.
+Status: **M0–M3 landed.** This document is the contract for v1.
 Scope changes require editing the decision table, not just the code.
 
 ---
@@ -108,7 +108,11 @@ CREATE INDEX nodes_qn  ON nodes (qname);
 CREATE INDEX nodes_loc ON nodes (file_id, start_line);
 
 -- unresolved names, re-linked when a new export appears nearby
-CREATE TABLE pending (name TEXT, file_id INT, kind TEXT, line INT);
+CREATE TABLE pending (name TEXT, file_id INT, kind TEXT, form TEXT, line INT);
+
+-- import bindings are resolution inputs, not edges: they let a later run
+-- follow package/__init__.py and compat re-exports without re-parsing files
+CREATE TABLE imports (file_id INT, local TEXT, imported TEXT, source TEXT, line INT);
 ```
 
 **Node kinds:** `function, method, class, struct, trait, interface, type, enum, const`.
@@ -199,8 +203,10 @@ Per-language rules that must exist before that language ships:
   functions assigned to `const`, class methods, interface/type declarations,
   `tsconfig` `paths` aliases (`@/*`), CommonJS `require`, dynamic `import()`.
 - **Python:** absolute and relative imports (`from . import x`, `from ..pkg`),
-  `__init__.py` re-exports, decorators recorded as reference edges, class
-  methods, `if __name__ == "__main__"` as an entrypoint marker.
+  module and `__init__.py` re-exports (including stdlib shims such as
+  `requests.compat`), decorators recorded as reference edges, class and
+  classmethod receivers, `self`/`cls` calls, and `Constructor()` receiver typing.
+  The `if __name__ == "__main__"` marker is deferred with entrypoints (§15).
 - **Rust:** `mod` tree, `use` with braces/globs/aliases, inherent vs trait
   `impl` blocks (methods keyed by receiver type), `pub` visibility, trait
   method dispatch ambiguity, and explicit blind spots around macro bodies.
@@ -348,7 +354,7 @@ internal/
   mcp/        stdio JSON-RPC server, tool schemas
   output/     text renderer, JSON envelope, token budgeting
 skills/repath/SKILL.md       agent instructions for the CLI
-testdata/fixtures/{ts,py,rs}/{src,expected.edges.yaml}
+testdata/fixtures/{ts,py,rs}/{src,expected.json}
 docs/         schema.md, resolution.md, mcp.md, sharing.md
 ```
 
@@ -399,12 +405,26 @@ instead of name guessing: the false `BinaryHeap.push` hub (219 callers) vanished
 excalidraw's `CALLS` fell 6,447 → 3,976, and the real hubs (`t`,
 `isArrowElement`) rose to the top.
 
+**M3 landed** (Python): absolute/relative module resolution (root, `src/`,
+`lib/`), `__init__.py` and ordinary-module re-exports through a persisted
+`imports` table (schema v3), `self`/`cls` calls, class and classmethod receivers,
+constructor-style receiver typing, decorator references, and Python class bases.
+The fixture gate is 31/31 edges at precision 1.00 / recall 1.00 with 1 genuine
+unresolved callback parameter, above the 0.88/0.80 milestone gate (not loosened).
+On `psf/requests` @ `3c7baaa`: 37 files, 787 nodes, 0 parse failures, 707
+`CALLS` + 283 `REFERENCES` + 41 `EXTENDS` in 81 ms; 543 references stay
+unresolved, dominated by untyped member calls (`get`, `send`, `append`, `json`)
+and inheritance (`Session.should_strip_auth`), the documented ceiling. A 1-file
+incremental edit is 27 ms; node ids are now stable across re-index, so a no-op
+edit leaves the edge set and unresolved count unchanged.
+
 ## 13. Evaluation harness
 
-- `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language
-  (~50 files, ~150 edges each), with `expected.edges.yaml` hand-labeled by kind.
-- `go test ./... -run Eval` computes precision/recall per edge kind at the
-  default confidence, plus unresolved rate; CI fails on regression.
+- `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
+  with `expected.json` hand-labeled by kind.
+- `go test ./internal/eval` computes precision/recall at the default confidence
+  plus the unresolved count; CI fails on regression. Per-language gates live in
+  the test table, so adding a language cannot silently lower an existing gate.
 - A `make bench` target indexes a pinned mid-size OSS repo per language and
   prints the table from §10.
 - Ambient check (not a gate): run `impact` on 20 random symbols in a real repo
@@ -462,4 +482,5 @@ team artifact sharing, diagnostics scope. Output: the 22 decisions in §3.
 
 ---
 
-Next action: **M0** — scaffold module, schema, discovery, TS extraction, `status`.
+Next action: **M4** — Rust (`mod` tree, `use` braces/globs/aliases, impl/trait
+method keys, macro blind spots) at R ≥ 0.70.
