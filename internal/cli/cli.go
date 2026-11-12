@@ -34,6 +34,7 @@ Usage:
                  [--sarif FILE|DIR ...]
   repath adapter --scip FILE [--root DIR] [--json]
   repath mcp     [--root DIR]
+  repath serve   [--addr 127.0.0.1:0] [--root DIR]
   repath version
 
 Commands:
@@ -51,6 +52,7 @@ Commands:
            (opt-in --sarif adds compiler/linter diagnostics; repath never runs one)
   adapter  merge compiler facts (SCIP) into unresolved references
   mcp      stdio JSON-RPC server for MCP clients (six answer tools)
+  serve    read-only HTTP answers for dashboards and shell-less clients
   version  print the build version
 
 Exit codes:
@@ -99,6 +101,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return checkCmd(args[1:], stdout, stderr)
 	case "adapter":
 		return adapterCmd(args[1:], stdout, stderr)
+	case "serve":
+		return serveCmd(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n%s", args[0], usage)
 		return 2
@@ -122,6 +126,7 @@ type options struct {
 	sarif         []string
 	diff          bool
 	diffBase      string
+	addr          string
 	failOn        string
 	maxFindings   int
 }
@@ -186,6 +191,14 @@ func parseOptions(args []string) (options, []string, error) {
 			o.scip = args[i]
 		case strings.HasPrefix(arg, "--scip="):
 			o.scip = strings.TrimPrefix(arg, "--scip=")
+		case arg == "--addr":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--addr needs host:port")
+			}
+			i++
+			o.addr = args[i]
+		case strings.HasPrefix(arg, "--addr="):
+			o.addr = strings.TrimPrefix(arg, "--addr=")
 		case arg == "--sarif":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--sarif needs a SARIF file or directory")

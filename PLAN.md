@@ -1,7 +1,8 @@
 # repath — plan v1
 
 > **Structural answers, not graph edges.**
-> One static binary, zero config, no LLM, no server. Ask what breaks, how two
+> One static binary, zero config, no LLM, no daemon; an optional read-only
+> HTTP `repath serve` exists for shell-less clients. Ask what breaks, how two
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
@@ -207,7 +208,8 @@ not after, M4.
   annotation, or an exit code for a gate.
 - **Never** a shared mutable DB: SQLite locking over network filesystems
   corrupts, there is exactly one writer, and every developer's dirty state
-  differs. A read-only `repath serve` (HTTP) is a v1.2 candidate, not v1.
+  differs. A read-only `repath serve` (HTTP) is the v1.2 surface; it opens the
+  same file `mode=ro`, never a second writer.
 
 ## 5. Resolution and confidence
 
@@ -260,6 +262,7 @@ repath map    [--max-tokens 2000] [--json]
 repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
               [--max-findings 200] [--sarif FILE|DIR ...] [--json]
 repath adapter --scip FILE [--json]
+repath serve  [--addr 127.0.0.1:0] [--root DIR]
 ```
 
 Symbol references accept `qname`, `name`, `file:line`, or `file:name`.
@@ -413,6 +416,7 @@ internal/
   adapter/    compiler facts (SCIP) merged into pending references
   artifact/   pack/pull commit-keyed snapshots, manifest, schema gate
   mcp/        stdio JSON-RPC server, tool schemas
+  serve/      read-only HTTP answers over the shared query/output layer
   output/     text renderer, JSON envelope, token budgeting
 skills/repath/SKILL.md       agent instructions for the CLI
 testdata/fixtures/{ts,py,rs}/{src,expected.json}
@@ -660,6 +664,16 @@ web/TUI was not automated, so modern/GUI verification remains the
 `@modelcontextprotocol/client` 2.4.0 probe. The six-tool surface, envelope, and
 dependency set are unchanged. See `docs/mcp.md`.
 
+**v1.2 read-only HTTP server landed** (issue #32): `repath serve --addr
+127.0.0.1:0` exposes `GET /find`, `/impact`, `/path`, `/callers`, `/map`, and
+`/status` with the same envelope, confidence, truncation, and provenance as
+MCP. It opens `<root>/.repath/index.db` through `store.OpenReadOnly` (SQLite
+`mode=ro` + `query_only`), never indexes/migrates/writes, refuses a missing
+index with exit `3`, and does not refresh `/status`. Loopback is the default;
+a wider bind prints a warning and has no auth/TLS. `flows`/`tests` do not join
+the surface (they are not MCP tools either). No new dependency — stdlib
+`net/http` only. See `docs/serve.md`.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -691,7 +705,8 @@ dependency set are unchanged. See `docs/mcp.md`.
 ## 15. Non-goals for v1
 
 Runtime/model edges (routes, DB tables, env, queues) · test coverage
-collection · embeddings or any LLM in index or query · watch daemon · local HTTP server ·
+collection · embeddings or any LLM in index or query · watch daemon · a mutable
+HTTP server or UI (the read-only `repath serve` landed in v1.2, §16.8) ·
 multi-repo · FFI/cross-language edges · UI/TUI/HTML · C/C++/Java/Go parsers ·
 config file. **Impact is structural, not test-aware**, and `repath tests` is structural
 reachability rather than runtime coverage. That remains the known ceiling.
@@ -718,7 +733,9 @@ reachability rather than runtime coverage. That remains the known ceiling.
    Python landed in v1.2 under the separate `scip-python` adapter name. LSP and
    Rust adapters are still deferred. See `docs/adapters.md`.
 7. Cross-language edges (TS `fetch` → route → Python handler, OpenAPI, gRPC).
-8. `repath serve` read-only HTTP for dashboards and shell-less clients.
+8. `repath serve` (v1.2, landed): read-only HTTP GET answers for the same six
+   surfaces as MCP, over stdlib `net/http`, loopback by default, no writes. See
+   `docs/serve.md`. A UI and mutations remain non-goals.
 9. Watch mode / LSP server for editors.
 10. Distribution: goreleaser, Homebrew, `go install`, GitHub Action.
 

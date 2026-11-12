@@ -2,7 +2,8 @@
 
 repath turns a repository into a confidence-tagged symbol graph and answers
 structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
-humans and coding agents. One static binary, SQLite, no LLM, no server.
+humans and coding agents. One static binary, SQLite, no LLM, no daemon; the
+optional read-only `repath serve` is the only HTTP surface.
 
 **Current state: M5 + v1.1 `check`, SCIP adapter, entrypoint flows, test-impact mapping, dual-era MCP, and opt-in artifact compression.**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
@@ -43,6 +44,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath callers <symbol>              # one-hop reverse edges
 ./bin/repath impact x --min-confidence 0.9 # import/this/local edges only
 ./bin/repath mcp                           # stdio JSON-RPC, six tools
+./bin/repath serve --addr 127.0.0.1:0      # read-only HTTP, six answers
 ./bin/repath index --artifact out/         # export an artifact + manifest
 ./bin/repath index --artifact out/ --compress # zstd artifact (opt-in)
 ./bin/repath pull out/                     # seed the local index from one
@@ -77,6 +79,7 @@ internal/graph    impact / path / map / flows walkers over store queries
 internal/query    shared answer layer: open, resolve, six answers, status
 internal/output   the MCP envelope and provenance cap
 internal/mcp      hand-rolled stdio JSON-RPC adapter
+internal/serve    read-only HTTP handlers over query/output
 internal/artifact export/pull, manifest, schema gate
 internal/check    cycles, dead code, boundaries, hotspots, unresolved rate, SARIF
 internal/adapter  SCIP fact ingestion and non-overwriting edge merge
@@ -86,7 +89,8 @@ internal/eval     fixture gate (test-only)
 
 `cli → index → {lang, resolve, store}`, `cli → query → {index, graph, store}`,
 `cli → check → {graph, store}`, `cli → adapter → {store, index}`,
-`mcp → query`, `artifact → {index, store}`.
+`mcp → query`, `cli → serve → {query, output, store}`,
+`artifact → {index, store}`.
 Nothing in `store` knows about languages or parsing; nothing in `lang` touches
 the database.
 
@@ -220,6 +224,13 @@ the database.
   `rs.main` to existing symbols. Do not turn them into a node kind or let
   framework detection change node identity. `flows` follows forward edges only
   at the confidence floor; it is structural, not a runtime trace.
+- **`serve` is read-only and six answers.** `repath serve` opens the existing
+  index through `store.OpenReadOnly` (SQLite `mode=ro` + `query_only`), never
+  indexes/migrates/writes, and refuses a missing index with exit `3`. It
+  exposes only `/find`, `/impact`, `/path`, `/callers`, `/map`, `/status` — no
+  `flows`/`tests` endpoint, no mutation, no artifact route. `/status` does not
+  refresh; staleness is reported. Loopback is the default; a wider `--addr` is
+  unauthenticated and warns. Do not add a UI, auth, or a seventh answer.
 - **MCP is dual-era and stays six tools.** Legacy `initialize` is retained at
   2024-11-05. Modern requests carry `_meta` protocol version; `server/discover`
   advertises 2026-07-28, unsupported versions return `-32022`, and cacheable
