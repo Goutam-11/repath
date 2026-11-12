@@ -98,7 +98,7 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 		}
 		return result.Modules[i].Name < result.Modules[j].Name
 	})
-	result.Cycles = cycles(moduleDeps)
+	result.Cycles = Cycles(moduleDeps)
 
 	// Symbol section: ranked, trimmed to what the budget allows.
 	ranked := make([]Ranked, 0, len(nodes))
@@ -178,9 +178,10 @@ func pageRank(nodes []store.NodeRow, edges []store.EdgeOut) (map[int64]float64, 
 	return ranks, callers
 }
 
-// cycles returns strongly connected components with more than one module, plus
-// self-loops, using Tarjan's algorithm.
-func cycles(deps map[string]map[string]bool) [][]string {
+// Cycles returns strongly connected components with more than one module, plus
+// self-loops, using Tarjan's algorithm. Components and their members are sorted
+// so callers can use the result as deterministic evidence.
+func Cycles(deps map[string]map[string]bool) [][]string {
 	index := map[string]int{}
 	low := map[string]int{}
 	onStack := map[string]bool{}
