@@ -30,6 +30,7 @@ Usage:
   repath flows   <entrypoint> [--depth N] [--limit N] [--json]
   repath check   [--root DIR] [--json] [--min-confidence N]
                  [--fail-on none|error|warning|info] [--max-findings N]
+                 [--sarif FILE|DIR ...]
   repath adapter --scip FILE [--root DIR] [--json]
   repath mcp     [--root DIR]
   repath version
@@ -46,6 +47,7 @@ Commands:
   map      ranked overview: modules, cycles, hot symbols
   flows    forward execution paths from a detected entrypoint
   check    graph-native checks: cycles, dead code, boundaries, hotspots
+           (opt-in --sarif adds compiler/linter diagnostics; repath never runs one)
   adapter  merge compiler facts (SCIP) into unresolved references
   mcp      stdio JSON-RPC server for MCP clients (six answer tools)
   version  print the build version
@@ -116,6 +118,7 @@ type options struct {
 	artifact      string
 	compress      bool
 	scip          string
+	sarif         []string
 	failOn        string
 	maxFindings   int
 }
@@ -180,6 +183,14 @@ func parseOptions(args []string) (options, []string, error) {
 			o.scip = args[i]
 		case strings.HasPrefix(arg, "--scip="):
 			o.scip = strings.TrimPrefix(arg, "--scip=")
+		case arg == "--sarif":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--sarif needs a SARIF file or directory")
+			}
+			i++
+			o.sarif = append(o.sarif, args[i])
+		case strings.HasPrefix(arg, "--sarif="):
+			o.sarif = append(o.sarif, strings.TrimPrefix(arg, "--sarif="))
 		case arg == "--fail-on":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--fail-on needs none, error, warning, or info")

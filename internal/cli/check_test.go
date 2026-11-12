@@ -2,11 +2,41 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Goutam-11/repath/internal/check"
 )
+
+func copySARIFFixture(t *testing.T, name string) string {
+	t.Helper()
+	src := filepath.Join("..", "..", "testdata", "fixtures", "sarif", name)
+	dst := t.TempDir()
+	err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
+	return dst
+}
 
 func TestCheckCycleIsWarningAndGated(t *testing.T) {
 	dir := t.TempDir()
@@ -102,5 +132,179 @@ func TestCheckRejectsBadArguments(t *testing.T) {
 		if code != 2 {
 			t.Fatalf("%v exit = %d, want 2 (stderr %q)", args, code, errOut)
 		}
+	}
+}
+
+func TestCheckSARIFDiagnostics(t *testing.T) {
+	dir := copySARIFFixture(t, "ts")
+	sarifPath := filepath.Join(dir, "tsc.sarif")
+
+	code, out, errOut := run(t, "check", "--root", dir, "--sarif", sarifPath, "--json")
+	if code != check.ExitFindings {
+		t.Fatalf("check --sarif exit = %d, want %d\nstderr: %s", code, check.ExitFindings, errOut)
+	}
+	var report check.Report
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("check output is not JSON: %v\n%s", err, out)
+	}
+	if report.Diagnostics == nil {
+		t.Fatal("diagnostics summary is missing")
+	}
+	if report.Diagnostics.Results != 5 || report.Diagnostics.Attached != 3 ||
+		report.Diagnostics.Skipped != 1 || report.Diagnostics.Duplicates != 1 {
+		t.Fatalf("diagnostics = %+v", report.Diagnostics)
+	}
+	byRule := map[string]check.Finding{}
+	for _, finding := range report.Findings {
+		if finding.Kind == "diagnostic" {
+			byRule[finding.Rule] = finding
+		}
+	}
+	if len(byRule) != 3 {
+		t.Fatalf("diagnostic findings = %d, want 3: %+v", len(byRule), report.Findings)
+	}
+	if f, ok := byRule["sarif.tsc.TS2322"]; !ok || f.QName != "Cart.total" || f.Severity != "error" {
+		t.Fatalf("TS2322 finding = %+v (all %+v)", f, byRule)
+	}
+	if f, ok := byRule["sarif.tsc.TS2532"]; !ok || f.QName != "run" || f.Severity != "warning" {
+		t.Fatalf("TS2532 finding = %+v", f)
+	}
+	if f, ok := byRule["sarif.tsc.TS6133"]; !ok || f.Severity != "info" {
+		t.Fatalf("TS6133 finding = %+v", f)
+	}
+
+	code, _, _ = run(t, "check", "--root", dir, "--sarif", sarifPath, "--fail-on", "none", "--json")
+	if code != 0 {
+		t.Fatalf("--fail-on none exit = %d, want 0", code)
+	}
+	code, _, _ = run(t, "check", "--root", dir, "--sarif", sarifPath, "--fail-on", "warning", "--json")
+	if code != check.ExitFindings {
+		t.Fatalf("--fail-on warning exit = %d, want %d", code, check.ExitFindings)
+	}
+
+	code, out, _ = run(t, "check", "--root", dir, "--sarif", sarifPath)
+	if code != check.ExitFindings {
+		t.Fatalf("text check exit = %d, want %d\n%s", code, check.ExitFindings, out)
+	}
+	if !strings.Contains(out, "SARIF: 1 source(s) · 5 results · 3 attached · 1 skipped · 1 duplicate(s)") {
+		t.Fatalf("text output missing the SARIF summary:\n%s", out)
+	}
+	if !strings.Contains(out, "diagnostic") || !strings.Contains(out, "Cart.total") {
+		t.Fatalf("text output missing a diagnostic finding:\n%s", out)
+	}
+}
+
+func TestCheckWithoutSARIFIsUnchanged(t *testing.T) {
+	dir := copySARIFFixture(t, "ts")
+
+	code, out, errOut := run(t, "check", "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("structural-only check exit = %d, want 0\nstderr: %s\n%s", code, errOut, out)
+	}
+	if strings.Contains(out, `"diagnostics"`) || strings.Contains(out, `"kind":"diagnostic"`) {
+		t.Fatalf("structural-only output gained SARIF fields:\n%s", out)
+	}
+	var report check.Report
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Diagnostics != nil {
+		t.Fatalf("diagnostics = %+v, want nil", report.Diagnostics)
+	}
+}
+
+func TestCheckSARIFErrorsAreClean(t *testing.T) {
+	dir := copySARIFFixture(t, "ts")
+
+	code, _, errOut := run(t, "check", "--root", dir, "--sarif", filepath.Join(dir, "missing.sarif"))
+	if code != 3 || !strings.Contains(errOut, "not found") {
+		t.Fatalf("missing SARIF exit = %d, stderr = %q; want 3 and a not-found message", code, errOut)
+	}
+
+	bad := filepath.Join(dir, "old.sarif")
+	if err := os.WriteFile(bad, []byte(`{"version":"2.0.0","runs":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errOut = run(t, "check", "--root", dir, "--sarif", bad)
+	if code != 2 || !strings.Contains(errOut, "only 2.1.0") {
+		t.Fatalf("bad-version SARIF exit = %d, stderr = %q; want 2 and a 2.1.0 message", code, errOut)
+	}
+
+	code, _, errOut = run(t, "check", "--root", dir, "--sarif")
+	if code != 2 || !strings.Contains(errOut, "--sarif needs") {
+		t.Fatalf("bare --sarif exit = %d, stderr = %q", code, errOut)
+	}
+}
+
+func TestCheckSARIFRepeatableAndDirectory(t *testing.T) {
+	dir := copySARIFFixture(t, "ts")
+	copyDirInto(t, filepath.Join("..", "..", "testdata", "fixtures", "sarif", "py", "app"), filepath.Join(dir, "app"))
+	for _, name := range []string{"tsc.sarif", "ruff.sarif"} {
+		src := filepath.Join("..", "..", "testdata", "fixtures", "sarif")
+		if name == "ruff.sarif" {
+			src = filepath.Join(src, "py")
+		} else {
+			src = filepath.Join(src, "ts")
+		}
+		data, err := os.ReadFile(filepath.Join(src, name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	code, out, errOut := run(t, "check", "--root", dir,
+		"--sarif", filepath.Join(dir, "tsc.sarif"),
+		"--sarif", filepath.Join(dir, "ruff.sarif"), "--json")
+	if code != check.ExitFindings {
+		t.Fatalf("repeatable --sarif exit = %d, want %d\nstderr: %s", code, check.ExitFindings, errOut)
+	}
+	var report check.Report
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Diagnostics == nil || report.Diagnostics.Sources != 2 ||
+		report.Diagnostics.Attached != 5 || report.Diagnostics.Skipped != 2 ||
+		report.Diagnostics.Duplicates != 1 {
+		t.Fatalf("combined diagnostics = %+v", report.Diagnostics)
+	}
+
+	code, out, errOut = run(t, "check", "--root", dir, "--sarif", dir, "--json")
+	if code != check.ExitFindings {
+		t.Fatalf("directory --sarif exit = %d, want %d\nstderr: %s", code, check.ExitFindings, errOut)
+	}
+	var directoryReport check.Report
+	if err := json.Unmarshal([]byte(out), &directoryReport); err != nil {
+		t.Fatal(err)
+	}
+	if directoryReport.Diagnostics == nil || directoryReport.Diagnostics.Sources != 2 {
+		t.Fatalf("directory diagnostics = %+v", directoryReport.Diagnostics)
+	}
+}
+
+func copyDirInto(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, 0o644)
+	})
+	if err != nil {
+		t.Fatalf("copy dir: %v", err)
 	}
 }
