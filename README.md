@@ -4,16 +4,19 @@ Structural answers about a codebase — *what breaks if I change this*, *how doe
 A reach B*, *where is the important code* — from one deterministic graph, for
 humans and for coding agents.
 
-**Status: pre-alpha (M3).** TypeScript/JS and Python definitions and relations
-are indexed, and `impact`, `path`, `find`, `callers`, and `map` answer structural
-questions from SQLite. Rust, MCP, and sharing are not built yet;
+**Status: pre-alpha (M4).** TypeScript/JS, Python, and Rust definitions and
+relations are indexed, and `impact`, `path`, `find`, `callers`, and `map` answer
+structural questions from SQLite. MCP and sharing are not built yet;
 [`PLAN.md`](PLAN.md) is the specification.
 
 ## Build
 
 Requires Go 1.27+ and a C toolchain: tree-sitter runs through cgo. Python
 (`.py`) resolves absolute and relative imports, package re-exports, class bases,
-decorators, and `self`/`classmethod`/typed-receiver calls.
+decorators, and `self`/`classmethod`/typed-receiver calls. Rust (`.rs`) resolves
+Cargo module trees, use trees and `pub use` re-exports, impl/trait methods,
+associated functions, and typed receivers; macro bodies are a documented blind
+spot. `status` reports `ambiguous` edges and their rate.
 
 ```sh
 make build
@@ -25,8 +28,9 @@ make build
 ./bin/repath find <symbol>             # symbol card: callers, callees
 ```
 
-Add `.repath/` to your own `.gitignore`. Languages today: TypeScript/JavaScript
-(`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`) and Python (`.py`).
+Add `.repath/` to your own `.gitignore`. Languages today:
+TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), Python
+(`.py`), and Rust (`.rs`).
 
 ## Shape
 
