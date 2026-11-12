@@ -14,7 +14,7 @@ import (
 
 // SchemaVersion is bumped whenever the schema below changes. A binary refuses
 // an index written by a newer version.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta    (key TEXT PRIMARY KEY, value TEXT);
@@ -64,6 +64,7 @@ CREATE INDEX IF NOT EXISTS edges_rev    ON edges (dst, kind, confidence);
 CREATE INDEX IF NOT EXISTS nodes_qn     ON nodes (qname);
 CREATE INDEX IF NOT EXISTS nodes_loc    ON nodes (file_id, start_line);
 CREATE INDEX IF NOT EXISTS pending_name ON pending (name);
+CREATE UNIQUE INDEX IF NOT EXISTS modules_root ON modules (root);
 `
 
 // Store is one index database.
@@ -73,13 +74,14 @@ type Store struct {
 
 // File is one row of the files table.
 type File struct {
-	Path    string
-	Lang    string
-	Size    int64
-	MTime   int64
-	Hash    string
-	ParseOK bool
-	Err     string
+	Path     string
+	Lang     string
+	ModuleID int64
+	Size     int64
+	MTime    int64
+	Hash     string
+	ParseOK  bool
+	Err      string
 }
 
 // Node is one symbol definition.
@@ -254,13 +256,14 @@ func (t *Tx) Rollback() error { return t.tx.Rollback() }
 // UpsertFile inserts or updates one file row and returns its id.
 func (t *Tx) UpsertFile(ctx context.Context, f File) (int64, error) {
 	row := t.tx.QueryRowContext(ctx, `
-		INSERT INTO files (path, lang, size, mtime, hash, parse_ok, err)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO files (path, lang, module_id, size, mtime, hash, parse_ok, err)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(path) DO UPDATE SET
-			lang = excluded.lang, size = excluded.size, mtime = excluded.mtime,
+			lang = excluded.lang, module_id = excluded.module_id,
+			size = excluded.size, mtime = excluded.mtime,
 			hash = excluded.hash, parse_ok = excluded.parse_ok, err = excluded.err
 		RETURNING id`,
-		f.Path, f.Lang, f.Size, f.MTime, f.Hash, boolInt(f.ParseOK), f.Err)
+		f.Path, f.Lang, f.ModuleID, f.Size, f.MTime, f.Hash, boolInt(f.ParseOK), f.Err)
 
 	var id int64
 	if err := row.Scan(&id); err != nil {
