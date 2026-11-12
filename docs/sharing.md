@@ -10,7 +10,7 @@ so artifacts are internal build products, not a public cache.
 
 ```
 <repo>/.repath/index.db                     working copy (WAL, gitignored)
-$GIT_COMMON_DIR/repath/commits/<sha>.db     shared across worktrees (M5 worktree PR)
+$GIT_COMMON_DIR/repath/commits/<sha>.db     shared across worktrees (docs/worktrees.md)
 out/repath-<sha>.sqlite + manifest.json     CI artifact, read-only
 ```
 
