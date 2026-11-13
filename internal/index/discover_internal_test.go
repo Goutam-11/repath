@@ -73,3 +73,29 @@ func TestListPathSetsSeparatesUntrackedAndSkipWorktree(t *testing.T) {
 		t.Fatalf("full paths = %+v, want skip-worktree b.ts", fullSeen)
 	}
 }
+
+func TestDiscoverInsideIgnoredSubdirFallsBackToWalk(t *testing.T) {
+	dir := t.TempDir()
+	gitExec(t, dir, "init", "-q")
+	gitExec(t, dir, "config", "user.email", "repath-test@example.com")
+	gitExec(t, dir, "config", "user.name", "repath test")
+	if err := os.WriteFile(filepath.Join(dir, ".gitignore"), []byte("ignored/\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitExec(t, dir, "add", ".gitignore")
+	gitExec(t, dir, "commit", "-q", "-m", "seed")
+	if err := os.MkdirAll(filepath.Join(dir, "ignored"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ignored", "a.ts"), []byte("export function a() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Discover(context.Background(), filepath.Join(dir, "ignored"))
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	if len(got) != 1 || got[0].Path != "a.ts" {
+		t.Fatalf("discover ignored root = %+v, want a.ts", got)
+	}
+}

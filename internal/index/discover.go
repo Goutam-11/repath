@@ -151,6 +151,13 @@ func listPathSets(ctx context.Context, root string, includeSkip bool) ([]string,
 		}
 		paths = append(paths, path)
 	}
+	if len(paths) == 0 {
+		// Git answers successfully with an empty list when root is itself an
+		// ignored directory or an empty work tree; walk so indexing an ignored
+		// root still sees its files.
+		walked, walkErr := walkPaths(root)
+		return walked, nil, walkErr
+	}
 	return paths, untracked, nil
 }
 
