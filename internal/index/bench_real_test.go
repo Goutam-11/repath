@@ -310,8 +310,9 @@ func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) 
 	// the docs quote. The full re-index cost is logged, not hidden.
 	if opts.scipPath != "" {
 		// Rebuild from an empty .repath so the adapter starts from the same
-		// cold graph the docs quote. A warm `--full` run is not equivalent: it
-		// skips the pending retry when the symbol set is unchanged.
+		// cold graph the docs quote. A warm `--full` run now reproduces the
+		// cold graph (#49), but the empty rebuild keeps the baseline
+		// independent of whatever ran before.
 		if err := st.Close(); err != nil {
 			t.Fatal(err)
 		}

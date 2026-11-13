@@ -762,7 +762,20 @@ No schema, node-kind, rule, fixture-gate, or Go-dependency change; `make perf`
 stayed green. The run exposed a warm/cold divergence (an incremental ten-file
 comment edit adds five Python and eight Rust `pending` refs through unloaded
 re-export chains, and a second `index --full` skips the retry); it is recorded
-in `docs/benchmarks.md` and tracked in issue #49, not papered over. See
+in `docs/benchmarks.md` and tracked in issue #49, not papered over.
+
+**Warm/cold parity landed** (issue #49): a ten-file comment edit and a second
+`index --full` now reproduce the cold graph on both #48 corpora exactly —
+`requests` **543 pending / 1,031 edges** and `rayon` **2,048 / 2,161**, with
+identical pending and edge row sets and no edge+pending pair (before: +5 and
++8 pending incrementally, 2,077 pending after a second full run). Python/Rust
+resolution now loads a re-export chain's import bindings lazily from the
+`imports_file` index (one read per file, bulk fallback after 256, error
+propagated before writes); TypeScript is not expanded, so the #43 Kibana
+incremental budget and its documented barrel gap are unchanged. No schema,
+node-kind, rule-id, fixture-gate, exit-code, or Go-dependency change; the #43
+git-aware change detection is untouched. Three regressions cover both shapes
+and the second full run in `internal/index/incremental_test.go`. See
 `docs/benchmarks.md`, `docs/adapters.md`, and the `bench-real-langs` target.
 
 ## 13. Evaluation harness

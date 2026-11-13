@@ -172,9 +172,9 @@ candidates.
   `PreparedRequest.copy -> CaseInsensitiveDict.copy`. Re-measured for #48 with
   the bench harness on the cold graph: the same 543 → 523, 18 edges, 20
   matched, 0 conflicts, 241 ms in-process. A comment-only ten-file incremental
-  adds five `urlparse` pending rows because a re-export chain through unchanged
-  `compat.py` is not loaded during incremental resolution; that warm/cold
-  divergence is tracked in issue #49 and in
+  now reproduces the cold graph (543 pending, 1,031 edges); before #49 it added
+  five `urlparse` pending rows because a re-export chain through unchanged
+  `compat.py` was not loaded during incremental resolution. See
   [`docs/benchmarks.md`](benchmarks.md).
 
 - **Rust fixture** (`testdata/fixtures/rs-adapter`, `rust-analyzer` 1.97.0):

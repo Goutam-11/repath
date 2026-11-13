@@ -159,9 +159,10 @@ though only the returned ~162 symbols need them. `map` now reads five columns
   Python path works and that no language-specific regression appears.
 - `scip-python` indexed `src/` and not `tests/`, so the Python adapter run
   cannot resolve references in test files; that is the producer's scope.
-- Warm re-indexes do not reproduce the cold graph for Python/Rust re-export
-  chains on these corpora; the measured cases are in the Finding below and
-  tracked in issue #49. The adapter before/after numbers use the cold graph.
+- Warm/cold parity after #49 is measured on the two small Python/Rust corpora
+  (identical pending and edge row sets), not on a large Python or Rust tree;
+  TypeScript barrel re-exports remain the documented gap. The adapter
+  before/after numbers still use the cold graph.
 - `check` stopped at the 200-finding cap; the findings were not audited for
   true/false positives.
 - Artifact pull into a dirty real checkout (overlay cost) was not measured.
@@ -312,10 +313,10 @@ separately rather than folded into library production. Representative edges
 include `Callback.callback -> Consumer.split_at`, `BytesProducer.fold_with ->
 Folder.consume_iter`, and `BlocksCallback.callback -> Producer.split_at`.
 
-### Finding: warm re-indexes do not reproduce the cold graph
+### Finding: warm re-indexes did not reproduce the cold graph (#49)
 
-This run surfaced a real inconsistency. It is recorded here and tracked in
-issue #49; it is not fixed in this evidence change.
+This run surfaced a real inconsistency, fixed by issue #49. The measurements
+below are the evidence that found it and are kept as measured.
 
 | Path | Cold | After ten-file incremental |
 | --- | --- | --- |
@@ -339,13 +340,38 @@ reported both resolved and unresolved.
 
 A second inconsistency: running `repath index --full` twice on `rayon` gives
 2,048 pending on the first (cold) run and **2,077** on the second, with edges
-unchanged. The pending retry is skipped when no symbol was added or removed and
-the run is not the initial one, so 29 refs that a cold run resolves stay
-pending; `--full` is not cold-equivalent. That is why the harness rebuilds
-`.repath/` before the adapter baseline. Both cases are in issue #49 with
-acceptance criteria. The #43 parity claim holds for the TypeScript Kibana tree
-(where barrel re-exports are a documented gap) but not for Python/Rust
-re-export chains.
+unchanged. The pending retry was skipped when no symbol was added or removed and
+the run was not the initial one, so 29 refs that a cold run resolves stayed
+pending; `--full` was not cold-equivalent. The #43 parity claim held for the
+TypeScript Kibana tree (where barrel re-exports are a documented gap) but not
+for Python/Rust re-export chains.
+
+**Fix (#49).** `resolve.Index` now loads the import bindings of a re-export
+chain's unchanged modules on first use (`importsOf`): one `imports_file`-indexed
+read per file, cached for the run, with one bulk read replacing the remaining
+lookups after 256 files, and the error checked before anything is written.
+TypeScript is deliberately not expanded, so the Kibana incremental path still
+reads only the changed files; barrel re-exports stay its documented gap. A
+`--full` run is now treated as a fresh run for the pending retry, so it
+completes the retry like a cold index instead of skipping it. Re-measured on the
+same pinned clones, a ten-file comment edit and a second `index --full` produce
+the cold graph exactly:
+
+| Path | Cold | Ten-file incremental | Second `index --full` |
+| --- | --- | --- | --- |
+| `requests` pending / edges | **543 / 1,031** | **543 / 1,031** | **543 / 1,031** |
+| `rayon` pending / edges | **2,048 / 2,161** | **2,048 / 2,161** | **2,048 / 2,161** |
+
+The pending row sets (name, path, line, kind, form) and edge row sets
+(src/dst, kind, rule, line, confidence) are identical to cold, and the
+`urlparse` and `broadcast`/`spawn_broadcast`/`spawn` refs no longer appear as
+both an edge and a pending row. The harness still rebuilds `.repath/` before the
+adapter baseline; after #49 that rebuild merely re-confirms the cold graph
+instead of working around a divergence. The regression tests are in
+`internal/index/incremental_test.go`
+(`TestIncrementalFollowsPythonReexportThroughUnchangedModule`,
+`TestIncrementalFollowsRustReexportThroughUnchangedModule`,
+`TestFullRunReproducesColdGraph`).
 
 ### Guards
 

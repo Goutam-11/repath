@@ -65,13 +65,161 @@ func openIndex(t *testing.T, root string) *store.Store {
 
 func runIndex(t *testing.T, root string) index.Result {
 	t.Helper()
+	return runIndexOptions(t, root, index.Options{})
+}
+
+func runIndexOptions(t *testing.T, root string, opts index.Options) index.Result {
+	t.Helper()
 	st := openIndex(t, root)
 	defer st.Close()
-	result, err := index.Run(context.Background(), st, root, index.Options{})
+	result, err := index.Run(context.Background(), st, root, opts)
 	if err != nil {
 		t.Fatalf("index run: %v", err)
 	}
 	return result
+}
+
+// TestIncrementalFollowsPythonReexportThroughUnchangedModule is the issue #49
+// regression: a comment-only edit re-indexes use.py, but the re-export chain
+// it resolves through (compat.py -> impl.py) belongs to unchanged modules. A
+// warm run must load their import bindings or the call becomes pending while
+// its cold edge survives, reporting the same reference as both resolved and
+// unresolved.
+func TestIncrementalFollowsPythonReexportThroughUnchangedModule(t *testing.T) {
+	dir := newGitRepo(t)
+	writeSource(t, dir, "impl.py", "def helper():\n    return 1\n")
+	writeSource(t, dir, "compat.py", "from impl import helper\n")
+	writeSource(t, dir, "use.py", "from compat import helper\n\ndef run():\n    return helper()\n")
+	commitAll(t, dir, "seed")
+
+	cold := runIndex(t, dir)
+	if cold.Unresolved != 0 {
+		t.Fatalf("cold unresolved = %d, want 0", cold.Unresolved)
+	}
+	if cold.Edges == 0 {
+		t.Fatal("cold index produced no edge through the re-export")
+	}
+
+	// Touch only the file that uses the chain; compat.py stays unchanged.
+	writeSource(t, dir, "use.py", "from compat import helper\n\ndef run():\n    return helper()\n# comment\n")
+	warm := runIndex(t, dir)
+	if warm.Indexed != 1 || warm.Unchanged != 2 {
+		t.Fatalf("warm run = indexed %d unchanged %d, want 1/2", warm.Indexed, warm.Unchanged)
+	}
+	if warm.Unresolved != cold.Unresolved {
+		t.Fatalf("warm unresolved = %d, want cold %d", warm.Unresolved, cold.Unresolved)
+	}
+	if warm.Edges != cold.Edges {
+		t.Fatalf("warm edges = %d, want cold %d", warm.Edges, cold.Edges)
+	}
+
+	st := openIndex(t, dir)
+	defer st.Close()
+	edges, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("edges: %v", err)
+	}
+	reexport := false
+	for _, edge := range edges {
+		if edge.Rule == "py.import.reexport" && edge.SrcQName == "run" && edge.DstQName == "helper" {
+			reexport = true
+		}
+	}
+	if !reexport {
+		t.Fatalf("warm graph lost the py.import.reexport edge: %+v", edges)
+	}
+	pending, err := st.CountPending(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 {
+		t.Fatalf("pending = %d, want 0 after the warm run", pending)
+	}
+}
+
+// TestIncrementalFollowsRustReexportThroughUnchangedModule is the Rust half of
+// the #49 regression. lib.rs and compat.rs re-export helper; only use_mod.rs is
+// re-indexed, so the chain crosses two untouched modules (the rayon shape).
+func TestIncrementalFollowsRustReexportThroughUnchangedModule(t *testing.T) {
+	dir := newGitRepo(t)
+	writeSource(t, dir, "Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
+	writeSource(t, dir, "src/imp.rs", "pub fn helper() -> i32 {\n    1\n}\n")
+	writeSource(t, dir, "src/compat.rs", "pub use crate::imp::helper;\n")
+	writeSource(t, dir, "src/lib.rs", "mod imp;\nmod compat;\nmod use_mod;\n\npub use self::compat::helper;\n")
+	writeSource(t, dir, "src/use_mod.rs", "use crate::helper;\n\npub fn run() -> i32 {\n    helper()\n}\n")
+	commitAll(t, dir, "seed")
+
+	cold := runIndex(t, dir)
+	if cold.Unresolved != 0 {
+		t.Fatalf("cold unresolved = %d, want 0", cold.Unresolved)
+	}
+
+	writeSource(t, dir, "src/use_mod.rs", "use crate::helper;\n\npub fn run() -> i32 {\n    helper()\n}\n// comment\n")
+	warm := runIndex(t, dir)
+	if warm.Indexed != 1 || warm.Unchanged != 3 {
+		t.Fatalf("warm run = indexed %d unchanged %d, want 1/3", warm.Indexed, warm.Unchanged)
+	}
+	if warm.Unresolved != cold.Unresolved {
+		t.Fatalf("warm unresolved = %d, want cold %d", warm.Unresolved, cold.Unresolved)
+	}
+	if warm.Edges != cold.Edges {
+		t.Fatalf("warm edges = %d, want cold %d", warm.Edges, cold.Edges)
+	}
+
+	st := openIndex(t, dir)
+	defer st.Close()
+	edges, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("edges: %v", err)
+	}
+	reexport := false
+	for _, edge := range edges {
+		if edge.Rule == "rs.use.reexport" && edge.SrcQName == "run" && edge.DstQName == "helper" {
+			reexport = true
+		}
+	}
+	if !reexport {
+		t.Fatalf("warm graph lost the rs.use.reexport edge: %+v", edges)
+	}
+	pending, err := st.CountPending(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 {
+		t.Fatalf("pending = %d, want 0 after the warm run", pending)
+	}
+}
+
+// TestFullRunReproducesColdGraph is the second #49 regression: a --full run
+// re-resolves every file, so it must complete the pending retry exactly like a
+// cold run. Before the fix a second full index on rayon left 2,077 pending
+// against cold's 2,048 because the retry was skipped when the symbol set was
+// unchanged.
+func TestFullRunReproducesColdGraph(t *testing.T) {
+	dir := newGitRepo(t)
+	writeSource(t, dir, "defs.ts", "export function helper() { return 1; }\n")
+	// The import target exists but does not export helper, so tree-sitter
+	// leaves the call pending; the unique global name can still be linked by
+	// the retry pass.
+	writeSource(t, dir, "empty.ts", "export const marker = 1;\n")
+	writeSource(t, dir, "use.ts", "import { helper } from './empty';\nexport function run() { return helper(); }\n")
+	commitAll(t, dir, "seed")
+
+	cold := runIndex(t, dir)
+	if cold.Unresolved != 0 {
+		t.Fatalf("cold unresolved = %d, want 0", cold.Unresolved)
+	}
+
+	full := runIndexOptions(t, dir, index.Options{Full: true})
+	if full.Indexed != 3 {
+		t.Fatalf("full run indexed %d, want 3", full.Indexed)
+	}
+	if full.Unresolved != cold.Unresolved {
+		t.Fatalf("full run unresolved = %d, want cold %d", full.Unresolved, cold.Unresolved)
+	}
+	if full.Edges != cold.Edges {
+		t.Fatalf("full run edges = %d, want cold %d", full.Edges, cold.Edges)
+	}
 }
 
 func TestIncrementalUsesGitChangeSet(t *testing.T) {

@@ -224,7 +224,7 @@ func (ix *Index) rustExport(fileID int64, name string, seen map[int64]bool) (sto
 
 	fromPath := ix.paths[fileID]
 	external := false
-	for _, imp := range ix.imports[fileID] {
+	for _, imp := range ix.importsOf(fileID) {
 		if !imp.Public || imp.Local != name || imp.Imported == "*" {
 			continue
 		}
@@ -268,7 +268,7 @@ func (ix *Index) resolveRust(fromFile int64, fromPath string, ref facts.Ref) Res
 		return Resolution{External: true}
 	}
 
-	imports := ix.imports[fromFile]
+	imports := ix.importsOf(fromFile)
 
 	if ref.Form == "this" {
 		enclosingType := classOf(ref.Enclosing)
@@ -361,7 +361,7 @@ func (ix *Index) rustByImport(fromFile int64, fromPath string, binding facts.Imp
 }
 
 func (ix *Index) rustByStar(fromFile int64, fromPath string, ref facts.Ref) (Resolution, bool) {
-	for _, binding := range ix.imports[fromFile] {
+	for _, binding := range ix.importsOf(fromFile) {
 		if binding.Local != "*" || binding.Source == "" {
 			continue
 		}
