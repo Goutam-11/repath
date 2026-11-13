@@ -42,7 +42,24 @@ type Index struct {
 	imports map[int64]map[string]facts.Import
 	crates  []string
 	aliases *Aliases
+
+	// A targeted run loads imports only for the files it re-resolves. Python
+	// and Rust resolution follows re-export chains through unchanged modules,
+	// so the remaining bindings are loaded lazily, at most once per file, from
+	// the imports_file index. TypeScript never reads another file's bindings,
+	// so its incremental path stays targeted for the Kibana budget.
+	ctx      context.Context
+	store    *store.Store
+	loads    int
+	allLoads bool
+	loadErr  error
 }
+
+// lazyImportBulkThreshold bounds the per-file reads a warm run does before one
+// bulk read replaces them. The closure a ten-file edit reaches is normally far
+// smaller; the cap keeps a pathological chain from issuing thousands of small
+// queries.
+const lazyImportBulkThreshold = 256
 
 // importsAllThreshold decides when a targeted import read is not worth the
 // extra query: a full scan loads 305k rows on the real tree, while the
@@ -85,6 +102,12 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 		imports: make(map[int64]map[string]facts.Import),
 		crates:  loadRustCrates(root, paths),
 		aliases: LoadAliases(root),
+		ctx:     ctx,
+	}
+	// Only a targeted import read leaves files unloaded; when every binding is
+	// already in memory the lazy loader has nothing to do.
+	if importsFor != nil && len(importsFor) <= importsAllThreshold {
+		ix.store = st
 	}
 
 	for id, p := range paths {
@@ -115,16 +138,81 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 		}
 	}
 	for _, imp := range imports {
-		if ix.imports[imp.FileID] == nil {
-			ix.imports[imp.FileID] = make(map[string]facts.Import)
-		}
-		ix.imports[imp.FileID][imp.Local] = facts.Import{
-			Local: imp.Local, Imported: imp.Imported, Source: imp.Source,
-			Line: imp.Line, Public: imp.Public,
-		}
+		ix.addImport(imp)
 	}
 	return ix, nil
 }
+
+// addImport stores one binding in the local-name map.
+func (ix *Index) addImport(imp store.ImportRow) {
+	if ix.imports[imp.FileID] == nil {
+		ix.imports[imp.FileID] = make(map[string]facts.Import)
+	}
+	ix.imports[imp.FileID][imp.Local] = facts.Import{
+		Local: imp.Local, Imported: imp.Imported, Source: imp.Source,
+		Line: imp.Line, Public: imp.Public,
+	}
+}
+
+// importsOf returns a file's bindings, loading them on first use. A warm run
+// preloads the files it re-resolves, but a re-export chain continues through
+// modules it did not touch: without their bindings the chain stops at a module
+// boundary and a reference the cold graph classified becomes pending. Each file
+// is read at most once, so the extra work is proportional to the chain actually
+// walked, not to the tree; after lazyImportBulkThreshold files one full read
+// replaces the remaining lookups. The load error is reported through Err so the
+// caller can abort before writing a partial result.
+func (ix *Index) importsOf(fileID int64) map[string]facts.Import {
+	if imports, ok := ix.imports[fileID]; ok {
+		return imports
+	}
+	if ix.store == nil || ix.loadErr != nil {
+		return nil
+	}
+	if ix.allLoads {
+		return nil
+	}
+	if ix.loads >= lazyImportBulkThreshold {
+		ix.loadAllImports()
+		return ix.imports[fileID]
+	}
+	rows, err := ix.store.ImportsByFiles(ix.ctx, []int64{fileID})
+	if err != nil {
+		ix.loadErr = err
+		return nil
+	}
+	ix.loads++
+	if len(rows) == 0 {
+		// Cache the empty answer so a second lookup does not re-read.
+		ix.imports[fileID] = map[string]facts.Import{}
+		return ix.imports[fileID]
+	}
+	for _, imp := range rows {
+		ix.addImport(imp)
+	}
+	return ix.imports[fileID]
+}
+
+// loadAllImports is the bounded fallback: one query instead of an unbounded
+// number of per-file reads.
+func (ix *Index) loadAllImports() {
+	if ix.allLoads || ix.loadErr != nil {
+		return
+	}
+	rows, err := ix.store.Imports(ix.ctx)
+	if err != nil {
+		ix.loadErr = err
+		return
+	}
+	for _, imp := range rows {
+		ix.addImport(imp)
+	}
+	ix.allLoads = true
+}
+
+// Err reports a failed lazy import read. Resolution returns empty results after
+// such a failure, so the caller must check before persisting the run.
+func (ix *Index) Err() error { return ix.loadErr }
 
 // Resolve returns where ref points. The file's own imports come from the index,
 // so a reference in an unchanged file still resolves after an incremental run.
@@ -210,7 +298,7 @@ func (ix *Index) resolvePython(fromFile int64, fromPath string, ref facts.Ref) R
 		return Resolution{External: true}
 	}
 
-	imports := ix.imports[fromFile]
+	imports := ix.importsOf(fromFile)
 
 	// 1. self.method() inside a class body.
 	if ref.Form == "this" {
@@ -335,7 +423,7 @@ func (ix *Index) pyByImport(fromPath string, binding facts.Import, ref facts.Ref
 // The imports map keeps the last binding for a local name, so the last star
 // import wins when several of them define it — the Python execution order.
 func (ix *Index) pyByStar(fromFile int64, fromPath string, ref facts.Ref) (Resolution, bool) {
-	for _, binding := range ix.imports[fromFile] {
+	for _, binding := range ix.importsOf(fromFile) {
 		if binding.Local != "*" {
 			continue
 		}
@@ -538,7 +626,7 @@ func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool) (store
 
 	fromPath := ix.paths[fileID]
 	external := false
-	for _, imp := range ix.imports[fileID] {
+	for _, imp := range ix.importsOf(fileID) {
 		if imp.Local != name || imp.Imported == "*" {
 			continue
 		}

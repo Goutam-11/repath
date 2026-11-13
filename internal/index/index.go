@@ -232,11 +232,15 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	}
 
 	if len(written) > 0 {
-		// The pending retry can only change the graph when the global name set
-		// changed (a symbol appeared or disappeared) or a file was deleted.
-		// A comment-only edit has nothing to retry, so skip the query entirely.
-		runRetry := initial || symbolChange.Added > 0 || symbolChange.Removed > 0 || res.Deleted > 0
-		if err := resolveChanges(ctx, st, root, written, initial, runRetry); err != nil {
+		// A cold run and a full re-index re-resolve every file from scratch, so
+		// their pending rows are fresh and the retry must include them. An
+		// incremental run only retries unchanged files: a changed file was just
+		// resolved against the complete symbol set. Treating --full like cold is
+		// what keeps a warm full index from drifting (2,077 vs 2,048 pending on
+		// rayon before #49).
+		fresh := initial || opts.Full
+		runRetry := fresh || symbolChange.Added > 0 || symbolChange.Removed > 0 || res.Deleted > 0
+		if err := resolveChanges(ctx, st, root, written, fresh, runRetry); err != nil {
 			return res, err
 		}
 	}
@@ -326,8 +330,10 @@ func enclosingIn(spans []store.NodeSpan, line int) (int64, bool) {
 // retries references that were waiting for a symbol to appear. Writes are
 // batched: the old path opened two transactions per file and scanned the
 // unindexed pending table by file_id once per file, which is why a cold index
-// spent four minutes in SQLite rather than parsing.
-func resolveChanges(ctx context.Context, st *store.Store, root string, written []*outcome, coldRun, runRetry bool) error {
+// spent four minutes in SQLite rather than parsing. freshRun marks a run that
+// re-resolved every file (initial or --full), so its own pending rows are
+// retried too.
+func resolveChanges(ctx context.Context, st *store.Store, root string, written []*outcome, freshRun, runRetry bool) error {
 	changed := make(map[int64]bool, len(written))
 	fileIDs := make([]int64, 0, len(written))
 	for _, o := range written {
@@ -388,6 +394,12 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		}
 	}
 
+	// A lazy import read that failed would leave part of the graph unresolved;
+	// abort before persisting a result that is not the cold answer.
+	if err := ix.Err(); err != nil {
+		return err
+	}
+
 	if err := st.ReplacePendingFiles(ctx, fileIDs, pending); err != nil {
 		return err
 	}
@@ -414,11 +426,11 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 	}
 	var matches []retryMatch
 	for _, p := range rows {
-		// A cold run has just written every file; its pending rows were not
-		// retried by any earlier run, so complete the retry now. That makes a
-		// cold index as complete as the next incremental run would have made
-		// it, instead of leaving 0.60-confidence edges for a later run.
-		if changed[p.FileID] && !coldRun {
+		// A cold or full run has just re-resolved every file; its pending rows
+		// were not retried by any earlier run, so complete the retry now. That
+		// makes it as complete as the next incremental run would have made it,
+		// instead of leaving 0.60-confidence edges for a later run.
+		if changed[p.FileID] && !freshRun {
 			continue
 		}
 		// A member reference has no import context here; retrying it by bare

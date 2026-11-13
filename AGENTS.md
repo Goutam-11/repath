@@ -229,14 +229,18 @@ the database.
   back to full discovery. The pending retry is a `pending_name`-indexed query
   over the resolver's unique names and is skipped when no symbol was added or
   removed; a cold run completes it so cold and warmed graphs agree for the #43
-  TypeScript tree. Two warm-path gaps remain, measured on the #48 corpora and
-  tracked in issue #49: incremental resolution loads import bindings only for
-  the changed files, so a re-export chain through an unchanged module adds
-  `pending` rows instead of being classified external (5 on `requests`, 8 on
-  `rayon`), and a second `index --full` skips the retry (2,048 → 2,077 pending
-  on `rayon`). Reproduce the cold graph with a fresh `.repath/` until #49 is
-  fixed. Edge and pending writes are multi-row statements, and the WAL is
-  checkpointed after a run. Keep those properties: reverting to per-file
+  TypeScript tree. Warm Python/Rust resolution lazily loads the import bindings
+  of a re-export chain's unchanged modules (`importsOf`, one `imports_file`
+  read per file, one bulk read after 256 files); TypeScript is deliberately not
+  expanded so the Kibana incremental path stays targeted, and barrel re-exports
+  remain its documented gap. A `--full` run also completes the pending retry,
+  like a cold run (#49). Measured parity on the #48 corpora: `requests` stays
+  **543 pending / 1,031 edges** and `rayon` **2,048 / 2,161** after a ten-file
+  comment edit and after a second `index --full`, with identical pending and
+  edge row sets and no edge+pending pair. Keep the lazy load error-checked and
+  bounded; do not expand TypeScript imports, and do not drop the retry from the
+  cold/full path. Edge and pending writes are multi-row statements, and the WAL
+  is checkpointed after a run. Keep those properties: reverting to per-file
   pending deletes or hashing every file brings back the #43 cold/incremental
   regressions.
 - **`make perf` is opt-in.** `TestPerf10k` and `TestPerf50k` skip without
