@@ -830,13 +830,18 @@ func (ix *Index) UniqueNames() []string {
 
 // ResolvePending retries a reference that was left pending by an earlier run,
 // when the import context is no longer available. The language comes from the
-// referring file, so Python names get Python rule ids.
+// referring file, so Python and Rust names get their own rule ids. Rust uses
+// the plain global ladder rather than byUniqueRust: a retry corrects the rule
+// id, not the edge kind, so a struct or enum target keeps its CALLS kind.
 func (ix *Index) ResolvePending(fileID int64, kind, name string) (Resolution, bool) {
 	ref := facts.Ref{Kind: kind, Name: name}
 	var r Resolution
-	if ix.language(fileID) == "python" {
+	switch ix.language(fileID) {
+	case "python":
 		r = ix.byUniquePython(ref, ix.global[name])
-	} else {
+	case "rust":
+		r = ix.byUnique(name, 0, ix.global[name], "rs.global")
+	default:
 		r = ix.byUnique(name, 0, ix.global[name], "ts.global")
 	}
 	if r.Found && len(r.Candidates) == 0 {
