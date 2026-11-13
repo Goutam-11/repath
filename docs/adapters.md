@@ -7,16 +7,18 @@ receiver type is known from an annotation, `new`, a constructor, or a parameter
 not walked, so a method inherited from a base stays unresolved. The adapter seam
 lets a compiler supply those facts without replacing the graph.
 
-Two adapters consume **SCIP**, the Sourcegraph Code Intelligence Protocol index:
+Three adapters consume **SCIP**, the Sourcegraph Code Intelligence Protocol index:
 
 | Producer | Documents | Adapter name | Rules |
 | --- | --- | --- | --- |
 | `scip-typescript` | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` | `scip` | `scip.ts.*` |
 | `scip-python` | `.py` | `scip-python` | `scip.py.*` |
+| `rust-analyzer scip` | `.rs` | `scip-rust` | `scip.rs.*` |
 
-repath does not bundle SCIP, TypeScript, Node, Python, or a language server: it
-parses the `.scip` protobuf itself and merges only the facts that tree-sitter
-could not resolve. Both producers are external tools, not Go dependencies.
+repath does not bundle SCIP, TypeScript, Node, Python, Rust, or a language
+server: it parses the `.scip` protobuf itself and merges only the facts that
+tree-sitter could not resolve. Every producer is an external tool, not a Go
+dependency.
 
 ## Setup
 
@@ -29,6 +31,9 @@ npx --yes --package=@sourcegraph/scip-typescript@0.6.2 \
 npx --yes --package=@sourcegraph/scip-python@0.6.8 \
   scip-python index --project-name myproject --output index.scip
 
+# Rust, from the crate/workspace root (rust-analyzer 1.97.0 measured here):
+rust-analyzer scip --output index.scip .
+
 # Build the normal graph first (or let the adapter refresh it):
 repath status --json
 repath adapter --scip index.scip --json
@@ -37,10 +42,11 @@ repath status --json          # adapters[] now carries the run's coverage
 
 `repath adapter` refreshes the index like `status` and `check`, then
 auto-detects the producer from the SCIP documents. A TypeScript index is stored
-under `adapter.scip`; a Python index is stored under `adapter.scip-python`, so
-`status.adapters[]` distinguishes the runs. A mixed index (both producers in one
-file) is applied per language and reports both entries; that shape is unusual
-because the producers normally run separately.
+under `adapter.scip`; Python under `adapter.scip-python`; Rust under
+`adapter.scip-rust`, so `status.adapters[]` distinguishes the runs. A mixed
+index (several producers in one file) is applied per language and reports one
+entry each; that shape is unusual because the producers normally run
+separately.
 
 If the SCIP file is rooted at a subproject (for example `src/tsconfig.json`),
 SCIP paths such as `charCode.ts` are matched to the repo's `src/charCode.ts` by
@@ -74,6 +80,10 @@ its own file/line. The merge is deliberately narrow:
 | `scip.py.call` | Python | a bare identifier call |
 | `scip.py.new` | Python | constructor-like reference (reserved: the Python extractor currently emits `call`) |
 | `scip.py.reference` | Python | any other pending reference |
+| `scip.rs.method` | Rust | a member/`self` call, including a generic-bound or trait-object method |
+| `scip.rs.call` | Rust | a bare identifier call |
+| `scip.rs.new` | Rust | constructor-like reference |
+| `scip.rs.reference` | Rust | any other pending reference |
 
 ## Merge rules and conflicts
 
@@ -112,6 +122,17 @@ candidates.
       "skipped": 6305,
       "unmatched": 945,
       "last_run": "2026-11-12T16:21:43Z"
+    },
+    {
+      "adapter": "scip-rust",
+      "definitions": 5200,
+      "references": 23264,
+      "matched": 114,
+      "edges": 74,
+      "conflicts": 1,
+      "skipped": 22640,
+      "unmatched": 4947,
+      "last_run": "2026-11-13T11:02:46Z"
     }
   ]
 }
@@ -150,9 +171,29 @@ candidates.
   `JSONDecodeError.__init__ -> RequestException.__init__`, and
   `PreparedRequest.copy -> CaseInsensitiveDict.copy`.
 
+- **Rust fixture** (`testdata/fixtures/rs-adapter`, `rust-analyzer` 1.97.0):
+  two generic-bound calls (`fn run_generic<T: Total>` and
+  `run_generic_again<T: Total>`) stay pending because repath does not model
+  `T: Trait`. `rust-analyzer scip` resolves both to `scip.rs.method` edges to
+  `Total.total`; unresolved **2 → 0**. The fixture's typed receivers
+  (`run_cart(Cart)`, `run_dyn(dyn Total)`) already resolve as
+  `rs.typed.method` and are left untouched. The gate is
+  `TestRustSCIPAdapterGate`.
+- **`serde-rs/json` @ `8c535a260ce561eaab4111aafc29038eb9f77ff3`** (72 indexed
+  files, 1,676 nodes, 596 pending): unresolved **596 → 482** (rate **37.34% →
+  30.98%**) with **74** new edges (**41** `scip.rs.method`, **31**
+  `scip.rs.call`, **2** `scip.rs.new`), **114** matched pending references,
+  **1** conflict, 0.31 s adapter wall time and 26 MiB peak RSS on a 2.9 MiB
+  SCIP file produced in 18.5 s by `rust-analyzer` 1.97.0. The new edges are
+  real generic-bound and test-helper calls such as `test_roundtrip_f64 →
+  from_str`, `test_malicious_number → to_value`, and
+  `error/impl#[Error][Error]custom()` targets. The single conflict is an edge
+  that another reference in the same file had already resolved; it keeps its
+  tree-sitter rule and is reported, never overwritten.
+
 The tree-sitter-only fixture gates in `internal/eval` are unchanged and were
-not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate` and
-`TestPythonSCIPAdapterGate`.
+not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
+`TestPythonSCIPAdapterGate`, and `TestRustSCIPAdapterGate`.
 
 ## Limits
 
@@ -160,6 +201,18 @@ not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate` and
   run it indexed `src/` (19 files) and not `tests/`, so pending references in
   test files cannot be resolved by this adapter run. That is the producer's
   scope, not a silent filter.
+- Rust documents are only those `rust-analyzer scip` emits from the
+  crate/workspace root. It includes test targets, so test-helper calls resolve
+  too; external crates and `std` symbols are not local definitions and stay
+  skipped. Producing the index needs a Rust toolchain and the crate's
+  dependencies available to `cargo metadata`, which is why the committed
+  fixture is pinned and CI never runs the producer.
+- Rust SCIP symbol strings are parsed by `rustSymbolName`: crate/module
+  descriptors (`crate/`, `models/`) and `local` bindings are skipped; types
+  (`Cart#`), terms (`run().`), enum variants (`Kind#A#`), fields
+  (`Cart#count.`), and impl members (`impl#[Cart][Total]total().`) reduce to
+  their display names. A new producer grammar may need a focused case; the
+  parser is intentionally narrow rather than a general SCIP name resolver.
 - SCIP must be produced externally. There is no embedded language server and no
   LSP transport yet.
 - Reference matching by file+line+name is weaker than a column-exact match.
