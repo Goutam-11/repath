@@ -10,7 +10,7 @@ and `map` answer structural questions from SQLite. `repath mcp` serves the same
 six answers over stdio JSON-RPC in both the legacy and 2026-07-28 eras, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
 teaches shell-capable agents the CLI. `index --artifact` exports a commit-keyed snapshot (with opt-in `--compress`), `pull` seeds it locally, parallel git worktrees warm from a shared
 immutable cache, `repath check` adds graph-native CI diagnostics, and
-`repath adapter --scip` merges TypeScript or Python compiler facts into unresolved references without
+`repath adapter --scip` merges TypeScript, Python, or Rust compiler facts into unresolved references without
 overwriting tree-sitter edges, and `repath flows` walks forward from detected
 entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`),
 and `repath tests` maps a change (or a git `--diff` set) to the test files that

@@ -7,7 +7,7 @@
 > confidence-tagged, as text for a human or JSON for an agent.
 
 Status: **M0–M5 plus v1.1 and the v1.2 wave landed** — `check` + opt-in SARIF,
-the TypeScript/Python SCIP adapters, entrypoint flows, test-impact mapping and
+the TypeScript/Python/Rust SCIP adapters, entrypoint flows, test-impact mapping and
 `--diff`, dual-era MCP, opt-in artifact compression, the read-only HTTP server,
 and GoReleaser-based distribution. This document is the contract for v1 and its
 v1.1/v1.2 slices.
@@ -142,9 +142,9 @@ Invariants:
   edges. No rollup rows exist in the database.
 - `confidence` ∈ `(0,1]`; `rule` is a stable id (`ts.import.named`,
   `rs.use.super`, `py.module.relative`, …) used by tests and by `status`.
-- Adapter facts add edges only: rules are prefixed `scip.ts.*` or `scip.py.*`,
-  stats live in `meta.adapter.<name>` (`scip`, `scip-python`), and no adapter
-  row is a node or a schema change.
+- Adapter facts add edges only: rules are prefixed `scip.ts.*`, `scip.py.*`, or
+  `scip.rs.*`, stats live in `meta.adapter.<name>` (`scip`, `scip-python`,
+  `scip-rust`), and no adapter row is a node or a schema change.
 - SARIF diagnostics are ingested per `check` run and attached to the enclosing
   symbol at read time (`sarif.<tool>.<rule>`); they are never persisted as
   nodes, edges, or a schema change (decision 22, amended in v1.2).
@@ -693,6 +693,25 @@ incremental 111 ms; 50k cold 9.34 s, incremental 571 ms, `map` p95 148 ms,
 RSS 290 MiB) and remains green. Evidence, variance, and the not-verified list
 are in `docs/benchmarks.md`; `make bench-real` stays opt-in and is not a gate.
 
+**v1.2 Rust SCIP adapter landed** (issue #44): the shared hand-rolled SCIP
+parser now accepts `rust-analyzer scip` documents under the distinct adapter
+name **`scip-rust`**, with `scip.rs.method`/`call`/`new`/`reference` rules at
+confidence `0.99`. Rust symbol strings get their own parser
+(`rustSymbolName`): crate/module descriptors and `local` bindings are skipped,
+while types (`Cart#`), terms (`run().`), enum variants (`Kind#A#`), fields, and
+impl members (`impl#[Cart][Total]total().`) reduce to display names. The merge
+policy is unchanged: only `pending` rows are candidates, an existing edge is
+reported as a conflict and never overwritten, and matched pending rows are
+removed. On the pinned `testdata/fixtures/rs-adapter` (producer
+`rust-analyzer` 1.97.0), two generic-bound calls unresolved **2 → 0**; the
+adapter-on gate is `TestRustSCIPAdapterGate`, and the TS/TSX/Python/Rust
+tree-sitter fixture gates are unchanged. On `serde-rs/json` @ `8c535a2` (72
+files, 1,676 nodes) unresolved goes **596 → 482** (rate **37.34% → 30.98%**)
+with **74** edges (**41** `scip.rs.method`, **31** `call`, **2** `new`),
+**114** matched, **1** reported conflict, **0.31 s** wall time and 26 MiB peak
+RSS on a 2.9 MiB SCIP file. No Go dependency and no Rust toolchain in CI; the
+producer is pinned by the committed fixture. See `docs/adapters.md`.
+
 **v1.2 real-client MCP verification landed** (issue #34): MCP Inspector
 **2.15.0** (official `--cli`) and Codex CLI **0.164.0** connected over stdio in
 the legacy era (clients offered `2025-11-25` / `2025-06-18`; repath answered
@@ -779,8 +798,9 @@ reachability rather than runtime coverage. That remains the known ceiling.
    structural reverse closure to test files; v1.2 adds `--diff [base]`, which
    unions the per-file answer for a git change set. See `docs/tests.md`.
 6. Adapter seam (v1.1, landed): SCIP facts merged into pending references;
-   Python landed in v1.2 under the separate `scip-python` adapter name. LSP and
-   Rust adapters are still deferred. See `docs/adapters.md`.
+   Python and Rust landed in v1.2 under the separate `scip-python` and
+   `scip-rust` adapter names. LSP transport is still deferred. See
+   `docs/adapters.md`.
 7. Cross-language edges (TS `fetch` → route → Python handler, OpenAPI, gRPC).
 8. `repath serve` (v1.2, landed): read-only HTTP GET answers for the same six
    surfaces as MCP, over stdlib `net/http`, loopback by default, no writes. See

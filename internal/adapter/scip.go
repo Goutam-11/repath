@@ -280,6 +280,77 @@ func symbolName(symbol string) string {
 	return symbol
 }
 
+// rustSymbolName parses rust-analyzer's SCIP symbol grammar:
+//
+//	rust-analyzer cargo <crate> <version> <descriptor>
+//
+// Descriptors are crate/module paths ("crate/", "models/"), types ("Cart#"),
+// terms ("run().", "Cart#total()."), enum variants ("Kind#A#"), and impl
+// members ("impl#[Cart][Total]total()."). A leading "local" symbol is a local
+// binding and is not a graph target.
+func rustSymbolName(symbol string) string {
+	if strings.HasPrefix(symbol, "local ") {
+		return ""
+	}
+	parts := strings.SplitN(symbol, " ", 5)
+	if len(parts) < 5 {
+		return ""
+	}
+	return rustDescriptorName(parts[4])
+}
+
+func rustDescriptorName(desc string) string {
+	if desc == "" || strings.HasSuffix(desc, "/") {
+		// Crate and module descriptors are not symbols.
+		return ""
+	}
+	if strings.HasPrefix(desc, "impl#") {
+		close := strings.LastIndex(desc, "]")
+		if close < 0 {
+			return ""
+		}
+		return rustTermName(desc[close+1:])
+	}
+	if strings.HasSuffix(desc, "#") {
+		trimmed := strings.TrimSuffix(desc, "#")
+		if hash := strings.LastIndex(trimmed, "#"); hash >= 0 {
+			// Nested type or enum variant: "Outer#Inner#", "Kind#A#".
+			return rustTypeName(trimmed[hash+1:])
+		}
+		return rustTypeName(trimmed)
+	}
+	if hash := strings.LastIndex(desc, "#"); hash >= 0 {
+		return rustTermName(desc[hash+1:])
+	}
+	return rustTermName(desc)
+}
+
+func rustTypeName(s string) string {
+	if slash := strings.LastIndex(s, "/"); slash >= 0 {
+		s = s[slash+1:]
+	}
+	if bracket := strings.Index(s, "["); bracket >= 0 {
+		s = s[:bracket]
+	}
+	return s
+}
+
+func rustTermName(s string) string {
+	s = strings.TrimSuffix(s, ".")
+	s = strings.TrimSuffix(s, "()")
+	if bracket := strings.Index(s, "["); bracket >= 0 {
+		s = s[:bracket]
+	}
+	s = strings.TrimSuffix(s, "#")
+	if slash := strings.LastIndex(s, "/"); slash >= 0 {
+		s = s[slash+1:]
+	}
+	if strings.HasPrefix(s, "(") {
+		return ""
+	}
+	return s
+}
+
 type pendingKey struct {
 	fileID int64
 	line   int
@@ -292,11 +363,13 @@ type scipFamily struct {
 	adapter string
 	matches func(SCIPDocument) bool
 	rule    func(store.PendingRef) string
+	name    func(string) string
 }
 
 var (
-	tsSCIPFamily = scipFamily{adapter: "scip", matches: isTypeScriptDocument, rule: tsAdapterRule}
-	pySCIPFamily = scipFamily{adapter: "scip-python", matches: isPythonDocument, rule: pyAdapterRule}
+	tsSCIPFamily = scipFamily{adapter: "scip", matches: isTypeScriptDocument, rule: tsAdapterRule, name: symbolName}
+	pySCIPFamily = scipFamily{adapter: "scip-python", matches: isPythonDocument, rule: pyAdapterRule, name: symbolName}
+	rsSCIPFamily = scipFamily{adapter: "scip-rust", matches: isRustDocument, rule: rsAdapterRule, name: rustSymbolName}
 )
 
 // ApplySCIP merges one parsed SCIP index and returns the first language
@@ -332,13 +405,16 @@ func ApplySCIPAll(ctx context.Context, st *store.Store, index SCIPIndex) ([]Stat
 // scip-python are normally run separately, but a combined index is handled by
 // applying each family over its own documents and reporting both stats.
 func familiesFor(index SCIPIndex) []scipFamily {
-	hasTS, hasPy := false, false
+	hasTS, hasPy, hasRust := false, false, false
 	for _, doc := range index.Documents {
 		if isTypeScriptDocument(doc) {
 			hasTS = true
 		}
 		if isPythonDocument(doc) {
 			hasPy = true
+		}
+		if isRustDocument(doc) {
+			hasRust = true
 		}
 	}
 	var families []scipFamily
@@ -347,6 +423,9 @@ func familiesFor(index SCIPIndex) []scipFamily {
 	}
 	if hasPy {
 		families = append(families, pySCIPFamily)
+	}
+	if hasRust {
+		families = append(families, rsSCIPFamily)
 	}
 	if len(families) == 0 {
 		// Preserve the pre-Python behavior: an empty or unrecognized index
@@ -417,7 +496,7 @@ func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, fami
 				continue
 			}
 			stats.Definitions++
-			name := symbolName(occ.Symbol)
+			name := family.name(occ.Symbol)
 			if name == "" {
 				stats.Skipped++
 				continue
@@ -452,7 +531,7 @@ func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, fami
 				continue
 			}
 			stats.References++
-			name := symbolName(occ.Symbol)
+			name := family.name(occ.Symbol)
 			if name == "" {
 				stats.Skipped++
 				continue
@@ -528,6 +607,15 @@ func isPythonDocument(doc SCIPDocument) bool {
 	return strings.EqualFold(filepath.Ext(doc.Path), ".py")
 }
 
+// isRustDocument accepts rust-analyzer documents, which carry language
+// "rust". The extension is the fallback for a producer that omits it.
+func isRustDocument(doc SCIPDocument) bool {
+	if strings.Contains(strings.ToLower(doc.Language), "rust") {
+		return true
+	}
+	return strings.EqualFold(filepath.Ext(doc.Path), ".rs")
+}
+
 func tsAdapterRule(ref store.PendingRef) string {
 	if ref.Form == "member" || ref.Form == "this" {
 		return "scip.ts.method"
@@ -553,6 +641,20 @@ func pyAdapterRule(ref store.PendingRef) string {
 		return "scip.py.new"
 	default:
 		return "scip.py.reference"
+	}
+}
+
+func rsAdapterRule(ref store.PendingRef) string {
+	if ref.Form == "member" || ref.Form == "this" {
+		return "scip.rs.method"
+	}
+	switch ref.Kind {
+	case "call":
+		return "scip.rs.call"
+	case "new":
+		return "scip.rs.new"
+	default:
+		return "scip.rs.reference"
 	}
 }
 

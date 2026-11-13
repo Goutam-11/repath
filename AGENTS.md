@@ -5,11 +5,11 @@ structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no daemon; the
 optional read-only `repath serve` is the only HTTP surface.
 
-**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python adapter, test `--diff`, real-repo evidence, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution).**
+**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution).**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
-findings to enclosing symbols (it never runs the compiler), `repath adapter --scip` merges TypeScript/Python compiler facts into unresolved
+findings to enclosing symbols (it never runs the compiler), `repath adapter --scip` merges TypeScript/Python/Rust compiler facts into unresolved
 references, `repath flows` walks forward from detected entrypoints,
 `repath tests` maps a change to structurally reachable test files, and
 `repath mcp` speaks both the legacy handshake and the 2026-07-28 discovery era.
@@ -261,12 +261,18 @@ the database.
   an SDK, or a schema generator.
 - **Adapter edges never overwrite tree-sitter edges.** `repath adapter --scip`
   only consumes `pending` references and `store.MergeEdges` reports conflicts
-  instead of upserting. Rules are prefixed `scip.ts.*` or `scip.py.*` at
-  confidence 0.99; stats live in `meta` and `status.adapters` under `scip` /
-  `scip-python`, with no schema change. The Python adapter accepts
-  `scip-python` documents through the same hand-rolled parser and shares the
-  merge policy. Do not turn the adapter into a silent replacement for the
-  resolver, and do not add a SCIP/Node/Python dependency to the build.
+  instead of upserting. Rules are prefixed `scip.ts.*`, `scip.py.*`, or
+  `scip.rs.*` at confidence 0.99; stats live in `meta` and `status.adapters`
+  under `scip` / `scip-python` / `scip-rust`, with no schema change. The Python
+  and Rust adapters accept `scip-python` and `rust-analyzer scip` documents
+  through the same hand-rolled parser and share the merge policy. Rust symbol
+  strings have a narrow parser (`rustSymbolName`: crate/module and `local`
+  skipped; types, terms, enum variants, fields, and `impl#[T][Trait]method()`
+  reduced to display names); extend it with focused cases, not a general SCIP
+  resolver. The pinned `testdata/fixtures/rs-adapter` SCIP file is produced
+  externally by `rust-analyzer` 1.97.0 and CI must not need a Rust toolchain.
+  Do not turn the adapter into a silent replacement for the resolver, and do
+  not add a SCIP/Node/Python/Rust dependency to the build.
 - **`check` is graph-native, not a compiler.** Dead code only considers private
   functions/methods; exported API, test paths, parse failures, and special
   entrypoint names are excluded. Boundary checks are objective heuristics
