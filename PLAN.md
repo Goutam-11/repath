@@ -375,19 +375,30 @@ client config entry, process lifecycle, version skew, a second test surface.
 ## 9. Incremental indexing
 
 ```
-discover → hash (xxhash) → changed = hash differs ∪ deleted ∪ renamed
-changed → parse → replace facts for that file (single transaction)
-        → resolve new refs
-        → re-resolve `pending` rows whose name is now exported
-        → invalidate closure cache entries for touched nodes
+discover → git status (tracked changes) + one tagged `ls-files` pass
+        → changed = tracked modifications ∪ untracked ∪ deleted ∪ renamed
+        → hash (sha256) the changed files only
+        → parse → replace facts (batched transaction)
+        → resolve new refs (batched edge writes)
+        → retry pending identifiers whose name is now globally unique
+        → checkpoint the WAL
 ```
 
 Invariants:
 
 - Facts are file-local and immutable; only resolution is global.
-- One writer goroutine owns the SQLite handle (single-writer DB), batches of
-  500 rows per transaction.
-- Re-resolution is bounded by `pending`, never a full repo scan.
+- A clean tracked file whose commit matches `meta.git_head` is carried through
+  without a stat or a hash read; untracked files are always re-hashed because git
+  keeps no stat cache for them. Skip-worktree paths are omitted until sparse
+  checkout brings them back and clears the bit. A different HEAD, `--full`, or a
+  failed git falls back to full discovery.
+- One writer goroutine owns the SQLite handle (single-writer DB). Files are
+  written in batches of 200; edges and pending replacements are multi-row
+  statements in one transaction per run, so a cold index is not O(files ×
+  pending).
+- Re-resolution is bounded by the resolver's unique-name set and the
+  `pending_name` index, never a full repo scan. A cold run completes the retry
+  it can prove, so cold and warmed indexes agree.
 - Deleting a file deletes its nodes, edges (both directions), and pending rows.
 
 ## 10. Performance budget
@@ -658,6 +669,29 @@ incremental 709 ms, 50k map p95 245.7 ms, zstd 25.2%). The real tree honestly
 optimization was attempted in this validation issue; the numbers and the
 not-verified list are in `docs/benchmarks.md`. `make bench-real` stays opt-in
 and is not a CI gate.
+
+**v1.2 real-repository performance landed** (issue #43): profiling on the same
+pinned Kibana tree found that cold indexing was not parse-bound. **202.6 s of
+229 s** went to `ReplacePending`, which issued a full `pending` table scan once
+per written file because `pending` has a `name` index but no `file_id` index;
+parsing was 42.6 s. Pending replacement now deletes every changed file before
+inserting, edges and pending deletes are multi-row statements, and node ids are
+read per file only where resolution needs them. Cold fell **4 min 29 s →
+19.2 s** (quiet-machine runs 19.02–19.30 s). Incremental no longer stats and
+hashes all 38,548 files: `git status -uno` plus one tagged `ls-files` pass drive
+the change set, skip-worktree paths are omitted, imports load only for changed
+files, Rust crate roots come from the indexed paths, and the pending retry is a
+single `pending_name`-indexed query. A run that adds or removes no symbol skips
+that retry, and the WAL is checkpointed so the next process reads the main file.
+10-file incremental fell **4.81 s → 0.58 s** (576–614 ms). `map` reads five
+columns per symbol and resolves file paths only for the returned head:
+p95 **455.6 → 223 ms**. Edges (61,894) and unresolved (72.0%) are unchanged; a
+cold run now completes the 2,342 `ts.global.unique` edges that previously
+appeared only on the next incremental. No schema, node-kind, dependency, rule,
+or fixture-gate change. Synthetic `make perf` improved too (10k cold 1.74 s,
+incremental 111 ms; 50k cold 9.34 s, incremental 571 ms, `map` p95 148 ms,
+RSS 290 MiB) and remains green. Evidence, variance, and the not-verified list
+are in `docs/benchmarks.md`; `make bench-real` stays opt-in and is not a gate.
 
 **v1.2 real-client MCP verification landed** (issue #34): MCP Inspector
 **2.15.0** (official `--cli`) and Codex CLI **0.164.0** connected over stdio in
