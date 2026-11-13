@@ -101,6 +101,12 @@ cold **19.2 s**, incremental **582 ms**, `map` p95 **223 ms**, `impact`/
 artifact **65.6 MiB → 17.2 MiB** (26.2%). Every measured target is met; the
 synthetic budgets above remain the gate.
 
+A Python corpus (`psf/requests`, 37 files) and a Rust corpus (`rayon`, 191
+files) run with `make bench-real-langs`: the `scip-python` and `scip-rust`
+adapters take unresolved **543 → 523** and **2,048 → 1,214**, and 85% of the
+749 new Rust edges are library production. The full tables, producer versions,
+and the warm/cold caveat are in [`docs/benchmarks.md`](docs/benchmarks.md).
+
 Add `.repath/` to your own `.gitignore`. Languages today:
 TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), Python
 (`.py`), and Rust (`.rs`).

@@ -2,11 +2,11 @@
 
 Issue #31 asked for the 50k/zstd claims to be validated on a real repository,
 not only the synthetic one-line-function tree. This page records the pinned
-repository, the reproducible command, and the honest numbers. Issue #43 then
-profiled and closed the three budgets that #31 missed; the before/after
-evidence and the remaining caveats are below. It is **evidence, not a gate**:
-`make perf` remains the opt-in synthetic budget run, and neither target is part
-of CI.
+repositories, the reproducible commands, and the honest numbers. Issue #43
+profiled and closed the three Kibana budgets that #31 missed; issue #48 then
+extended the same matrix to Python and Rust and split the Rust adapter gain
+into production and test code. It is **evidence, not a gate**: `make perf`
+remains the opt-in synthetic budget run, and neither target is part of CI.
 
 ## Pinned shape
 
@@ -154,7 +154,14 @@ though only the returned ~162 symbols need them. `map` now reads five columns
 - Untracked indexed files are re-hashed on every run because git keeps no stat
   cache for them. A repo with many untracked source files will see the
   incremental cost grow; the pinned clone has essentially none.
-- Python and Rust real-repo performance was not measured.
+- The Python corpus is small (37 files), so its timings are not evidence for
+  the 10k/50k budgets and are not comparable to Kibana; they show that the
+  Python path works and that no language-specific regression appears.
+- `scip-python` indexed `src/` and not `tests/`, so the Python adapter run
+  cannot resolve references in test files; that is the producer's scope.
+- Warm re-indexes do not reproduce the cold graph for Python/Rust re-export
+  chains on these corpora; the measured cases are in the Finding below and
+  tracked in issue #49. The adapter before/after numbers use the cold graph.
 - `check` stopped at the 200-finding cap; the findings were not audited for
   true/false positives.
 - Artifact pull into a dirty real checkout (overlay cost) was not measured.
@@ -166,3 +173,189 @@ The old PLAN §4.1 estimate of 250–400 MB at 50k files was **wrong by roughly
 17.2 MiB zstd (26.2%, essentially the synthetic 25.4%). The artifact holds
 compact symbol rows with no source text, so file count alone overstated the
 size. The estimate is corrected in PLAN §4.1 and `docs/sharing.md`.
+
+## Python and Rust corpora (#48)
+
+Issue #48 extended the same matrix to a second and a third language and split
+the Rust adapter gain into production and test code. Both corpora are opt-in
+and are driven by `make bench-real-langs`; the Kibana run above is unchanged.
+The SCIP producers are external and pinned, and CI never needs Python or Rust.
+
+### Pinned shape
+
+| | Python | Rust |
+| --- | --- | --- |
+| Repository | [`psf/requests`](https://github.com/psf/requests) | [`rayon-rs/rayon`](https://github.com/rayon-rs/rayon) |
+| Commit | `3c7baaa05ab4aa49cc819ce3a819d260de19c157` | `599425d4a4c64714632817f48496dbc53f656a90` |
+| Indexed files | 37 | 191 |
+| Nodes | 787 (510 method, 181 function, 96 class) | 3,402 (1,600 method, 866 function, 422 type, 382 struct, 86 const, 38 trait, 8 enum) |
+| Parse failures | 0 | 0 |
+| Edges | 1,031 (707 `CALLS`, 283 `REFERENCES`, 41 `EXTENDS`) | 2,161 (1,356 `CALLS`, 472 `REFERENCES`, 333 `IMPLEMENTS`) |
+| Unresolved | 543 (34.50%) | 2,048 (48.66%) |
+| Ambiguous | 25 (2.42%) | 75 (3.47%) |
+| Entrypoints | 348 (1 `py.main`, 347 `py.test`) | 467 (13 `rs.main`, 454 `rs.test`) |
+| SCIP producer | `scip-python` 0.6.8, 817,113 B | `rust-analyzer` 1.97.0 (`2d8144b`), 7,395,613 B in 34.4 s |
+
+`rayon` is a workspace: the table indexes the `rayon` and `rayon-core` library
+sources, `tests/`, and the `rayon-demo` examples/benchmarks crate. It was
+chosen over `serde_json` because its production code is generic/trait-heavy
+(34,227 library source lines vs 2,102 test lines) and its adapter gain is not
+test-dominated; `serde_json` remains the #44 measurement in
+[`docs/adapters.md`](adapters.md).
+
+### Command
+
+```sh
+# Python corpus (the SCIP producer is only needed for the adapter half):
+git clone https://github.com/psf/requests /tmp/requests
+git -C /tmp/requests checkout 3c7baaa05ab4aa49cc819ce3a819d260de19c157
+cd /tmp/requests
+npx --yes --package=@sourcegraph/scip-python@0.6.8 \
+  scip-python index --project-name requests \
+  --output /tmp/requests.scip
+
+# Rust corpus (rust-analyzer 1.97.0; the crate's dependencies must be available):
+git clone https://github.com/rayon-rs/rayon /tmp/rayon
+git -C /tmp/rayon checkout 599425d4a4c64714632817f48496dbc53f656a90
+cd /tmp/rayon
+LD_LIBRARY_PATH=$HOME/.rustup/toolchains/stable-x86_64-unknown-linux-gnu/lib \
+CARGO_HOME=/path/to/cargo-home \
+  /path/to/rust-analyzer scip --output /tmp/rayon.scip .
+
+# Matrix + adapter before/after, one process per corpus:
+cd /path/to/repath
+make bench-real-langs \
+  REPATH_BENCH_PY_ROOT=/tmp/requests \
+  REPATH_BENCH_PY_COMMIT=3c7baaa05ab4aa49cc819ce3a819d260de19c157 \
+  REPATH_BENCH_PY_SCIP=/tmp/requests.scip \
+  REPATH_BENCH_RS_ROOT=/tmp/rayon \
+  REPATH_BENCH_RS_COMMIT=599425d4a4c64714632817f48496dbc53f656a90 \
+  REPATH_BENCH_RS_SCIP=/tmp/rayon.scip
+```
+
+`TestBenchRealLanguages` checks the commit and a clean tree, removes
+`.repath/`, touches ten source files (restored from memory), and logs a
+`BUDGET MISS` instead of failing. The SCIP pass runs on a second cold index
+(the harness rebuilds `.repath/` first), so "before" is the same cold graph
+this page reports; the re-index time is logged rather than hidden.
+
+### Results
+
+Three runs on 2026-11-13 on the same shared host as the Kibana table; medians
+with the range in parentheses. Small trees are dominated by process noise, so
+these numbers are evidence that no language-specific regression appears, not a
+scale claim.
+
+| Metric | Python (`requests`, 37 files) | Rust (`rayon`, 191 files) |
+| --- | --- | --- |
+| Cold index | **162.2 ms** (117.1–166.7) | **436.3 ms** (248.7–449.7) |
+| Peak RSS (cold) | **32.1 MiB** (32.0–32.4) | **45.3 MiB** (45.0–46.1) |
+| 10-file incremental | **45.0 ms** (35.9–50.9) | **53.8 ms** (35.8–54.6) |
+| `impact` p50 / p95 | **0.95 / 2.28 ms** | **1.82 / 3.10 ms** |
+| `callers` p50 / p95 | **0.56 / 0.89 ms** | **1.30 / 1.53 ms** |
+| `path` p50 / p95 | **2.01 / 7.51 ms** | **3.09 / 7.18 ms** |
+| `map --max-tokens 2000` p50 / p95 | **4.17 / 5.11 ms** | **13.61 / 15.35 ms** |
+| `check` | **13.1 ms** (16 findings) | **38.7 ms** (200 findings, capped) |
+| Artifact | **464 KiB**, export 6.9 / pull 4.6 ms | **980 KiB**, export 16.2 / pull 5.3 ms |
+| Artifact zstd | **104.6 KiB** (22.5%), export 14.3 / pull 7.1 ms | **291.7 KiB** (29.8%), export 25.6 / pull 8.5 ms |
+| Peak RSS (all measurements) | **45.8 MiB** | **66.0 MiB** |
+
+Sample sizes: 20 `impact`/`callers` samples and 19 `path` samples for Python,
+20/16/15 for Rust, and 5 `map` samples, using the same deterministic picker as
+the Kibana run. The host was shared, so medians are reported and the ranges
+show the spread. Every row is below its PLAN §10 ceiling, but the budgets
+target 10k/50k trees, so these small-tree rows are not scale evidence.
+
+### Adapter before/after
+
+The adapter pass consumes the pinned SCIP file. "Before" is the cold
+tree-sitter graph; "after" is the same index after `repath adapter --scip`.
+
+| | Python (`scip-python`) | Rust (`scip-rust`) |
+| --- | --- | --- |
+| Definitions / references | 1,485 / 6,734 | 14,878 / 53,694 |
+| Matched pending refs | **20** | **834** |
+| New edges | **18** | **749** |
+| Conflicts | 0 | 0 |
+| Skipped / unmatched | 6,305 / 945 | 55,898 / 9,428 |
+| Unresolved | **543 → 523** | **2,048 → 1,214** |
+| Unresolved rate | **34.50% → 33.27%** | **48.66% → 29.44%** |
+| Edges | 1,031 → 1,049 | 2,161 → 2,910 |
+| Adapter wall | 241 ms (160–249) | 1.264 s (0.681–1.313) |
+
+Python's 18 new edges are all `scip.py.method` from `src/` (0 test): real
+inherited/mixin calls such as `HTTPDigestAuth.__call__ ->
+RequestHooksMixin.register_hook`, `JSONDecodeError.__init__ ->
+RequestException.__init__`, and `PreparedRequest.copy ->
+CaseInsensitiveDict.copy`. `scip-python` indexed `src/` and not `tests/`, so
+this run cannot resolve references in test files; that is the producer's scope,
+not a filter (see [`docs/adapters.md`](adapters.md)).
+
+Rust's 749 new edges are **640** `scip.rs.method`, **92** `scip.rs.call`, and
+**17** `scip.rs.new`. By the source symbol's file:
+
+| Source | Edges | Share |
+| --- | --- | --- |
+| Library production (`rayon` 629, `rayon-core` 8) | **637** | 85.0% |
+| Inline `#[test]` functions | **32** | 4.3% |
+| `tests/` integration files | **27** | 3.6% |
+| `rayon-demo` examples/benchmarks | **53** | 7.1% |
+
+So **85.0%** of the new edges are library production and **92.1%** are
+non-test. This is the production/test split #48 asked for, and it reverses the
+#44 `serde_json` picture where the test module dominated. Test classification
+is `internal/testpath.IsTest` plus a `#[test]` entrypoint (the harness logs
+`59 test (path 27, entrypoint 32)`); a test-support module such as
+`src/iter/test.rs` that is not itself an entrypoint stays in the production
+column, so 637 is an upper bound. The demo crate is reported
+separately rather than folded into library production. Representative edges
+include `Callback.callback -> Consumer.split_at`, `BytesProducer.fold_with ->
+Folder.consume_iter`, and `BlocksCallback.callback -> Producer.split_at`.
+
+### Finding: warm re-indexes do not reproduce the cold graph
+
+This run surfaced a real inconsistency. It is recorded here and tracked in
+issue #49; it is not fixed in this evidence change.
+
+| Path | Cold | After ten-file incremental |
+| --- | --- | --- |
+| `requests` unresolved | 543 | **548** (+5) |
+| `rayon` unresolved | 2,048 | **2,056** (+8) |
+| Edges | unchanged | unchanged |
+
+The five Python refs are `urlparse` calls in the re-indexed
+`src/requests/adapters.py` and `src/requests/auth.py`; a cold run classifies
+them external by following `requests.compat`'s re-export of
+`urllib.parse.urlparse`. During an incremental run, resolution loads import
+bindings only for the files it re-indexes (`resolve.Build(..., changed)`), so a
+re-export chain through an unchanged module cannot be followed and the ref
+lands in `pending` instead. The eight Rust refs are `broadcast`,
+`spawn_broadcast`, and `spawn` calls in `rayon-core/src/broadcast/test.rs`, the
+same shape through the `rayon-core` re-exports in `lib.rs`. Edges are unchanged
+because re-indexing a file never deletes an edge from it: the cold Python refs
+were external (no edge), while the eight Rust refs keep their
+`rs.use.reexport` edges **and** gain a pending row, so the same call is
+reported both resolved and unresolved.
+
+A second inconsistency: running `repath index --full` twice on `rayon` gives
+2,048 pending on the first (cold) run and **2,077** on the second, with edges
+unchanged. The pending retry is skipped when no symbol was added or removed and
+the run is not the initial one, so 29 refs that a cold run resolves stay
+pending; `--full` is not cold-equivalent. That is why the harness rebuilds
+`.repath/` before the adapter baseline. Both cases are in issue #49 with
+acceptance criteria. The #43 parity claim holds for the TypeScript Kibana tree
+(where barrel re-exports are a documented gap) but not for Python/Rust
+re-export chains.
+
+### Guards
+
+- No schema, node-kind, node-identity, rule, or fixture-gate change; no new Go
+  dependency. The SCIP producers stay external and are pinned by this page.
+- TS/Python/Rust fixture edges remain **9 / 31 / 27** at precision **1.00** and
+  recall **1.00**; the adapter-on gates are unchanged.
+- `make perf` 10k/50k stayed green: this session measured 10k cold **4.15 s**,
+  incremental **221 ms**, `map` p95 **61.4 ms**; 50k cold **12.05 s**,
+  incremental **690 ms**, `map` p95 **193 ms**, RSS **296 MiB**, zstd **25.2%**.
+  The budgets themselves are unchanged.
+- `make bench-real` (Kibana) and `make bench-real-langs` stay opt-in and are not
+  CI gates.

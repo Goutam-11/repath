@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/Goutam-11/repath/internal/cli.version=$(VERSION)
 
-.PHONY: build test vet fmt check clean perf perf-10k perf-50k bench-real release-snapshot
+.PHONY: build test vet fmt check clean perf perf-10k perf-50k bench-real bench-real-langs release-snapshot
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/repath ./cmd/repath
@@ -36,6 +36,18 @@ perf-50k:
 bench-real:
 	@test -n "$(REPATH_BENCH_ROOT)" || (echo "set REPATH_BENCH_ROOT=/path/to/clean/pinned/clone (see docs/benchmarks.md)"; exit 2)
 	REPATH_BENCH=1 REPATH_BENCH_ROOT="$(REPATH_BENCH_ROOT)" REPATH_BENCH_COMMIT="$(REPATH_BENCH_COMMIT)" go test ./internal/index -run '^TestBenchReal$$' -v -count=1
+
+# Opt-in Python/Rust evidence (issue #48), never a CI gate. Each corpus runs in
+# its own process so the VmHWM reading belongs to that tree. SCIP is optional;
+# without it the matrix still runs but the adapter before/after pass is skipped.
+bench-real-langs:
+	@test -n "$(REPATH_BENCH_PY_ROOT)$(REPATH_BENCH_RS_ROOT)" || (echo "set REPATH_BENCH_PY_ROOT and/or REPATH_BENCH_RS_ROOT (see docs/benchmarks.md)"; exit 2)
+	REPATH_BENCH_LANGS=1 REPATH_BENCH_LANG=python \
+		REPATH_BENCH_PY_ROOT="$(REPATH_BENCH_PY_ROOT)" REPATH_BENCH_PY_COMMIT="$(REPATH_BENCH_PY_COMMIT)" REPATH_BENCH_PY_SCIP="$(REPATH_BENCH_PY_SCIP)" \
+		go test ./internal/index -run '^TestBenchRealLanguages$$' -v -count=1
+	REPATH_BENCH_LANGS=1 REPATH_BENCH_LANG=rust \
+		REPATH_BENCH_RS_ROOT="$(REPATH_BENCH_RS_ROOT)" REPATH_BENCH_RS_COMMIT="$(REPATH_BENCH_RS_COMMIT)" REPATH_BENCH_RS_SCIP="$(REPATH_BENCH_RS_SCIP)" \
+		go test ./internal/index -run '^TestBenchRealLanguages$$' -v -count=1
 
 # Local snapshot of the current platform. Requires goreleaser >= 2.20 on PATH;
 # the tag-triggered release workflow builds both amd64 and arm64.

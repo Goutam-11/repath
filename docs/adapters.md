@@ -169,7 +169,13 @@ candidates.
   798 KiB SCIP file. The new edges are real inherited/mixin method calls such as
   `HTTPDigestAuth.__call__ -> RequestHooksMixin.register_hook`,
   `JSONDecodeError.__init__ -> RequestException.__init__`, and
-  `PreparedRequest.copy -> CaseInsensitiveDict.copy`.
+  `PreparedRequest.copy -> CaseInsensitiveDict.copy`. Re-measured for #48 with
+  the bench harness on the cold graph: the same 543 → 523, 18 edges, 20
+  matched, 0 conflicts, 241 ms in-process. A comment-only ten-file incremental
+  adds five `urlparse` pending rows because a re-export chain through unchanged
+  `compat.py` is not loaded during incremental resolution; that warm/cold
+  divergence is tracked in issue #49 and in
+  [`docs/benchmarks.md`](benchmarks.md).
 
 - **Rust fixture** (`testdata/fixtures/rs-adapter`, `rust-analyzer` 1.97.0):
   two generic-bound calls (`fn run_generic<T: Total>` and
@@ -190,6 +196,21 @@ candidates.
   `error/impl#[Error][Error]custom()` targets. The single conflict is an edge
   that another reference in the same file had already resolved; it keeps its
   tree-sitter rule and is reported, never overwritten.
+- **`rayon-rs/rayon` @ `599425d4a4c64714632817f48496dbc53f656a90`** (191
+  indexed files, 3,402 nodes, 2,048 pending): the production-heavy corpus added
+  for #48. Unresolved **2,048 → 1,214** (rate **48.66% → 29.44%**) with **749**
+  new edges (**640** `scip.rs.method`, **92** `scip.rs.call`, **17**
+  `scip.rs.new`), **834** matched pending references, **0** conflicts,
+  **55,898** skipped, **9,428** unmatched, and **1.26 s** adapter wall time on a
+  7.4 MiB SCIP file produced in 34.4 s by `rust-analyzer` 1.97.0. By the source
+  symbol's file the new edges split **637** library production (**85.0%**),
+  **32** inline `#[test]`, **27** `tests/`, and **53** `rayon-demo`
+  examples/benchmarks; 92.1% are non-test, which reverses the `serde_json`
+  test-dominated picture above. Representative edges are
+  `Callback.callback -> Consumer.split_at`, `BytesProducer.fold_with ->
+  Folder.consume_iter`, and `BlocksCallback.callback -> Producer.split_at`.
+  The full table and the production/test definition are in
+  [`docs/benchmarks.md`](benchmarks.md).
 
 The tree-sitter-only fixture gates in `internal/eval` are unchanged and were
 not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
@@ -204,9 +225,11 @@ not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
 - Rust documents are only those `rust-analyzer scip` emits from the
   crate/workspace root. It includes test targets, so test-helper calls resolve
   too; external crates and `std` symbols are not local definitions and stay
-  skipped. Producing the index needs a Rust toolchain and the crate's
-  dependencies available to `cargo metadata`, which is why the committed
-  fixture is pinned and CI never runs the producer.
+  skipped. In the #48 `rayon` run, 59 of the 749 new edges come from test
+  sources and 53 from the demo/benchmark crate, so the production share is
+  reported rather than assumed. Producing the index needs a Rust toolchain and
+  the crate's dependencies available to `cargo metadata`, which is why the
+  committed fixture is pinned and CI never runs the producer.
 - Rust SCIP symbol strings are parsed by `rustSymbolName`: crate/module
   descriptors (`crate/`, `models/`) and `local` bindings are skipped; types
   (`Cart#`), terms (`run().`), enum variants (`Kind#A#`), fields

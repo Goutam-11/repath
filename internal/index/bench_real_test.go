@@ -6,10 +6,12 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Goutam-11/repath/internal/adapter"
 	"github.com/Goutam-11/repath/internal/artifact"
 	"github.com/Goutam-11/repath/internal/check"
 	"github.com/Goutam-11/repath/internal/index"
@@ -41,11 +43,27 @@ func TestBenchReal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	runRealBench(t, root, os.Getenv("REPATH_BENCH_COMMIT"), realBenchOptions{comment: "// "})
+}
 
-	if want := os.Getenv("REPATH_BENCH_COMMIT"); want != "" {
+// realBenchOptions adapts the shared real-repository matrix to one corpus.
+// The zero value reproduces the Kibana run from issue #31 exactly.
+type realBenchOptions struct {
+	label       string // log prefix, e.g. "python "; empty for the Kibana run
+	comment     string // line-comment prefix used to touch ten files
+	scipPath    string // optional SCIP index for the adapter before/after pass
+	adapterName string // expected stats.adapter, e.g. "scip-rust"
+	rulePrefix  string // adapter rules to count, e.g. "scip.rs."
+}
+
+// runRealBench measures the cold/incremental/query/map/check/artifact matrix
+// on one clean, pinned clone. It logs PLAN §10 misses instead of failing.
+func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) {
+	t.Helper()
+	if wantCommit != "" {
 		head := benchGit(t, root, "rev-parse", "HEAD")
-		if head != want {
-			t.Fatalf("benchmark root HEAD = %s, want pinned %s", head, want)
+		if head != wantCommit {
+			t.Fatalf("%sbenchmark root HEAD = %s, want pinned %s", opts.label, head, wantCommit)
 		}
 	}
 	for _, line := range strings.Split(benchGit(t, root, "status", "--porcelain"), "\n") {
@@ -53,35 +71,26 @@ func TestBenchReal(t *testing.T) {
 		if line == "" || strings.HasSuffix(line, ".repath/") || strings.Contains(line, " .repath/") {
 			continue
 		}
-		t.Fatalf("benchmark root is dirty; use a throwaway clean clone:\n%s", line)
+		t.Fatalf("%sbenchmark root is dirty; use a throwaway clean clone:\n%s", opts.label, line)
 	}
 
 	ctx := context.Background()
-	if err := os.RemoveAll(filepath.Join(root, ".repath")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Join(root, ".repath"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
+	st, err := openBenchStore(ctx, root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer st.Close()
-	if err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
+	defer func() { _ = st.Close() }()
 
 	// Cold index.
 	start := time.Now()
 	cold, err := index.Run(ctx, st, root, index.Options{})
 	coldDuration := time.Since(start)
 	if err != nil {
-		t.Fatalf("cold index: %v", err)
+		t.Fatalf("%scold index: %v", opts.label, err)
 	}
 	coldRSS := peakRSSBytes()
-	t.Logf("cold index: %d files, %d nodes in %s; peak RSS %s",
-		cold.Files, cold.Nodes, coldDuration, formatBytes(coldRSS))
+	t.Logf("%scold index: %d files, %d nodes in %s; peak RSS %s",
+		opts.label, cold.Files, cold.Nodes, coldDuration, formatBytes(coldRSS))
 	warnBudget(t, "cold <3m", coldDuration, 3*time.Minute)
 	warnBudgetBytes(t, "RSS <1GiB", coldRSS, 1<<30)
 
@@ -89,10 +98,14 @@ func TestBenchReal(t *testing.T) {
 	// the clone stays clean.
 	sources, err := index.Discover(ctx, root)
 	if err != nil {
-		t.Fatalf("discover: %v", err)
+		t.Fatalf("%sdiscover: %v", opts.label, err)
 	}
 	if len(sources) < 10 {
-		t.Fatalf("only %d indexable files", len(sources))
+		t.Fatalf("%sonly %d indexable files", opts.label, len(sources))
+	}
+	comment := opts.comment
+	if comment == "" {
+		comment = "// "
 	}
 	type savedFile struct {
 		path string
@@ -114,7 +127,7 @@ func TestBenchReal(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := file.WriteString("\n// repath bench-real incremental touch\n"); err != nil {
+		if _, err := file.WriteString("\n" + comment + "repath bench-real incremental touch\n"); err != nil {
 			file.Close()
 			t.Fatal(err)
 		}
@@ -126,7 +139,7 @@ func TestBenchReal(t *testing.T) {
 	incremental, err := index.Run(ctx, st, root, index.Options{})
 	incrementalDuration := time.Since(start)
 	if err != nil {
-		t.Fatalf("incremental index: %v", err)
+		t.Fatalf("%sincremental index: %v", opts.label, err)
 	}
 	for _, file := range saved {
 		if err := os.WriteFile(file.path, file.data, file.mode); err != nil {
@@ -134,9 +147,15 @@ func TestBenchReal(t *testing.T) {
 		}
 	}
 	if incremental.Indexed != 10 {
-		t.Fatalf("incremental indexed = %d, want 10", incremental.Indexed)
+		t.Fatalf("%sincremental indexed = %d, want 10", opts.label, incremental.Indexed)
 	}
-	t.Logf("10-file incremental: %s (peak RSS %s)", incrementalDuration, formatBytes(peakRSSBytes()))
+	t.Logf("%s10-file incremental: %s (peak RSS %s; %d files, edges %d, unresolved %d; cold edges %d, unresolved %d)",
+		opts.label, incrementalDuration, formatBytes(peakRSSBytes()), incremental.Indexed,
+		incremental.Edges, incremental.Unresolved, cold.Edges, cold.Unresolved)
+	if incremental.Edges != cold.Edges || incremental.Unresolved != cold.Unresolved {
+		t.Logf("%sINCREMENTAL DIVERGENCE: edges %d vs cold %d, unresolved %d vs cold %d",
+			opts.label, incremental.Edges, cold.Edges, incremental.Unresolved, cold.Unresolved)
+	}
 	warnBudget(t, "10-file incremental <1s", incrementalDuration, time.Second)
 
 	// Query samples over real symbols with both callers and callees.
@@ -169,7 +188,7 @@ func TestBenchReal(t *testing.T) {
 	}
 	sort.Slice(candidates, func(i, j int) bool { return candidates[i].QName < candidates[j].QName })
 	if len(candidates) < 5 {
-		t.Fatalf("only %d sampled candidates", len(candidates))
+		t.Fatalf("%sonly %d sampled candidates", opts.label, len(candidates))
 	}
 
 	// Evenly spaced, deterministic samples.
@@ -208,7 +227,7 @@ func TestBenchReal(t *testing.T) {
 		answer, err := query.Map(ctx, st, 2000, 0.5)
 		mapSamples = append(mapSamples, time.Since(start))
 		if err != nil || len(answer.Result.Top) == 0 || len(answer.Result.Modules) == 0 {
-			t.Fatalf("map returned no answer: %v", err)
+			t.Fatalf("%smap returned no answer: %v", opts.label, err)
 		}
 	}
 
@@ -216,10 +235,10 @@ func TestBenchReal(t *testing.T) {
 	callerP50, callerP95 := percentile(callerSamples)
 	pathP50, pathP95 := percentile(pathSamples)
 	mapP50, mapP95 := percentile(mapSamples)
-	t.Logf("impact p50=%s p95=%s (n=%d, budget p95 <150ms)", impactP50, impactP95, len(impactSamples))
-	t.Logf("callers p50=%s p95=%s (n=%d, budget p95 <150ms)", callerP50, callerP95, len(callerSamples))
-	t.Logf("path p50=%s p95=%s (n=%d, budget p95 <250ms)", pathP50, pathP95, len(pathSamples))
-	t.Logf("map p50=%s p95=%s (n=%d, budget p95 <300ms)", mapP50, mapP95, len(mapSamples))
+	t.Logf("%simpact p50=%s p95=%s (n=%d, budget p95 <150ms)", opts.label, impactP50, impactP95, len(impactSamples))
+	t.Logf("%scallers p50=%s p95=%s (n=%d, budget p95 <150ms)", opts.label, callerP50, callerP95, len(callerSamples))
+	t.Logf("%spath p50=%s p95=%s (n=%d, budget p95 <250ms)", opts.label, pathP50, pathP95, len(pathSamples))
+	t.Logf("%smap p50=%s p95=%s (n=%d, budget p95 <300ms)", opts.label, mapP50, mapP95, len(mapSamples))
 	warnBudget(t, "impact p95 <150ms", impactP95, 150*time.Millisecond)
 	warnBudget(t, "callers p95 <150ms", callerP95, 150*time.Millisecond)
 	warnBudget(t, "path p95 <250ms", pathP95, 250*time.Millisecond)
@@ -230,9 +249,9 @@ func TestBenchReal(t *testing.T) {
 	report, err := check.Run(ctx, st, root, check.Options{MinConfidence: 0.5, MaxFindings: 200})
 	checkDuration := time.Since(start)
 	if err != nil {
-		t.Fatalf("check: %v", err)
+		t.Fatalf("%scheck: %v", opts.label, err)
 	}
-	t.Logf("check: %s (%d findings)", checkDuration, len(report.Findings))
+	t.Logf("%scheck: %s (%d findings)", opts.label, checkDuration, len(report.Findings))
 
 	// Artifact export/pull, uncompressed and opt-in zstd.
 	outDir := t.TempDir()
@@ -240,7 +259,7 @@ func TestBenchReal(t *testing.T) {
 	exported, err := artifact.Export(ctx, st, root, outDir, "bench-real")
 	exportDuration := time.Since(start)
 	if err != nil {
-		t.Fatalf("artifact export: %v", err)
+		t.Fatalf("%sartifact export: %v", opts.label, err)
 	}
 	info, err := os.Stat(exported.DBPath)
 	if err != nil {
@@ -251,13 +270,13 @@ func TestBenchReal(t *testing.T) {
 	manifest, err := artifact.Pull(ctx, outDir, pullRoot, "bench-real")
 	pullDuration := time.Since(start)
 	if err != nil {
-		t.Fatalf("artifact pull: %v", err)
+		t.Fatalf("%sartifact pull: %v", opts.label, err)
 	}
 	if manifest.FileCount != cold.Files {
-		t.Fatalf("pulled manifest files = %d, want %d", manifest.FileCount, cold.Files)
+		t.Fatalf("%spulled manifest files = %d, want %d", opts.label, manifest.FileCount, cold.Files)
 	}
-	t.Logf("artifact: %s export=%s pull=%s (schema v%d, %d files, %d nodes, %d edges, unresolved %.1f%%)",
-		formatBytes(uint64(info.Size())), exportDuration, pullDuration, manifest.SchemaVersion,
+	t.Logf("%sartifact: %s export=%s pull=%s (schema v%d, %d files, %d nodes, %d edges, unresolved %.1f%%)",
+		opts.label, formatBytes(uint64(info.Size())), exportDuration, pullDuration, manifest.SchemaVersion,
 		manifest.FileCount, manifest.NodeCount, manifest.EdgeCount, manifest.UnresolvedRate*100)
 
 	zstDir := t.TempDir()
@@ -265,7 +284,7 @@ func TestBenchReal(t *testing.T) {
 	compressed, err := artifact.ExportWithOptions(ctx, st, root, zstDir, "bench-real", artifact.Options{Compress: true})
 	zstExport := time.Since(start)
 	if err != nil {
-		t.Fatalf("compressed export: %v", err)
+		t.Fatalf("%scompressed export: %v", opts.label, err)
 	}
 	zstInfo, err := os.Stat(compressed.DBPath)
 	if err != nil {
@@ -276,16 +295,202 @@ func TestBenchReal(t *testing.T) {
 	zstManifest, err := artifact.Pull(ctx, zstDir, zstPullRoot, "bench-real")
 	zstPull := time.Since(start)
 	if err != nil {
-		t.Fatalf("compressed pull: %v", err)
+		t.Fatalf("%scompressed pull: %v", opts.label, err)
 	}
 	if zstManifest.Format != "sqlite+zstd" {
-		t.Fatalf("compressed manifest format = %q", zstManifest.Format)
+		t.Fatalf("%scompressed manifest format = %q", opts.label, zstManifest.Format)
 	}
-	t.Logf("artifact zstd: %s export=%s pull=%s (%.1f%% of uncompressed)",
-		formatBytes(uint64(zstInfo.Size())), zstExport, zstPull,
+	t.Logf("%sartifact zstd: %s export=%s pull=%s (%.1f%% of uncompressed)",
+		opts.label, formatBytes(uint64(zstInfo.Size())), zstExport, zstPull,
 		100*float64(zstInfo.Size())/float64(info.Size()))
 
-	t.Logf("peak RSS after all measurements: %s", formatBytes(peakRSSBytes()))
+	// Optional SCIP adapter pass. The incremental run above indexes the
+	// touched content, so rebuild the cold graph first: tree-sitter resolution
+	// and the adapter before/after must be measured on the same pinned state
+	// the docs quote. The full re-index cost is logged, not hidden.
+	if opts.scipPath != "" {
+		// Rebuild from an empty .repath so the adapter starts from the same
+		// cold graph the docs quote. A warm `--full` run is not equivalent: it
+		// skips the pending retry when the symbol set is unchanged.
+		if err := st.Close(); err != nil {
+			t.Fatal(err)
+		}
+		st, err = openBenchStore(ctx, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		baselineStart := time.Now()
+		baseline, err := index.Run(ctx, st, root, index.Options{})
+		if err != nil {
+			t.Fatalf("%sadapter baseline cold re-index: %v", opts.label, err)
+		}
+		match := "matches cold"
+		if baseline.Edges != cold.Edges || baseline.Unresolved != cold.Unresolved {
+			match = "DIFFERS from cold"
+		}
+		t.Logf("%sadapter baseline cold re-index: %s (%d files, edges %d, unresolved %d; %s)",
+			opts.label, time.Since(baselineStart), baseline.Files, baseline.Edges, baseline.Unresolved, match)
+		runAdapterBench(t, ctx, st, opts)
+	}
+
+	t.Logf("%speak RSS after all measurements: %s", opts.label, formatBytes(peakRSSBytes()))
+}
+
+// runAdapterBench applies one pinned SCIP index and reports the before/after
+// unresolved count plus production/test and rule splits of the new edges.
+func runAdapterBench(t *testing.T, ctx context.Context, st *store.Store, opts realBenchOptions) {
+	t.Helper()
+	unresolvedBefore, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edgesBefore, err := st.CountEdges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	idx, err := adapter.LoadSCIP(opts.scipPath)
+	if err != nil {
+		t.Fatalf("%sadapter: load %s: %v", opts.label, opts.scipPath, err)
+	}
+	statsList, err := adapter.ApplySCIPAll(ctx, st, idx)
+	duration := time.Since(start)
+	if err != nil {
+		t.Fatalf("%sadapter: %v", opts.label, err)
+	}
+	var stats adapter.Stats
+	found := false
+	for _, candidate := range statsList {
+		if candidate.Adapter == opts.adapterName {
+			stats, found = candidate, true
+		}
+	}
+	if !found {
+		t.Fatalf("%sadapter: no %s run (got %d adapter runs)", opts.label, opts.adapterName, len(statsList))
+	}
+	t.Logf("%sadapter %s: %d definitions, %d references, %d matched, %d edges, %d conflicts, %d skipped, %d unmatched in %s",
+		opts.label, stats.Adapter, stats.Definitions, stats.References, stats.Matched, stats.Edges,
+		stats.Conflicts, stats.Skipped, stats.Unmatched, duration)
+
+	unresolvedAfter, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edgesAfter, err := st.CountEdges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("%sadapter %s: unresolved %d -> %d (%.2f%% -> %.2f%%; edges %d -> %d)",
+		opts.label, stats.Adapter, unresolvedBefore, unresolvedAfter,
+		unresolvedRate(edgesBefore, unresolvedBefore), unresolvedRate(edgesAfter, unresolvedAfter),
+		edgesBefore, edgesAfter)
+
+	details, err := st.Edges(ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	testNames := map[string]bool{}
+	entrypoints, err := st.Entrypoints(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entrypoints {
+		if strings.HasSuffix(entry.Rule, ".test") {
+			testNames[entry.Node.QName] = true
+		}
+	}
+	var production, testEdges, testPath, testEntry, method, call, newEdges, reference int
+	roots := map[string]int{}
+	for _, edge := range details {
+		if !strings.HasPrefix(edge.Rule, opts.rulePrefix) {
+			continue
+		}
+		// Test classification: a test path, or a #[test]/pytest entrypoint.
+		// Test-support modules that are neither (e.g. src/iter/test.rs helpers)
+		// stay in the non-test bucket, so the production share is an upper bound.
+		switch {
+		case testpath.IsTest(edge.SrcPath):
+			testEdges++
+			testPath++
+		case testNames[edge.SrcQName]:
+			testEdges++
+			testEntry++
+		default:
+			production++
+		}
+		roots[sourceRoot(edge.SrcPath)]++
+		switch strings.TrimPrefix(edge.Rule, opts.rulePrefix) {
+		case "method":
+			method++
+		case "call":
+			call++
+		case "new":
+			newEdges++
+		default:
+			reference++
+		}
+	}
+	t.Logf("%sadapter %s: new edges by source: %d non-test, %d test (path %d, entrypoint %d); rules method=%d call=%d new=%d reference=%d",
+		opts.label, stats.Adapter, production, testEdges, testPath, testEntry, method, call, newEdges, reference)
+	t.Logf("%sadapter %s: new-edge source roots: %s",
+		opts.label, stats.Adapter, formatRootCounts(roots))
+}
+
+func unresolvedRate(edges, unresolved int) float64 {
+	if edges+unresolved == 0 {
+		return 0
+	}
+	return 100 * float64(unresolved) / float64(edges+unresolved)
+}
+
+func sourceRoot(path string) string {
+	if i := strings.IndexByte(path, '/'); i > 0 {
+		return path[:i]
+	}
+	return "."
+}
+
+func formatRootCounts(counts map[string]int) string {
+	type rootCount struct {
+		root  string
+		count int
+	}
+	ordered := make([]rootCount, 0, len(counts))
+	for root, count := range counts {
+		ordered = append(ordered, rootCount{root, count})
+	}
+	sort.Slice(ordered, func(i, j int) bool {
+		if ordered[i].count != ordered[j].count {
+			return ordered[i].count > ordered[j].count
+		}
+		return ordered[i].root < ordered[j].root
+	})
+	parts := make([]string, 0, len(ordered))
+	for _, item := range ordered {
+		parts = append(parts, item.root+" "+strconv.Itoa(item.count))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// openBenchStore starts one run from an empty `.repath/`, the same state a
+// fresh clone has. It never seeds from the commit cache, so the measured graph
+// is the cold graph and not whatever a previous run cached.
+func openBenchStore(ctx context.Context, root string) (*store.Store, error) {
+	if err := os.RemoveAll(filepath.Join(root, ".repath")); err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".repath"), 0o755); err != nil {
+		return nil, err
+	}
+	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
+	if err != nil {
+		return nil, err
+	}
+	if err := st.Migrate(ctx); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	return st, nil
 }
 
 func benchGit(t *testing.T, root string, args ...string) string {
