@@ -3,7 +3,9 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // NodeRow is a symbol read back from the index.
@@ -68,6 +70,95 @@ func (s *Store) Nodes(ctx context.Context) ([]NodeRow, error) {
 	return out, rows.Err()
 }
 
+// ResolveNodes reads the seven symbol columns resolution uses, omitting the
+// language and line-span columns that only display needs.
+func (s *Store) ResolveNodes(ctx context.Context) ([]NodeRow, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, kind, name, qname, file_id, arity, exported FROM nodes`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []NodeRow
+	for rows.Next() {
+		var n NodeRow
+		if err := rows.Scan(&n.ID, &n.Kind, &n.Name, &n.QName, &n.FileID, &n.Arity, &n.Exported); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// MapNode is the subset of a symbol `map` needs to rank and roll up: no name,
+// language, arity, or end line. Loading ten columns for every symbol was the
+// biggest single cost in `map` on the real tree.
+type MapNode struct {
+	ID        int64
+	FileID    int64
+	QName     string
+	Kind      string
+	StartLine int
+}
+
+// MapNodes reads every symbol with only the columns map consumes.
+func (s *Store) MapNodes(ctx context.Context) ([]MapNode, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT id, file_id, qname, kind, start_line FROM nodes`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []MapNode
+	for rows.Next() {
+		var n MapNode
+		if err := rows.Scan(&n.ID, &n.FileID, &n.QName, &n.Kind, &n.StartLine); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
+// FilePathsByIDs maps selected file ids to paths. `map` needs paths only for
+// the ranked symbols it returns, not for all 38k files.
+func (s *Store) FilePathsByIDs(ctx context.Context, ids []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(ids))
+	for start := 0; start < len(ids); start += maxParams {
+		end := start + maxParams
+		if end > len(ids) {
+			end = len(ids)
+		}
+		batch := ids[start:end]
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			args[i] = id
+		}
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT id, path FROM files WHERE id IN (`+placeholders(len(batch))+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var id int64
+			var path string
+			if err := rows.Scan(&id, &path); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[id] = path
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
 // FilePaths maps file ids to repo-relative paths.
 func (s *Store) FilePaths(ctx context.Context) (map[int64]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, path FROM files`)
@@ -88,7 +179,9 @@ func (s *Store) FilePaths(ctx context.Context) (map[int64]string, error) {
 	return out, rows.Err()
 }
 
-// InsertEdges writes edges, ignoring ones that already exist.
+// InsertEdges writes edges, updating an existing (src, dst, kind) row. Rows are
+// grouped into multi-row statements: one prepared exec per edge was the second
+// half of the cold-index SQLite cost after the per-file pending scan.
 func (s *Store) InsertEdges(ctx context.Context, edges []Edge) (int, error) {
 	if len(edges) == 0 {
 		return 0, nil
@@ -98,33 +191,44 @@ func (s *Store) InsertEdges(ctx context.Context, edges []Edge) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	stmt, err := tx.PrepareContext(ctx, `
-		INSERT INTO edges (src, dst, kind, confidence, rule, line, candidates)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (src, dst, kind) DO UPDATE SET
+	written := 0
+	for start := 0; start < len(edges); start += edgeBatchSize {
+		end := start + edgeBatchSize
+		if end > len(edges) {
+			end = len(edges)
+		}
+		batch := edges[start:end]
+
+		var query strings.Builder
+		query.WriteString(`INSERT INTO edges (src, dst, kind, confidence, rule, line, candidates) VALUES `)
+		args := make([]any, 0, len(batch)*7)
+		for i, e := range batch {
+			if i > 0 {
+				query.WriteByte(',')
+			}
+			query.WriteString("(?, ?, ?, ?, ?, ?, ?)")
+			args = append(args, e.Src, e.Dst, e.Kind, e.Confidence, e.Rule, e.Line, e.Candidates)
+		}
+		query.WriteString(` ON CONFLICT (src, dst, kind) DO UPDATE SET
 			confidence = excluded.confidence,
 			rule = excluded.rule,
 			line = excluded.line,
 			candidates = excluded.candidates`)
-	if err != nil {
-		tx.Rollback()
-		return 0, err
-	}
-	defer stmt.Close()
-
-	written := 0
-	for _, e := range edges {
-		if _, err := stmt.ExecContext(ctx, e.Src, e.Dst, e.Kind, e.Confidence, e.Rule, e.Line, e.Candidates); err != nil {
+		if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
 			tx.Rollback()
 			return written, err
 		}
-		written++
+		written += len(batch)
 	}
 	if err := tx.Commit(); err != nil {
 		return written, err
 	}
 	return written, nil
 }
+
+// edgeBatchSize keeps a multi-row statement under SQLite's default variable
+// limit (7 columns per row).
+const edgeBatchSize = 100
 
 // PruneEdges removes edges whose endpoints no longer exist, which is what
 // incremental re-indexing leaves behind when a file changes.
@@ -157,30 +261,121 @@ func (s *Store) Pending(ctx context.Context) ([]PendingRef, error) {
 	return out, rows.Err()
 }
 
-// ReplacePending swaps the pending queue for one file, in a transaction.
-func (s *Store) ReplacePending(ctx context.Context, fileID int64, refs []PendingRef) error {
+// ReplacePendingFiles swaps the pending queue for several files in one
+// transaction. Pending has no file_id index, so a per-file delete is a full
+// table scan; deleting every changed file before inserting keeps the scan from
+// growing with each inserted row.
+func (s *Store) ReplacePendingFiles(ctx context.Context, fileIDs []int64, refs []PendingRef) error {
+	if len(fileIDs) == 0 {
+		return nil
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM pending WHERE file_id = ?`, fileID); err != nil {
-		tx.Rollback()
-		return err
+	for start := 0; start < len(fileIDs); start += maxParams {
+		end := start + maxParams
+		if end > len(fileIDs) {
+			end = len(fileIDs)
+		}
+		batch := fileIDs[start:end]
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			args[i] = id
+		}
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM pending WHERE file_id IN (`+placeholders(len(batch))+`)`, args...); err != nil {
+			tx.Rollback()
+			return err
+		}
 	}
-	stmt, err := tx.PrepareContext(ctx, `INSERT INTO pending (name, file_id, kind, form, line) VALUES (?, ?, ?, ?, ?)`)
+	if len(refs) > 0 {
+		stmt, err := tx.PrepareContext(ctx, `INSERT INTO pending (name, file_id, kind, form, line) VALUES (?, ?, ?, ?, ?)`)
+		if err != nil {
+			tx.Rollback()
+			return err
+		}
+		defer stmt.Close()
+		for _, p := range refs {
+			if _, err := stmt.ExecContext(ctx, p.Name, p.FileID, p.Kind, p.Form, p.Line); err != nil {
+				tx.Rollback()
+				return err
+			}
+		}
+	}
+	return tx.Commit()
+}
+
+// PendingRetryByName lists the pending references that a retry can resolve:
+// identifiers whose name is now globally unique. The name set travels as one
+// JSON array so the query is a single indexed statement rather than 70
+// parameter-chunked ones; pending_name keeps the probe proportional to the set.
+func (s *Store) PendingRetryByName(ctx context.Context, names []string) ([]PendingRef, error) {
+	if len(names) == 0 {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(names)
 	if err != nil {
-		tx.Rollback()
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT name, file_id, kind, form, line FROM pending
+		WHERE name IN (SELECT value FROM json_each(?))
+		  AND (form = '' OR form = 'ident')`, string(encoded))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PendingRef
+	for rows.Next() {
+		var p PendingRef
+		if err := rows.Scan(&p.Name, &p.FileID, &p.Kind, &p.Form, &p.Line); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// DeletePendingBatch removes several pending rows in one transaction, grouping
+// the row-value deletes so the retry does not pay one exec per reference.
+func (s *Store) DeletePendingBatch(ctx context.Context, refs []PendingRef) error {
+	if len(refs) == 0 {
+		return nil
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
-	defer stmt.Close()
-	for _, p := range refs {
-		if _, err := stmt.ExecContext(ctx, p.Name, fileID, p.Kind, p.Form, p.Line); err != nil {
+	for start := 0; start < len(refs); start += pendingDeleteBatch {
+		end := start + pendingDeleteBatch
+		if end > len(refs) {
+			end = len(refs)
+		}
+		batch := refs[start:end]
+
+		var query strings.Builder
+		query.WriteString(`DELETE FROM pending WHERE (name, file_id, kind, form, line) IN (VALUES `)
+		args := make([]any, 0, len(batch)*5)
+		for i, p := range batch {
+			if i > 0 {
+				query.WriteByte(',')
+			}
+			query.WriteString("(?, ?, ?, ?, ?)")
+			args = append(args, p.Name, p.FileID, p.Kind, p.Form, p.Line)
+		}
+		query.WriteByte(')')
+		if _, err := tx.ExecContext(ctx, query.String(), args...); err != nil {
 			tx.Rollback()
 			return err
 		}
 	}
 	return tx.Commit()
 }
+
+// pendingDeleteBatch keeps the five-column row values under the variable limit.
+const pendingDeleteBatch = 100
 
 // ImportRow is one local binding created by an import statement. Imports are
 // resolution inputs, never graph edges.
@@ -211,6 +406,43 @@ func (s *Store) Imports(ctx context.Context) ([]ImportRow, error) {
 		out = append(out, imp)
 	}
 	return out, rows.Err()
+}
+
+// ImportsByFiles reads the import bindings of selected files. The imports_file
+// index keeps this proportional to the changed files, not the whole tree.
+func (s *Store) ImportsByFiles(ctx context.Context, fileIDs []int64) ([]ImportRow, error) {
+	var out []ImportRow
+	for start := 0; start < len(fileIDs); start += maxParams {
+		end := start + maxParams
+		if end > len(fileIDs) {
+			end = len(fileIDs)
+		}
+		batch := fileIDs[start:end]
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			args[i] = id
+		}
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT file_id, local, imported, source, line, public FROM imports
+			 WHERE file_id IN (`+placeholders(len(batch))+`) ORDER BY rowid`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var imp ImportRow
+			if err := rows.Scan(&imp.FileID, &imp.Local, &imp.Imported, &imp.Source, &imp.Line, &imp.Public); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out = append(out, imp)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
 }
 
 // ReplaceImports swaps the import bindings for one file, in a transaction.
@@ -394,6 +626,13 @@ func (s *Store) Callers(ctx context.Context, nodeID int64, minConfidence float64
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// CountEdges is the total row count, cheaper than grouping by kind.
+func (s *Store) CountEdges(ctx context.Context) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM edges`).Scan(&n)
+	return n, err
 }
 
 // EdgeCounts counts edges by kind.

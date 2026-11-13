@@ -85,20 +85,20 @@ limits are in [`docs/tests.md`](docs/tests.md); real-repo measurements and misse
 [`docs/serve.md`](docs/serve.md).
 
 The 50k artifact compresses from **19.2 MiB to 4.8 MiB** (25.2%) with
-`--compress`; the 10k tree goes from **3.8 MiB to 991 KiB** (25.3%). The
+`--compress`; the 10k tree goes from **3.8 MiB to 992 KiB** (25.4%). The
 measured 10k-file synthetic tree (reproducible with `make perf-10k`): cold
-index **5.0 s**, 10-file incremental **237 ms**, `impact` p95 **24.5 ms**, a
+index **1.74 s**, 10-file incremental **111 ms**, `impact` p95 **11.0 ms**, a
 second worktree warm seed **12.9 ms**, and a cold build **21.8 s** — README
-quickstart to first answer **~27 s**, inside the 60 s budget. The 50k tree
-(`make perf-50k`): cold index **13.4 s**, peak RSS **278 MiB**, `impact` p95
-**61.1 ms**, `map` p95 **223 ms**, `check` **464 ms** — every PLAN §10 budget
-met. The full table is in `PLAN.md` §12.
+quickstart to first answer **~24 s**, inside the 60 s budget. The 50k tree
+(`make perf-50k`): cold index **9.34 s**, peak RSS **290 MiB**, `impact` p95
+**54.2 ms**, `map` p95 **148 ms** — every PLAN §10 budget met. The full table
+is in `PLAN.md` §12.
 
 A pinned real-repo run (`make bench-real`, Kibana `x-pack/solutions` at
 `0551196`, 38,548 TS files) is in [`docs/benchmarks.md`](docs/benchmarks.md):
-peak RSS **853 MiB**, `impact`/`callers`/`path` p95 **118.9 / 73.0 / 130.1 ms**,
-and artifact **65.6 MiB → 17.2 MiB** (26.3%), but cold **4 min 29 s**,
-incremental **4.81 s**, and `map` p95 **455.6 ms** missed their targets. The
+cold **19.2 s**, incremental **582 ms**, `map` p95 **223 ms**, `impact`/
+`callers`/`path` p95 **60.8 / 38.3 / 71.6 ms**, peak RSS **920 MiB** cold, and
+artifact **65.6 MiB → 17.2 MiB** (26.2%). Every measured target is met; the
 synthetic budgets above remain the gate.
 
 Add `.repath/` to your own `.gitignore`. Languages today:

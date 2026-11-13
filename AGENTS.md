@@ -208,10 +208,24 @@ the database.
   `elastic/kibana` @ `05511966780217f7357b98253299f369dc40199b`, subtree
   `x-pack/solutions` (38,548 indexed TS files), in `docs/benchmarks.md`. It
   removes the clone's `.repath/`, briefly touches ten source files and restores
-  them, and logs budget misses instead of failing. The real run missed cold
-  (<3 min), 10-file incremental (<1 s), and `map` p95 (<300 ms), while RSS,
-  `impact`, `callers`, `path`, and the 26.3% zstd ratio passed. Do not turn it
-  into CI, and do not weaken the synthetic `make perf` budgets because of it.
+  them, and logs budget misses instead of failing. Issue #43 closed the three
+  #31 misses: cold **19.2 s** (<3 min), 10-file incremental **582 ms** (<1 s),
+  and `map` p95 **223 ms** (<300 ms); RSS, `impact`/`callers`/`path`, and the
+  26.2% zstd ratio also pass. Run-to-run variance under host load can push
+  incremental to ~1.3 s and `impact` p95 past 150 ms; report medians and the
+  load caveat, never turn it into CI, and do not weaken the synthetic
+  `make perf` budgets because of it.
+- **Incremental change detection is git-aware.** With a matching
+  `meta.git_head`, `git status -uno` plus one tagged `ls-files -t` pass decide
+  what to re-read: clean tracked files skip both stat and hash, untracked files
+  are always re-hashed, and skip-worktree paths are omitted until sparse
+  checkout clears the bit. A missing git, a different HEAD, or `--full` falls
+  back to full discovery. The pending retry is a `pending_name`-indexed query
+  over the resolver's unique names and is skipped when no symbol was added or
+  removed; a cold run completes it so cold and warmed graphs agree. Edge and
+  pending writes are multi-row statements, and the WAL is checkpointed after a
+  run. Keep those properties: reverting to per-file pending deletes or hashing
+  every file brings back the #43 cold/incremental regressions.
 - **`make perf` is opt-in.** `TestPerf10k` and `TestPerf50k` skip without
   `REPATH_PERF=1`; `make perf` runs each in its own process so the Linux VmHWM
   reading belongs to that tree. It is evidence, not a CI gate (timings are

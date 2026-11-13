@@ -120,8 +120,8 @@ func TestWriteFileAndNodes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("replace nodes: %v", err)
 	}
-	if inserted != 1 {
-		t.Fatalf("inserted = %d, want 1 (duplicates collapse)", inserted)
+	if inserted.Written != 1 || inserted.Added != 1 {
+		t.Fatalf("inserted = %+v, want one added symbol (duplicates collapse)", inserted)
 	}
 	if err := tx.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
@@ -456,5 +456,143 @@ func TestOpenReadOnlyDoesNotWrite(t *testing.T) {
 
 	if _, err := OpenReadOnly(ctx, filepath.Join(dir, "missing.db")); err == nil {
 		t.Fatal("read-only open created a missing database")
+	}
+}
+
+func TestReplacePendingFilesReplacesBatch(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	if err := st.ReplacePendingFiles(ctx, []int64{1}, []PendingRef{
+		{Name: "old", FileID: 1, Kind: "call", Form: "ident", Line: 3},
+	}); err != nil {
+		t.Fatalf("seed file 1: %v", err)
+	}
+	if err := st.ReplacePendingFiles(ctx, []int64{2}, []PendingRef{
+		{Name: "keep", FileID: 2, Kind: "call", Form: "ident", Line: 4},
+	}); err != nil {
+		t.Fatalf("seed file 2: %v", err)
+	}
+	if err := st.ReplacePendingFiles(ctx, []int64{1, 2}, []PendingRef{
+		{Name: "new", FileID: 1, Kind: "call", Form: "ident", Line: 9},
+		{Name: "next", FileID: 2, Kind: "new", Form: "ident", Line: 10},
+	}); err != nil {
+		t.Fatalf("replace batch: %v", err)
+	}
+
+	rows, err := st.Pending(ctx)
+	if err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("pending rows = %d, want 2: %+v", len(rows), rows)
+	}
+	got := map[string]int64{rows[0].Name: rows[0].FileID, rows[1].Name: rows[1].FileID}
+	if got["new"] != 1 || got["next"] != 2 {
+		t.Fatalf("pending = %+v, want new→1 next→2", rows)
+	}
+}
+
+func TestPendingRetryByNameFiltersForm(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	if err := st.ReplacePendingFiles(ctx, []int64{1}, []PendingRef{
+		{Name: "x", FileID: 1, Kind: "call", Form: "ident", Line: 1},
+		{Name: "x", FileID: 1, Kind: "call", Form: "member", Line: 2},
+		{Name: "y", FileID: 1, Kind: "new", Form: "ident", Line: 3},
+		{Name: "z", FileID: 1, Kind: "call", Form: "", Line: 4},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rows, err := st.PendingRetryByName(ctx, []string{"x", "y"})
+	if err != nil {
+		t.Fatalf("retry by name: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("rows = %d, want 2 (member form excluded): %+v", len(rows), rows)
+	}
+	for _, row := range rows {
+		if row.Name != "x" && row.Name != "y" {
+			t.Fatalf("unexpected row %+v", row)
+		}
+		if row.Form != "ident" {
+			t.Fatalf("form = %q, want ident", row.Form)
+		}
+	}
+}
+
+func TestIndexedPathsAndHashesByPaths(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, path := range []string{"a.ts", "b.ts"} {
+		if _, err := tx.UpsertFile(ctx, File{
+			Path: path, Lang: "typescript", Hash: "hash-" + path, Size: int64(i + 1), ParseOK: true,
+		}); err != nil {
+			t.Fatalf("upsert %s: %v", path, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	indexed, err := st.IndexedPaths(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !indexed["a.ts"] || !indexed["b.ts"] || indexed["missing.ts"] {
+		t.Fatalf("indexed paths = %+v", indexed)
+	}
+
+	hashes, err := st.FileHashesByPaths(ctx, []string{"a.ts", "missing.ts"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hashes["a.ts"].Hash != "hash-a.ts" {
+		t.Fatalf("hash = %+v, want hash-a.ts", hashes["a.ts"])
+	}
+	if _, found := hashes["missing.ts"]; found {
+		t.Fatal("missing path returned a hash")
+	}
+}
+
+func TestNodeSpansByFilesOrdersSmallestFirst(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fileID, err := tx.UpsertFile(ctx, File{Path: "a.ts", Lang: "typescript", Hash: "h", ParseOK: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileID, "typescript", []Node{
+		{Kind: "class", Name: "C", QName: "C", StartLine: 1, EndLine: 20},
+		{Kind: "method", Name: "m", QName: "C.m", StartLine: 5, EndLine: 9},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+
+	spans, err := st.NodeSpansByFiles(ctx, []int64{fileID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := spans[fileID]
+	if len(got) != 2 {
+		t.Fatalf("spans = %+v", got)
+	}
+	if got[0].StartLine != 5 || got[0].EndLine != 9 {
+		t.Fatalf("first span = %+v, want the smaller method span", got[0])
 	}
 }

@@ -42,14 +42,29 @@ type Result struct {
 // database write happens on the calling goroutine.
 func Run(ctx context.Context, st *store.Store, root string, opts Options) (Result, error) {
 	start := time.Now()
-
-	sources, err := Discover(ctx, root)
+	indexed, err := st.IndexedPaths(ctx)
 	if err != nil {
 		return Result{}, err
 	}
-	existing, err := st.FileMap(ctx)
+	initial := len(indexed) == 0
+	head := gitHead(ctx, root)
+	sources, err := runSources(ctx, st, root, indexed, head, opts)
 	if err != nil {
 		return Result{}, err
+	}
+
+	var existing map[string]store.FileState
+	if len(indexed) > 0 {
+		changedPaths := make([]string, 0, len(sources))
+		for _, src := range sources {
+			if !src.Unchanged {
+				changedPaths = append(changedPaths, src.Path)
+			}
+		}
+		existing, err = st.FileHashesByPaths(ctx, changedPaths)
+		if err != nil {
+			return Result{}, err
+		}
 	}
 
 	modules := DetectModules(root, sources)
@@ -104,6 +119,7 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	res := Result{Files: len(sources)}
 	batch := make([]*outcome, 0, 200)
 	var written []*outcome
+	symbolChange := store.NodeChange{}
 
 	flush := func() error {
 		if len(batch) == 0 {
@@ -128,10 +144,13 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 				_ = tx.Rollback()
 				return err
 			}
-			if _, err := tx.ReplaceNodes(ctx, fileID, o.lang, o.symbols); err != nil {
+			delta, err := tx.ReplaceNodes(ctx, fileID, o.lang, o.symbols)
+			if err != nil {
 				_ = tx.Rollback()
 				return err
 			}
+			symbolChange.Added += delta.Added
+			symbolChange.Removed += delta.Removed
 			if err := tx.ReplaceImports(ctx, fileID, toImportRows(o.imports)); err != nil {
 				_ = tx.Rollback()
 				return err
@@ -177,7 +196,7 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	}
 
 	deleted := make([]string, 0)
-	for path := range existing {
+	for path := range indexed {
 		if _, ok := discovered[path]; !ok {
 			deleted = append(deleted, path)
 		}
@@ -200,62 +219,134 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	}
 
 	// Edges and pending rows that pointed at replaced or deleted nodes are now
-	// dangling; pruning is cheaper and safer than tracking every id.
-	if _, err := st.PruneEdges(ctx); err != nil {
-		return res, err
-	}
-	if _, err := st.PrunePending(ctx); err != nil {
-		return res, err
-	}
-
-	if len(written) > 0 {
-		if err := resolveChanges(ctx, st, root, written); err != nil {
+	// dangling; pruning is cheaper and safer than tracking every id. When no
+	// file or symbol disappeared there is nothing to dangle, and two full-table
+	// scans are skipped on the common incremental path.
+	if res.Deleted > 0 || symbolChange.Removed > 0 {
+		if _, err := st.PruneEdges(ctx); err != nil {
+			return res, err
+		}
+		if _, err := st.PrunePending(ctx); err != nil {
 			return res, err
 		}
 	}
 
-	edgeCounts, err := st.EdgeCounts(ctx)
-	if err == nil {
-		for _, n := range edgeCounts {
-			res.Edges += n
+	if len(written) > 0 {
+		// The pending retry can only change the graph when the global name set
+		// changed (a symbol appeared or disappeared) or a file was deleted.
+		// A comment-only edit has nothing to retry, so skip the query entirely.
+		runRetry := initial || symbolChange.Added > 0 || symbolChange.Removed > 0 || res.Deleted > 0
+		if err := resolveChanges(ctx, st, root, written, initial, runRetry); err != nil {
+			return res, err
 		}
 	}
+
+	res.Edges, _ = st.CountEdges(ctx)
 	res.Unresolved, _ = st.CountPending(ctx)
 
 	for key, value := range map[string]string{
 		"root":       root,
 		"indexed_at": time.Now().UTC().Format(time.RFC3339),
 		"file_count": strconv.Itoa(len(sources)),
-		"git_head":   gitHead(ctx, root),
+		"git_head":   head,
 	} {
 		if err := st.SetMeta(ctx, key, value); err != nil {
 			return res, err
 		}
 	}
 
+	// Fold the WAL back into the database so the next process reads the main
+	// file instead of replaying the log this run appended.
+	_ = st.Checkpoint(ctx)
+
 	res.Duration = time.Since(start)
 	return res, nil
 }
 
+// runSources builds the source list for one run. When the index belongs to the
+// current commit, git's work-tree status tells us which paths changed; every
+// other file is carried through without a stat or a hash read. A missing git,
+// a missing index, a different HEAD, or --full falls back to a full discovery,
+// so the result can never be fresher than the hash path would have been.
+func runSources(ctx context.Context, st *store.Store, root string, indexed map[string]bool, head string, opts Options) ([]Source, error) {
+	if opts.Full || len(indexed) == 0 || head == "" {
+		return Discover(ctx, root)
+	}
+	meta, err := st.Meta(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if meta["git_head"] != head {
+		return Discover(ctx, root)
+	}
+	// The two git reads are independent; run them together so the untracked
+	// scan and the tracked-status read overlap.
+	var wg sync.WaitGroup
+	var trackedChanges map[string]bool
+	var trackedOK bool
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		trackedChanges, trackedOK = gitTrackedChanges(ctx, root)
+	}()
+	paths, untracked, listErr := listPathSets(ctx, root, false)
+	wg.Wait()
+	if listErr != nil {
+		return nil, listErr
+	}
+	if !trackedOK {
+		return Discover(ctx, root)
+	}
+
+	changed := make(map[string]bool, len(trackedChanges)+len(untracked))
+	for p := range trackedChanges {
+		changed[p] = true
+	}
+	for p := range untracked {
+		changed[p] = true
+	}
+	out := sourcesFromPaths(root, paths, func(rel string) bool {
+		return indexed[rel] && !changed[rel]
+	})
+	return out, nil
+}
+
+// enclosingIn returns the smallest symbol span that contains line. slices are
+// ordered by span size by NodeSpansByFiles, so the first hit wins.
+func enclosingIn(spans []store.NodeSpan, line int) (int64, bool) {
+	for _, span := range spans {
+		if span.StartLine <= line && span.EndLine >= line {
+			return span.ID, true
+		}
+	}
+	return 0, false
+}
+
 // resolveChanges turns references into edges for the files just written, then
-// retries references that were waiting for a symbol to appear.
-func resolveChanges(ctx context.Context, st *store.Store, root string, written []*outcome) error {
-	ix, err := resolve.Build(ctx, st, root)
+// retries references that were waiting for a symbol to appear. Writes are
+// batched: the old path opened two transactions per file and scanned the
+// unindexed pending table by file_id once per file, which is why a cold index
+// spent four minutes in SQLite rather than parsing.
+func resolveChanges(ctx context.Context, st *store.Store, root string, written []*outcome, coldRun, runRetry bool) error {
+	changed := make(map[int64]bool, len(written))
+	fileIDs := make([]int64, 0, len(written))
+	for _, o := range written {
+		changed[o.fileID] = true
+		fileIDs = append(fileIDs, o.fileID)
+	}
+
+	ix, err := resolve.Build(ctx, st, root, changed)
 	if err != nil {
 		return err
 	}
 
-	changed := make(map[int64]bool, len(written))
+	var edges []store.Edge
+	var pending []store.PendingRef
 	for _, o := range written {
-		changed[o.fileID] = true
-
 		ids, err := st.NodeIDsByFile(ctx, o.fileID)
 		if err != nil {
 			return err
 		}
-
-		var edges []store.Edge
-		var pending []store.PendingRef
 		for _, ref := range o.refs {
 			src, ok := ids[ref.Enclosing]
 			if !ok {
@@ -295,23 +386,39 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 				})
 			}
 		}
-
-		if _, err := st.InsertEdges(ctx, edges); err != nil {
-			return err
-		}
-		if err := st.ReplacePending(ctx, o.fileID, pending); err != nil {
-			return err
-		}
 	}
 
-	// A symbol added by this run can satisfy references from earlier runs.
-	rows, err := st.Pending(ctx)
+	if err := st.ReplacePendingFiles(ctx, fileIDs, pending); err != nil {
+		return err
+	}
+	if _, err := st.InsertEdges(ctx, edges); err != nil {
+		return err
+	}
+
+	// A symbol added by this run can satisfy references from earlier runs, and a
+	// symbol removed by this run can make a previously ambiguous name unique.
+	// Both cases reduce to: pending identifier names that are now globally
+	// unique. The pending_name index makes that query proportional to the name
+	// set instead of a 158k-row scan.
+	if !runRetry {
+		return nil
+	}
+	rows, err := st.PendingRetryByName(ctx, ix.UniqueNames())
 	if err != nil {
 		return err
 	}
-	var retried []store.Edge
+
+	type retryMatch struct {
+		pending store.PendingRef
+		result  resolve.Resolution
+	}
+	var matches []retryMatch
 	for _, p := range rows {
-		if changed[p.FileID] {
+		// A cold run has just written every file; its pending rows were not
+		// retried by any earlier run, so complete the retry now. That makes a
+		// cold index as complete as the next incremental run would have made
+		// it, instead of leaving 0.60-confidence edges for a later run.
+		if changed[p.FileID] && !coldRun {
 			continue
 		}
 		// A member reference has no import context here; retrying it by bare
@@ -324,24 +431,41 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		if !ok {
 			continue
 		}
-		src, ok, err := st.EnclosingNode(ctx, p.FileID, p.Line)
-		if err != nil {
-			return err
+		matches = append(matches, retryMatch{pending: p, result: r})
+	}
+
+	spanFiles := make([]int64, 0, len(matches))
+	seenSpanFile := make(map[int64]bool, len(matches))
+	for _, m := range matches {
+		if !seenSpanFile[m.pending.FileID] {
+			seenSpanFile[m.pending.FileID] = true
+			spanFiles = append(spanFiles, m.pending.FileID)
 		}
-		if !ok || src == r.Dst {
+	}
+	spans, err := st.NodeSpansByFiles(ctx, spanFiles)
+	if err != nil {
+		return err
+	}
+
+	var retried []store.Edge
+	var matched []store.PendingRef
+	for _, m := range matches {
+		src, ok := enclosingIn(spans[m.pending.FileID], m.pending.Line)
+		if !ok || src == m.result.Dst {
 			continue
 		}
-		kind := edgeKind(p.Kind)
-		if r.Kind != "" {
-			kind = r.Kind
+		kind := edgeKind(m.pending.Kind)
+		if m.result.Kind != "" {
+			kind = m.result.Kind
 		}
 		retried = append(retried, store.Edge{
-			Src: src, Dst: r.Dst, Kind: kind,
-			Confidence: r.Confidence, Rule: r.Rule, Line: p.Line,
+			Src: src, Dst: m.result.Dst, Kind: kind,
+			Confidence: m.result.Confidence, Rule: m.result.Rule, Line: m.pending.Line,
 		})
-		if err := st.DeletePending(ctx, p); err != nil {
-			return err
-		}
+		matched = append(matched, m.pending)
+	}
+	if err := st.DeletePendingBatch(ctx, matched); err != nil {
+		return err
 	}
 	_, err = st.InsertEdges(ctx, retried)
 	return err
@@ -363,6 +487,9 @@ type outcome struct {
 }
 
 func parseOne(src Source, ex *lang.Extractor, existing map[string]store.FileState, full bool) *outcome {
+	if src.Unchanged {
+		return &outcome{src: src, skipped: true}
+	}
 	data, err := os.ReadFile(src.Abs)
 	if err != nil {
 		return &outcome{src: src, ok: false, errMsg: err.Error()}
