@@ -778,6 +778,22 @@ git-aware change detection is untouched. Three regressions cover both shapes
 and the second full run in `internal/index/incremental_test.go`. See
 `docs/benchmarks.md`, `docs/adapters.md`, and the `bench-real-langs` target.
 
+**Large-corpora evidence landed** (2026-11-14): the same opt-in matrix now runs
+on `django/django` @ `f24f38c` (3,051 indexed files, 44,426 nodes, 45,834
+edges, 69.68% unresolved, 3 parse failures) and `Goutam-11/hyusk` @ `06bdb2b`
+(88 files, 2,428 nodes, 2,706 edges, 60.94% unresolved, 49,126 Rust LOC).
+Three runs: Django cold **4.54 s**, 10-file incremental **209 ms**, RSS
+**293 MiB**, `map` p95 **160.8 ms**, artifact **22.3 MiB → 5.8 MiB zstd
+(26.1%)**; hyusk cold **292 ms**, incremental **41.4 ms**, RSS **66.4 MiB**,
+`map` p95 **8.48 ms**, artifact **1.0 MiB → 313.7 KiB (29.4%)**. Adapter:
+`scip-python` 0.6.8 on a production-only 909-file Django index takes unresolved
+**105,319 → 103,306** (69.68% → 68.50%) with 1,669 edges, while the full tree
+OOMs at Node's 2 GB heap; `scip-rust` on the 750-crate hyusk workspace takes
+**4,222 → 4,081** (60.94% → 59.36%) with 88 edges, 54 of them production, from
+a 157.7 s producer run. No code, schema, rule, gate, or dependency change;
+`make check` and `make perf` are unchanged. The producer limits and corpus
+caveats are in `docs/benchmarks.md` §“Large corpora”.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
