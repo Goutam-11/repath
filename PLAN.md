@@ -742,6 +742,29 @@ human to publish. `goreleaser check` passes and a local
 `0.0.1-snapshot` binary on linux/amd64. No tag, release, or new Go dependency
 was created. See `docs/install.md`.
 
+**v1.2 Python and Rust real-repository evidence landed** (issue #48): the
+Kibana matrix now has a second and a third language, both opt-in through
+`make bench-real-langs` and never CI. Python is `psf/requests` @ `3c7baaa`
+(37 files / 787 nodes, 543 pending), Rust is `rayon-rs/rayon` @ `599425d`
+(191 files / 3,402 nodes, 2,048 pending; a production-heavy 34,227-line
+library vs 2,102 test lines). Three shared-host runs give Python cold **162.2 ms**
+/ 10-file incremental **45.0 ms** / RSS **32.1 MiB** / `map` p95 **5.11 ms** /
+artifact **464 KiB → 104.6 KiB zstd (22.5%)**, and Rust cold **436.3 ms** /
+incremental **53.8 ms** / RSS **45.3 MiB** / `map` p95 **15.35 ms** / artifact
+**980 KiB → 291.7 KiB zstd (29.8%)**; every §10 ceiling is met, though the
+budgets target 10k/50k trees. `scip-python` 0.6.8 takes `requests` unresolved
+**543 → 523** (18 edges, 20 matched, 0 conflicts); `rust-analyzer` 1.97.0 takes
+`rayon` **2,048 → 1,214** (rate **48.66% → 29.44%**) with **749** edges (640
+method / 92 call / 17 new), 834 matched, 0 conflicts. Of those 749, **637**
+(85.0%) are library production, 59 (7.9%) test sources, and 53 (7.1%)
+`rayon-demo` examples/benchmarks — the production split the issue asked for.
+No schema, node-kind, rule, fixture-gate, or Go-dependency change; `make perf`
+stayed green. The run exposed a warm/cold divergence (an incremental ten-file
+comment edit adds five Python and eight Rust `pending` refs through unloaded
+re-export chains, and a second `index --full` skips the retry); it is recorded
+in `docs/benchmarks.md` and tracked in issue #49, not papered over. See
+`docs/benchmarks.md`, `docs/adapters.md`, and the `bench-real-langs` target.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -823,10 +846,10 @@ team artifact sharing, diagnostics scope. Output: the 22 decisions in §3.
 
 ---
 
-Next action: the **v1.2 wave is complete** — SARIF, the Python SCIP adapter,
-test-impact `--diff`, real-repo evidence, real-client MCP verification, the
-read-only HTTP server, and release engineering all landed. The largest remaining
-quality gap is still member calls without typed receivers; the next product
-candidates are a Rust SCIP adapter, a richer real-repo benchmark across Python
-and Rust, and the deferred LSP/watch surface. None should start without a new
+Next action: the **v1.2 wave is complete** — SARIF, the Python and Rust SCIP
+adapters, test-impact `--diff`, real-repo evidence on TypeScript/Python/Rust,
+real-client MCP verification, the read-only HTTP server, and release engineering
+all landed. The largest remaining quality gap is still member calls without
+typed receivers; the next candidates are closing the warm/cold parity gap
+(issue #49) and the deferred LSP/watch surface. None should start without a new
 plan decision and explicit approval.

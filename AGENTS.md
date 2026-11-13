@@ -5,7 +5,7 @@ structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no daemon; the
 optional read-only `repath serve` is the only HTTP surface.
 
-**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution).**
+**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence across TypeScript, Python, and Rust, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution).**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
@@ -55,6 +55,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath tests <symbol|file:line>      # structurally affected test files
 ./bin/repath tests --diff origin/main      # affected tests for a git change set
 make bench-real REPATH_BENCH_ROOT=...       # opt-in real-repo evidence (not CI)
+make bench-real-langs REPATH_BENCH_PY_ROOT=... REPATH_BENCH_RS_ROOT=...  # Python/Rust evidence
 make release-snapshot                       # goreleaser current-platform snapshot
 ```
 
@@ -214,7 +215,12 @@ the database.
   26.2% zstd ratio also pass. Run-to-run variance under host load can push
   incremental to ~1.3 s and `impact` p95 past 150 ms; report medians and the
   load caveat, never turn it into CI, and do not weaken the synthetic
-  `make perf` budgets because of it.
+  `make perf` budgets because of it. `make bench-real-langs` is the #48
+  companion: `psf/requests` @ `3c7baaa` (37 files) and `rayon-rs/rayon` @
+  `599425d` (191 files), with pinned `scip-python` 0.6.8 and `rust-analyzer`
+  1.97.0 files; it runs the same matrix, rebuilds `.repath/` for the adapter
+  before/after, and splits the Rust gain into production, test, and
+  `rayon-demo` edges. Both targets stay opt-in; CI needs no producer.
 - **Incremental change detection is git-aware.** With a matching
   `meta.git_head`, `git status -uno` plus one tagged `ls-files -t` pass decide
   what to re-read: clean tracked files skip both stat and hash, untracked files
@@ -222,10 +228,17 @@ the database.
   checkout clears the bit. A missing git, a different HEAD, or `--full` falls
   back to full discovery. The pending retry is a `pending_name`-indexed query
   over the resolver's unique names and is skipped when no symbol was added or
-  removed; a cold run completes it so cold and warmed graphs agree. Edge and
-  pending writes are multi-row statements, and the WAL is checkpointed after a
-  run. Keep those properties: reverting to per-file pending deletes or hashing
-  every file brings back the #43 cold/incremental regressions.
+  removed; a cold run completes it so cold and warmed graphs agree for the #43
+  TypeScript tree. Two warm-path gaps remain, measured on the #48 corpora and
+  tracked in issue #49: incremental resolution loads import bindings only for
+  the changed files, so a re-export chain through an unchanged module adds
+  `pending` rows instead of being classified external (5 on `requests`, 8 on
+  `rayon`), and a second `index --full` skips the retry (2,048 → 2,077 pending
+  on `rayon`). Reproduce the cold graph with a fresh `.repath/` until #49 is
+  fixed. Edge and pending writes are multi-row statements, and the WAL is
+  checkpointed after a run. Keep those properties: reverting to per-file
+  pending deletes or hashing every file brings back the #43 cold/incremental
+  regressions.
 - **`make perf` is opt-in.** `TestPerf10k` and `TestPerf50k` skip without
   `REPATH_PERF=1`; `make perf` runs each in its own process so the Linux VmHWM
   reading belongs to that tree. It is evidence, not a CI gate (timings are
