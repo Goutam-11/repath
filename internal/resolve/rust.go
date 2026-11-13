@@ -23,7 +23,52 @@ const (
 
 // loadRustCrates finds the source root of every Cargo package in the repo. A
 // crate root is the directory containing lib.rs or main.rs.
-func loadRustCrates(root string) []string {
+//
+// The indexed file list already names every src/lib.rs and src/main.rs, so the
+// roots are derived from it instead of walking every directory on each run.
+// The walk remains as a fallback for a Rust tree whose crate roots are not
+// indexable (for example an oversized or skipped lib.rs).
+func loadRustCrates(root string, paths map[int64]string) []string {
+	seen := map[string]bool{}
+	var crates []string
+	hasRust := false
+
+	for _, p := range paths {
+		if !strings.HasSuffix(p, ".rs") {
+			continue
+		}
+		hasRust = true
+		base := path.Base(p)
+		if base != "lib.rs" && base != "main.rs" {
+			continue
+		}
+		src := path.Dir(p)
+		if path.Base(src) != "src" {
+			continue
+		}
+		manifest := "Cargo.toml"
+		if crate := path.Dir(src); crate != "." && crate != "" {
+			manifest = crate + "/Cargo.toml"
+		}
+		if !fileExists(filepath.Join(root, filepath.FromSlash(manifest))) {
+			continue
+		}
+		if !seen[src] {
+			seen[src] = true
+			crates = append(crates, src)
+		}
+	}
+
+	if len(crates) == 0 && hasRust {
+		return walkRustCrates(root)
+	}
+	sortRustCrates(crates)
+	return crates
+}
+
+// walkRustCrates is the filesystem fallback used when the indexed paths do not
+// describe the crate roots.
+func walkRustCrates(root string) []string {
 	seen := map[string]bool{}
 	var crates []string
 
@@ -59,14 +104,19 @@ func loadRustCrates(root string) []string {
 		return nil
 	})
 
-	// Longest prefix first so a nested crate wins over the repo root.
+	sortRustCrates(crates)
+	return crates
+}
+
+// sortRustCrates puts the longest prefix first so a nested crate wins over the
+// repo root.
+func sortRustCrates(crates []string) {
 	sort.Slice(crates, func(i, j int) bool {
 		if len(crates[i]) != len(crates[j]) {
 			return len(crates[i]) > len(crates[j])
 		}
 		return crates[i] < crates[j]
 	})
-	return crates
 }
 
 func fileExists(path string) bool {

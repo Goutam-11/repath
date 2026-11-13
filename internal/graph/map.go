@@ -37,15 +37,11 @@ type MapResult struct {
 // dependency graph, and finds cycles. The symbol list is trimmed to the token
 // budget; the module section always fits because it is small.
 func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence float64) (MapResult, error) {
-	nodes, err := st.Nodes(ctx)
+	nodes, err := st.MapNodes(ctx)
 	if err != nil {
 		return MapResult{}, err
 	}
 	all, err := st.GraphEdgeSkeletons(ctx, minConfidence)
-	if err != nil {
-		return MapResult{}, err
-	}
-	paths, err := st.FilePaths(ctx)
 	if err != nil {
 		return MapResult{}, err
 	}
@@ -112,20 +108,22 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 	})
 	result.Cycles = Cycles(moduleDeps)
 
-	// Symbol section: ranked, trimmed to what the budget allows.
-	ranked := make([]Ranked, 0, len(nodes))
+	// Symbol section: ranked, trimmed to what the budget allows. Only the
+	// symbols that survive the budget need their file path resolved.
+	type rankedNode struct {
+		node    store.MapNode
+		rank    float64
+		callers int
+	}
+	ranked := make([]rankedNode, 0, len(nodes))
 	for _, n := range nodes {
-		ranked = append(ranked, Ranked{
-			Endpoint: endpointOf(n, paths),
-			Rank:     ranks[n.ID],
-			Callers:  callers[n.ID],
-		})
+		ranked = append(ranked, rankedNode{node: n, rank: ranks[n.ID], callers: callers[n.ID]})
 	}
 	sort.Slice(ranked, func(i, j int) bool {
-		if ranked[i].Rank != ranked[j].Rank {
-			return ranked[i].Rank > ranked[j].Rank
+		if ranked[i].rank != ranked[j].rank {
+			return ranked[i].rank > ranked[j].rank
 		}
-		return ranked[i].QName < ranked[j].QName
+		return ranked[i].node.QName < ranked[j].node.QName
 	})
 
 	// Roughly 14 tokens per line of output; modules already claim part of the budget.
@@ -141,14 +139,41 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 	if lines < len(ranked) {
 		result.Truncated = true
 	}
-	result.Top = ranked[:lines]
+	top := ranked[:lines]
+
+	fileIDs := make([]int64, 0, len(top))
+	seenFile := make(map[int64]bool, len(top))
+	for _, r := range top {
+		if !seenFile[r.node.FileID] {
+			seenFile[r.node.FileID] = true
+			fileIDs = append(fileIDs, r.node.FileID)
+		}
+	}
+	paths, err := st.FilePathsByIDs(ctx, fileIDs)
+	if err != nil {
+		return MapResult{}, err
+	}
+	result.Top = make([]Ranked, 0, len(top))
+	for _, r := range top {
+		result.Top = append(result.Top, Ranked{
+			Endpoint: Endpoint{
+				ID:    r.node.ID,
+				QName: r.node.QName,
+				Kind:  r.node.Kind,
+				File:  paths[r.node.FileID],
+				Line:  r.node.StartLine,
+			},
+			Rank:    r.rank,
+			Callers: r.callers,
+		})
+	}
 
 	return result, nil
 }
 
 // pageRank scores symbols by incoming calls, damping dangling mass back into
 // the graph. Returns ranks and caller counts.
-func pageRank(nodes []store.NodeRow, edges []store.EdgeSkeleton) (map[int64]float64, map[int64]int) {
+func pageRank(nodes []store.MapNode, edges []store.EdgeSkeleton) (map[int64]float64, map[int64]int) {
 	const damping = 0.85
 	const iterations = 20
 

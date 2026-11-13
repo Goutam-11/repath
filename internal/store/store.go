@@ -241,6 +241,14 @@ func (s *Store) ensureColumn(ctx context.Context, table, column, ddl string) err
 	return nil
 }
 
+// Checkpoint folds the write-ahead log into the database. A later process then
+// reads the main file instead of replaying a large WAL; PASSIVE never blocks a
+// concurrent reader.
+func (s *Store) Checkpoint(ctx context.Context) error {
+	_, err := s.db.ExecContext(ctx, `PRAGMA wal_checkpoint(PASSIVE)`)
+	return err
+}
+
 // Close closes the database.
 func (s *Store) Close() error { return s.db.Close() }
 
@@ -279,6 +287,112 @@ func (s *Store) Meta(ctx context.Context) (map[string]string, error) {
 		out[k] = v
 	}
 	return out, rows.Err()
+}
+
+// IndexedPaths is the path set of the current index. The incremental pipeline
+// needs membership, not hashes, for every clean path; reading one column for 38k
+// rows is much cheaper than reading three.
+func (s *Store) IndexedPaths(ctx context.Context) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT path FROM files`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]bool)
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		out[path] = true
+	}
+	return out, rows.Err()
+}
+
+// FileHashesByPaths returns the stored hashes of selected paths, for deciding
+// whether a git-reported change actually changed the file content.
+func (s *Store) FileHashesByPaths(ctx context.Context, paths []string) (map[string]FileState, error) {
+	out := make(map[string]FileState, len(paths))
+	for start := 0; start < len(paths); start += maxParams {
+		end := start + maxParams
+		if end > len(paths) {
+			end = len(paths)
+		}
+		batch := paths[start:end]
+		args := make([]any, len(batch))
+		for i, path := range batch {
+			args[i] = path
+		}
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT id, path, hash FROM files WHERE path IN (`+placeholders(len(batch))+`)`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var path string
+			var state FileState
+			if err := rows.Scan(&state.ID, &path, &state.Hash); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[path] = state
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
+}
+
+// NodeSpan is a symbol id and its line span, used to find the enclosing symbol
+// for several pending references in one query.
+type NodeSpan struct {
+	ID        int64
+	StartLine int
+	EndLine   int
+}
+
+// NodeSpansByFiles loads the spans of every symbol in the given files, ordered
+// smallest span first. The pending retry used to issue one point query per
+// matched reference.
+func (s *Store) NodeSpansByFiles(ctx context.Context, fileIDs []int64) (map[int64][]NodeSpan, error) {
+	out := make(map[int64][]NodeSpan, len(fileIDs))
+	for start := 0; start < len(fileIDs); start += maxParams {
+		end := start + maxParams
+		if end > len(fileIDs) {
+			end = len(fileIDs)
+		}
+		batch := fileIDs[start:end]
+		args := make([]any, len(batch))
+		for i, id := range batch {
+			args[i] = id
+		}
+		rows, err := s.db.QueryContext(ctx,
+			`SELECT file_id, id, start_line, end_line FROM nodes
+			 WHERE file_id IN (`+placeholders(len(batch))+`)
+			 ORDER BY file_id, (end_line - start_line) ASC`, args...)
+		if err != nil {
+			return nil, err
+		}
+		for rows.Next() {
+			var fileID int64
+			var span NodeSpan
+			if err := rows.Scan(&fileID, &span.ID, &span.StartLine, &span.EndLine); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			out[fileID] = append(out[fileID], span)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		rows.Close()
+	}
+	return out, nil
 }
 
 // FileMap returns the current file rows keyed by repo-relative path.
@@ -371,10 +485,19 @@ func (t *Tx) UpsertFile(ctx context.Context, f File) (int64, error) {
 	return id, nil
 }
 
+// NodeChange reports what replacing a file's symbols did to the graph. The
+// incremental pipeline uses Added/Removed to decide whether the global name set
+// changed enough to retry pending identifiers.
+type NodeChange struct {
+	Written int
+	Added   int
+	Removed int
+}
+
 // ReplaceNodes upserts the file's symbols and removes the ones that are gone.
 // Node ids are kept when (qname, arity) still exists, so an unrelated edit does
 // not orphan the incoming edges of every other symbol in the file.
-func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes []Node) (int, error) {
+func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes []Node) (NodeChange, error) {
 	type nodeKey struct {
 		qname string
 		arity int
@@ -383,7 +506,7 @@ func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes 
 
 	rows, err := t.tx.QueryContext(ctx, `SELECT id, qname, arity FROM nodes WHERE file_id = ?`, fileID)
 	if err != nil {
-		return 0, err
+		return NodeChange{}, err
 	}
 	existing := make(map[nodeKey]int64)
 	for rows.Next() {
@@ -392,13 +515,13 @@ func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes 
 		var arity int
 		if err := rows.Scan(&id, &qname, &arity); err != nil {
 			rows.Close()
-			return 0, err
+			return NodeChange{}, err
 		}
 		existing[keyOf(qname, arity)] = id
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		return 0, err
+		return NodeChange{}, err
 	}
 	rows.Close()
 
@@ -413,24 +536,29 @@ func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes 
 			exported = excluded.exported
 		RETURNING id`)
 	if err != nil {
-		return 0, err
+		return NodeChange{}, err
 	}
 	defer stmt.Close()
 
 	seen := make(map[nodeKey]bool, len(nodes))
 	written := 0
+	added := 0
+	removed := 0
 	for _, n := range nodes {
 		key := keyOf(n.QName, n.Arity)
 		if seen[key] {
 			continue
 		}
 		seen[key] = true
+		if _, existed := existing[key]; !existed {
+			added++
+		}
 
 		var id int64
 		if err := stmt.QueryRowContext(ctx,
 			n.Kind, n.Name, n.QName, fileID, lang, n.Arity, n.StartLine, n.EndLine, boolInt(n.Exported)).
 			Scan(&id); err != nil {
-			return written, err
+			return NodeChange{Written: written, Added: added, Removed: removed}, err
 		}
 		written++
 	}
@@ -440,10 +568,11 @@ func (t *Tx) ReplaceNodes(ctx context.Context, fileID int64, lang string, nodes 
 			continue
 		}
 		if _, err := t.tx.ExecContext(ctx, `DELETE FROM nodes WHERE id = ?`, id); err != nil {
-			return written, err
+			return NodeChange{Written: written, Added: added, Removed: removed}, err
 		}
+		removed++
 	}
-	return written, nil
+	return NodeChange{Written: written, Added: added, Removed: removed}, nil
 }
 
 // NodeIDsByFile maps qname to node id for one file inside a write transaction.

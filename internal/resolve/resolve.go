@@ -6,6 +6,7 @@ package resolve
 import (
 	"context"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/Goutam-11/repath/internal/lang/facts"
@@ -43,9 +44,16 @@ type Index struct {
 	aliases *Aliases
 }
 
+// importsAllThreshold decides when a targeted import read is not worth the
+// extra query: a full scan loads 305k rows on the real tree, while the
+// imports_file index makes a ten-file read proportional to those ten files.
+const importsAllThreshold = 2000
+
 // Build loads every symbol, file, and import binding into the resolution index.
-func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
-	nodes, err := st.Nodes(ctx)
+// importsFor limits import bindings to the files whose references this run will
+// resolve; nil (or a large set) loads every binding.
+func Build(ctx context.Context, st *store.Store, root string, importsFor map[int64]bool) (*Index, error) {
+	nodes, err := st.ResolveNodes(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +61,16 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
-	imports, err := st.Imports(ctx)
+	var imports []store.ImportRow
+	if importsFor == nil || len(importsFor) > importsAllThreshold {
+		imports, err = st.Imports(ctx)
+	} else {
+		ids := make([]int64, 0, len(importsFor))
+		for id := range importsFor {
+			ids = append(ids, id)
+		}
+		imports, err = st.ImportsByFiles(ctx, ids)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -66,22 +83,31 @@ func Build(ctx context.Context, st *store.Store, root string) (*Index, error) {
 		files:   make(map[string]int64, len(paths)),
 		paths:   paths,
 		imports: make(map[int64]map[string]facts.Import),
-		crates:  loadRustCrates(root),
+		crates:  loadRustCrates(root, paths),
 		aliases: LoadAliases(root),
 	}
 
 	for id, p := range paths {
 		ix.files[p] = id
 	}
+	// byFile is only read for the file whose reference is being resolved, so an
+	// incremental run needs it for the changed files only. The other maps are
+	// global resolution inputs and cover every symbol.
+	byFileFor := importsFor
+	if importsFor == nil || len(importsFor) > importsAllThreshold {
+		byFileFor = nil
+	}
 	for _, n := range nodes {
 		name := n.Name
 		if name == "" || n.QName == "" {
 			continue
 		}
-		if ix.byFile[n.FileID] == nil {
-			ix.byFile[n.FileID] = make(map[string][]store.NodeRow)
+		if byFileFor == nil || byFileFor[n.FileID] {
+			if ix.byFile[n.FileID] == nil {
+				ix.byFile[n.FileID] = make(map[string][]store.NodeRow)
+			}
+			ix.byFile[n.FileID][name] = append(ix.byFile[n.FileID][name], n)
 		}
-		ix.byFile[n.FileID][name] = append(ix.byFile[n.FileID][name], n)
 		ix.global[name] = append(ix.global[name], n)
 		ix.byQName[n.QName] = append(ix.byQName[n.QName], n)
 		if n.Exported {
@@ -697,6 +723,21 @@ func (ix *Index) byTypedMethod(fromFile int64, fromPath string, ref facts.Ref, i
 		return Resolution{Dst: nodes[0].ID, Confidence: 0.70, Rule: "ts.typed.method.global", Found: true}
 	}
 	return Resolution{}
+}
+
+// UniqueNames returns the symbol names that have exactly one global candidate.
+// A pending identifier with any other name cannot be linked by ResolvePending:
+// zero candidates have nothing to point at, and 2+ are the documented ambiguity
+// case that must stay unresolved.
+func (ix *Index) UniqueNames() []string {
+	names := make([]string, 0, len(ix.global))
+	for name, nodes := range ix.global {
+		if len(nodes) == 1 {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ResolvePending retries a reference that was left pending by an earlier run,
