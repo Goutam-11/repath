@@ -385,3 +385,150 @@ instead of working around a divergence. The regression tests are in
   The budgets themselves are unchanged.
 - `make bench-real` (Kibana) and `make bench-real-langs` stay opt-in and are not
   CI gates.
+
+## Large corpora (2026-11-14)
+
+The #48 corpora are small. This run adds a genuinely large Python repository
+and a production Rust agent workspace, using the same opt-in
+`make bench-real-langs` matrix. Both are external clones and are not
+committed. The producers were pinned by version and output size.
+
+### Pinned shape
+
+| | Python | Rust |
+| --- | --- | --- |
+| Repository | [`django/django`](https://github.com/django/django) | [`Goutam-11/hyusk`](https://github.com/Goutam-11/hyusk) |
+| Commit | `f24f38c6b2825f15628c07bf2892f1664eed9361` (2026-11-13) | `06bdb2b15fcc0a0f7dc3f2b06e0003dc1731cb82` (2026-11-12) |
+| Files present | 7,102 | 217 |
+| Indexed | 3,051 (2,943 `.py`, 108 `.js`) | 88 (68 `.rs`, 14 `.js`, 6 `.py`) |
+| Nodes | 44,426 (29,999 method, 11,100 class, 3,327 function) | 2,428 (1,377 function, 570 method, 221 const, 182 struct, 46 enum, 19 class, 11 type, 2 trait) |
+| Parse failures | 3 | 7 |
+| Edges | 45,834 (17,281 `CALLS`, 19,865 `REFERENCES`, 8,688 `EXTENDS`) | 2,706 (2,356 `CALLS`, 349 `REFERENCES`, 1 `IMPLEMENTS`) |
+| Unresolved | 105,319 (69.68%) | 4,222 (60.94%) |
+| Ambiguous | 1,572 (3.43%) | 23 (0.85%) |
+| Entrypoints | 18,443 (18,438 `py.test`, 5 `py.main`) | 549 (523 `rs.test`, 20 `py.test`, 4 `py.main`, 2 `rs.main`) |
+| Shape note | 906 production `.py` vs 2,009 test `.py` | 68 `.rs` / 49,126 Rust LOC / 345 `#[test]`; 750-crate workspace |
+| SCIP producer | `scip-python` 0.6.8, production-only 30.3 MiB | `rust-analyzer` 1.97.0, 7.1 MiB in 157.7 s |
+
+`hyusk` is a production agent workspace with a large inline test surface; the
+14 JavaScript and 6 Python files are tooling/scripts, so the Rust surface is
+the 68 `.rs` files. Django is deliberately test-heavy: 2,009 test modules vs
+906 production modules. Query sampling excludes test paths, so its
+`impact`/`callers`/`path` rows are production-symbol measurements; the cold,
+incremental, and artifact rows cover the whole tree.
+
+### Command
+
+```sh
+# Python corpus. scip-python 0.6.8 OOMs on the full 2,941-file tree at Node's
+# default heap, so the adapter half indexes the production package only.
+git clone --depth 1 https://github.com/django/django /tmp/django
+git -C /tmp/django checkout f24f38c6b2825f15628c07bf2892f1664eed9361
+NODE_OPTIONS=--max-old-space-size=3072 \
+  scip-python index --project-name django --cwd /tmp/django \
+  --target-only django --output /tmp/django-prod.scip
+
+# Rust corpus (rust-analyzer 1.97.0; a 750-crate workspace, ~158 s).
+git clone --depth 1 https://github.com/Goutam-11/hyusk /tmp/hyusk
+git -C /tmp/hyusk checkout 06bdb2b15fcc0a0f7dc3f2b06e0003dc1731cb82
+rust-analyzer scip --output /tmp/hyusk.scip /tmp/hyusk
+
+cd /path/to/repath
+make bench-real-langs \
+  REPATH_BENCH_PY_ROOT=/tmp/django \
+  REPATH_BENCH_PY_COMMIT=f24f38c6b2825f15628c07bf2892f1664eed9361 \
+  REPATH_BENCH_PY_SCIP=/tmp/django-prod.scip \
+  REPATH_BENCH_RS_ROOT=/tmp/hyusk \
+  REPATH_BENCH_RS_COMMIT=06bdb2b15fcc0a0f7dc3f2b06e0003dc1731cb82 \
+  REPATH_BENCH_RS_SCIP=/tmp/hyusk.scip
+```
+
+The producers are not part of repath or CI. The Python file is a
+production-package index (909 files), not the whole repository; the Rust file
+covers the workspace root.
+
+### Results
+
+Three runs on the same shared host, medians with the range in parentheses. The
+page cache was warm after the first cold index; the first Django cold runs were
+6.45–6.56 s before settling. Both trees are below every PLAN §10 ceiling.
+
+| Metric | Python (`django`, 3,051 files) | Rust (`hyusk`, 88 files) |
+| --- | --- | --- |
+| Cold index | **4.54 s** (4.29–6.56) | **292 ms** (289–298) |
+| Peak RSS (cold) | **293 MiB** (290–293) | **66.4 MiB** (64.2–69.2) |
+| 10-file incremental | **209 ms** (207–209) | **41.4 ms** (38.9–95.3) |
+| `impact` p50 / p95 | **12.6 / 14.2 ms** | **0.97 / 1.71 ms** |
+| `callers` p50 / p95 | **10.6 / 11.7 ms** | **0.57 / 0.94 ms** |
+| `path` p50 / p95 | **19.2 / 27.4 ms** | **2.16 / 12.55 ms** |
+| `map --max-tokens 2000` p50 / p95 | **151.8 / 160.8 ms** | **7.63 / 8.48 ms** |
+| `check` | **519 ms** (200 findings, capped) | **27.1 ms** (200 findings, capped) |
+| Artifact | **22.3 MiB**, export 155 / pull 14.6 ms | **1.0 MiB**, export 8.8 / pull 3.3 ms |
+| Artifact zstd | **5.8 MiB** (26.1%), export 251 / pull 46.4 ms | **313.7 KiB** (29.4%), export 17.6 / pull 6.4 ms |
+| Peak RSS (all measurements) | **305 MiB** (301–349) | **92.5 MiB** (89.2–96.8) |
+
+The 3,051-file Django tree is **82×** the indexed file count of the #48
+`requests` corpus and **16×** the `rayon` corpus; its cold index is still
+under the 10k-file budget, incremental is under 300 ms, and `map` is under
+200 ms. The high unresolved rate (69.7%) is the documented Python ceiling:
+untyped receivers, inheritance, and dynamic dispatch dominate a framework
+codebase.
+
+### Adapter before/after
+
+Django uses the production-package SCIP index; `hyusk` uses the workspace
+index. "Before" is the cold tree-sitter graph.
+
+| | Python (`scip-python`, 909-file index) | Rust (`scip-rust`, 750-crate workspace) |
+| --- | --- | --- |
+| Definitions / references | 52,884 / 157,794 | 10,819 / 65,165 |
+| Matched pending refs | **2,013** | **141** |
+| New edges | **1,669** | **88** |
+| Conflicts | 10 | 2 |
+| Skipped / unmatched | 142,241 / 30,565 | 63,242 / 10,208 |
+| Unresolved | **105,319 → 103,306** | **4,222 → 4,081** |
+| Unresolved rate | **69.68% → 68.50%** | **60.94% → 59.36%** |
+| Edges | 45,834 → 47,503 | 2,706 → 2,794 |
+| Adapter wall | 5.72 s | 0.62 s |
+
+Django's 1,669 new edges are **1,627** `scip.py.method`, **32**
+`scip.py.call`, and **10** `scip.py.reference`; all source files are under
+`django/`. The harness classifies **79** of them as test-path because Django's
+production `django/test/` package is the test client/framework and
+`testpath.IsTest` treats `*/test/*` as test code — those are not the test
+suite. `hyusk`'s 88 edges are 66 method and 22 call; **54** have a non-test
+source and **34** are `#[test]` entrypoints, all under `src/`.
+
+### Finding: producer scale limits
+
+`scip-python` 0.6.8 **crashes on the full Django tree**: after parsing 2,931
+of 2,941 files it aborts with `FATAL ERROR: Ineffective mark-compacts near heap
+limit - JavaScript heap out of memory` at Node's ~2 GB default heap. The
+production-only run (909 files) succeeds under
+`NODE_OPTIONS=--max-old-space-size=3072` and produces a 30.3 MiB index in about
+two minutes; that is the index used above. The adapter is therefore not
+usable on a full large Python repository with this producer version without
+raising Node's heap, and even then the whole tree was not measured. This is a
+producer limit, not a repath crash, and it is recorded rather than hidden.
+
+`rust-analyzer` 1.97.0 does finish `hyusk` (750 crates, 157.7 s, 7.1 MiB), but
+the adapter gain is modest: only 141 of 65,165 references match a pending
+tree-sitter row, because most references are external, standard-library, or
+already resolved. The production-heavy split (54 of 88) is the useful signal;
+this is not a repeat of `rayon`'s generic-bound corpus.
+
+### Gaps
+
+- Django is a Python framework with a huge test suite; a production-only
+  application corpus (roughly 500–1,500 files) would separate "framework
+  patterns" from "application code" in the unresolved rate.
+- The full-tree Python adapter is not measured because 0.6.8 OOMs; a producer
+  upgrade or a bounded heap run on a mid-size repo is needed before claiming
+  large-tree adapter coverage.
+- `hyusk` has 7 parse failures among its non-Rust files; they were not
+  audited. The Rust-only matrix is the evidence, and the JS/Python scripts are
+  tooling, not the corpus.
+- One host, warm page cache, three runs; no CPU pinning or multi-machine
+  replication. `check` stopped at the 200-finding cap for both trees.
+- No `impact`/`callers`/`path` ground-truth spot-check against a compiler/LSP
+  was performed on these corpora.

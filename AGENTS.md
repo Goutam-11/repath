@@ -220,7 +220,13 @@ the database.
   `599425d` (191 files), with pinned `scip-python` 0.6.8 and `rust-analyzer`
   1.97.0 files; it runs the same matrix, rebuilds `.repath/` for the adapter
   before/after, and splits the Rust gain into production, test, and
-  `rayon-demo` edges. Both targets stay opt-in; CI needs no producer.
+  `rayon-demo` edges. Large corpora: `django/django` @ `f24f38c` (3,051 indexed
+  files, 906 production / 2,009 test `.py`) and `Goutam-11/hyusk` @ `06bdb2b`
+  (88 indexed files, 49k Rust LOC, 750-crate workspace). `scip-python` 0.6.8
+  OOMs on the full Django tree at Node's default heap; the recorded adapter run
+  uses `--target-only django` (909 files) with a 3 GB heap, and the producer
+  limit is documented. `rust-analyzer` needs ~158 s / 7.1 MiB for `hyusk`.
+  Both targets stay opt-in; CI needs no producer.
 - **Incremental change detection is git-aware.** With a matching
   `meta.git_head`, `git status -uno` plus one tagged `ls-files -t` pass decide
   what to re-read: clean tracked files skip both stat and hash, untracked files
