@@ -596,3 +596,142 @@ func TestNodeSpansByFilesOrdersSmallestFirst(t *testing.T) {
 		t.Fatalf("first span = %+v, want the smaller method span", got[0])
 	}
 }
+
+func TestUnresolvedSummaryClassifiesPending(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	modules, err := st.UpsertModules(ctx, []Module{
+		{Name: "pkg/one", Kind: "dir", Root: "pkg/one"},
+		{Name: "pkg/two", Kind: "dir", Root: "pkg/two"},
+	})
+	if err != nil {
+		t.Fatalf("modules: %v", err)
+	}
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	fileIDs := map[string]int64{}
+	for _, f := range []File{
+		{Path: "pkg/one/a.ts", Lang: "typescript", ModuleID: modules["pkg/one"], Size: 10, MTime: 1, Hash: "a", ParseOK: true},
+		{Path: "pkg/two/b.py", Lang: "python", ModuleID: modules["pkg/two"], Size: 10, MTime: 1, Hash: "b", ParseOK: true},
+		{Path: "pkg/one/broken.ts", Lang: "typescript", ModuleID: modules["pkg/one"], Size: 10, MTime: 1, Hash: "c", ParseOK: false},
+	} {
+		id, err := tx.UpsertFile(ctx, f)
+		if err != nil {
+			t.Fatalf("file %s: %v", f.Path, err)
+		}
+		fileIDs[f.Path] = id
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileIDs["pkg/one/a.ts"], "typescript", []Node{
+		{Kind: "function", Name: "known", QName: "known", Arity: 0, StartLine: 1, EndLine: 1},
+		{Kind: "method", Name: "memberKnown", QName: "Box.memberKnown", Arity: 0, StartLine: 5, EndLine: 5},
+	}); err != nil {
+		t.Fatalf("nodes: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	// Each bucket gets at least one row, and the parse-failure file proves the
+	// precedence: its member reference would otherwise be member-scope.
+	refs := []PendingRef{
+		{Name: "known", FileID: fileIDs["pkg/one/a.ts"], Kind: "call", Form: "ident", Line: 2},
+		{Name: "known", FileID: fileIDs["pkg/one/a.ts"], Kind: "call", Form: "ident", Line: 3},
+		{Name: "memberKnown", FileID: fileIDs["pkg/one/a.ts"], Kind: "call", Form: "member", Line: 4},
+		{Name: "memberKnown", FileID: fileIDs["pkg/one/a.ts"], Kind: "call", Form: "member", Line: 5},
+		{Name: "externalThing", FileID: fileIDs["pkg/two/b.py"], Kind: "call", Form: "ident", Line: 1},
+		{Name: "alpha", FileID: fileIDs["pkg/two/b.py"], Kind: "call", Form: "ident", Line: 2},
+		{Name: "zeta", FileID: fileIDs["pkg/two/b.py"], Kind: "call", Form: "ident", Line: 3},
+		{Name: "known", FileID: fileIDs["pkg/one/broken.ts"], Kind: "call", Form: "member", Line: 1},
+		{Name: "unknown", FileID: fileIDs["pkg/one/broken.ts"], Kind: "call", Form: "ident", Line: 2},
+	}
+	if err := st.ReplacePendingFiles(ctx, []int64{
+		fileIDs["pkg/one/a.ts"], fileIDs["pkg/two/b.py"], fileIDs["pkg/one/broken.ts"],
+	}, refs); err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+
+	total, err := st.CountPending(ctx)
+	if err != nil {
+		t.Fatalf("count pending: %v", err)
+	}
+	summary, err := st.UnresolvedSummary(ctx, 2)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary.Total != total || total != 9 {
+		t.Fatalf("total = %d, count_pending = %d, want 9", summary.Total, total)
+	}
+	wantReasons := map[string]int{
+		PendingReasonParseFailure:      2,
+		PendingReasonMemberScope:       2,
+		PendingReasonMissingDefinition: 3,
+		PendingReasonScopeGap:          2,
+	}
+	sum := 0
+	for _, reason := range PendingReasons {
+		if summary.ByReason[reason] != wantReasons[reason] {
+			t.Fatalf("reason %q = %d, want %d (%+v)",
+				reason, summary.ByReason[reason], wantReasons[reason], summary.ByReason)
+		}
+		sum += summary.ByReason[reason]
+	}
+	if sum != summary.Total {
+		t.Fatalf("reason sum = %d, want total %d", sum, summary.Total)
+	}
+	if len(summary.ByLang) != 2 || summary.ByLang["typescript"] != 6 || summary.ByLang["python"] != 3 {
+		t.Fatalf("by_lang = %+v, want typescript 6 python 3", summary.ByLang)
+	}
+
+	// topN truncates both lists; ties break by name ascending.
+	if len(summary.TopNames) != 2 || summary.TopNames[0] != (PendingBucket{Name: "known", Count: 3}) ||
+		summary.TopNames[1] != (PendingBucket{Name: "memberKnown", Count: 2}) {
+		t.Fatalf("top names (limit 2) = %+v", summary.TopNames)
+	}
+	if len(summary.TopModules) != 2 || summary.TopModules[0] != (PendingBucket{Name: "pkg/one", Count: 6}) ||
+		summary.TopModules[1] != (PendingBucket{Name: "pkg/two", Count: 3}) {
+		t.Fatalf("top modules (limit 2) = %+v", summary.TopModules)
+	}
+
+	full, err := st.UnresolvedSummary(ctx, 10)
+	if err != nil {
+		t.Fatalf("full summary: %v", err)
+	}
+	wantNames := []PendingBucket{
+		{Name: "known", Count: 3},
+		{Name: "memberKnown", Count: 2},
+		{Name: "alpha", Count: 1},
+		{Name: "externalThing", Count: 1},
+		{Name: "unknown", Count: 1},
+		{Name: "zeta", Count: 1},
+	}
+	if len(full.TopNames) != len(wantNames) {
+		t.Fatalf("top names = %+v, want %+v", full.TopNames, wantNames)
+	}
+	for i := range wantNames {
+		if full.TopNames[i] != wantNames[i] {
+			t.Fatalf("top names[%d] = %+v, want %+v (all: %+v)", i, full.TopNames[i], wantNames[i], full.TopNames)
+		}
+	}
+}
+
+func TestUnresolvedSummaryEmptyGraph(t *testing.T) {
+	st := openTestStore(t)
+	summary, err := st.UnresolvedSummary(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if summary.Total != 0 {
+		t.Fatalf("total = %d, want 0", summary.Total)
+	}
+	for _, reason := range PendingReasons {
+		if count, ok := summary.ByReason[reason]; !ok || count != 0 {
+			t.Fatalf("reason %q = %d (present=%v), want a zero bucket", reason, count, ok)
+		}
+	}
+	if len(summary.ByLang) != 0 || len(summary.TopNames) != 0 || len(summary.TopModules) != 0 {
+		t.Fatalf("empty graph summary is not empty: %+v", summary)
+	}
+}

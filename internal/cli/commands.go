@@ -11,6 +11,7 @@ import (
 	"github.com/Goutam-11/repath/internal/artifact"
 	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/query"
+	"github.com/Goutam-11/repath/internal/store"
 )
 
 // statusReport is the `status --json` contract, owned by the shared query layer.
@@ -98,6 +99,20 @@ func printStatus(out io.Writer, r statusReport) {
 		}
 		fmt.Fprintf(out, "edges %s · ambiguous %d (%.1f%%) · unresolved %d (%.1f%%)\n",
 			strings.Join(parts, " · "), r.Ambiguous, r.AmbiguityRate*100, r.Unresolved, r.UnresolvedRate*100)
+	}
+	if r.Unresolved > 0 && len(r.UnresolvedByReason) > 0 {
+		reasons := make([]string, 0, len(store.PendingReasons))
+		for _, reason := range store.PendingReasons {
+			reasons = append(reasons, fmt.Sprintf("%s %d", reason, r.UnresolvedByReason[reason]))
+		}
+		fmt.Fprintf(out, "unresolved reasons: %s\n", strings.Join(reasons, " · "))
+		if len(r.UnresolvedTopNames) > 0 {
+			names := make([]string, 0, len(r.UnresolvedTopNames))
+			for _, name := range r.UnresolvedTopNames {
+				names = append(names, fmt.Sprintf("%s (%d)", name.Name, name.Count))
+			}
+			fmt.Fprintf(out, "unresolved top names: %s\n", strings.Join(names, " · "))
+		}
 	}
 
 	if r.LastIndexed != "" {

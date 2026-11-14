@@ -308,3 +308,40 @@ func copyDirInto(t *testing.T, src, dst string) {
 		t.Fatalf("copy dir: %v", err)
 	}
 }
+
+func TestCheckReportsUnresolvedSummary(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "src/a.ts", "export function run(): void {\n  unknownThing();\n}\n")
+
+	code, out, errOut := run(t, "check", "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("check exit = %d, want 0: %s", code, errOut)
+	}
+	var report check.Report
+	if err := json.Unmarshal([]byte(out), &report); err != nil {
+		t.Fatalf("check output is not JSON: %v\n%s", err, out)
+	}
+	if report.Unresolved.Total != 1 {
+		t.Fatalf("check unresolved total = %d, want 1", report.Unresolved.Total)
+	}
+	if report.Unresolved.ByReason["missing-definition"] != 1 {
+		t.Fatalf("check unresolved_by_reason = %+v, want one missing-definition", report.Unresolved.ByReason)
+	}
+	sum := 0
+	for _, count := range report.Unresolved.ByReason {
+		sum += count
+	}
+	if sum != report.Unresolved.Total {
+		t.Fatalf("check reason sum = %d, want total %d", sum, report.Unresolved.Total)
+	}
+
+	// check and status share one classifier, so their totals must agree.
+	_, statusOut, _ := run(t, "status", "--json", "--root", dir)
+	var status statusReport
+	if err := json.Unmarshal([]byte(statusOut), &status); err != nil {
+		t.Fatalf("status output is not JSON: %v\n%s", err, statusOut)
+	}
+	if status.Unresolved != report.Unresolved.Total {
+		t.Fatalf("status unresolved = %d, check unresolved = %d", status.Unresolved, report.Unresolved.Total)
+	}
+}
