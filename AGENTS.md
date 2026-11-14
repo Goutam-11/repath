@@ -167,9 +167,11 @@ the database.
   (`files.parse_ok = 0`), `member-scope` (`form = 'member'` and the name exists
   somewhere), `missing-definition` (no node has the name), `scope-gap` (name
   exists but the import/scope did not resolve), in that precedence; the buckets
-  must sum to `unresolved`. The one implementation is
-  `store.UnresolvedSummary` — do not reimplement it in `query`, `check`, `mcp`,
-  or `serve`, and do not persist the buckets (that would be a schema change).
+  must sum to `unresolved`. The one implementation is the pure
+  `store.SummarizePending`, called by `store.UnresolvedSummary` for status and
+  by `check.Run` with the pending rows it already loads — do not reimplement it
+  in `query`, `check`, `mcp`, or `serve`, and do not persist the buckets (that
+  would be a schema change).
   Treat the buckets as a pointer to a resolver gap, not a compiler diagnosis:
   inheritance, barrel re-exports, workspace imports, and macro-generated
   symbols legitimately land in `member-scope`/`scope-gap`.

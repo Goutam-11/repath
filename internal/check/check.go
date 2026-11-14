@@ -122,10 +122,18 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Repor
 	if err != nil {
 		return Report{}, err
 	}
-	unresolvedSummary, err := st.UnresolvedSummary(ctx, 10)
+	// check already loaded every node and pending row, so classify them in
+	// place with the shared pure function and read only the small file
+	// dimension instead of paying for a second classification pass.
+	fileDim, err := st.PendingFileDims(ctx)
 	if err != nil {
 		return Report{}, err
 	}
+	defined := make(map[string]bool, len(nodes))
+	for _, node := range nodes {
+		defined[node.Name] = true
+	}
+	unresolvedSummary := store.SummarizePending(pending, fileDim, moduleNames, defined, 10)
 
 	report := Report{
 		Root:          root,

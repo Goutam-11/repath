@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -699,25 +700,31 @@ type UnresolvedSummary struct {
 	TopModules []PendingBucket `json:"top_modules,omitempty"`
 }
 
-// UnresolvedSummary classifies every pending reference into exactly one reason
-// bucket and reports the largest name and module buckets. topN bounds each
-// list; the reason totals are never truncated. The classifier is:
+// PendingFileDim is the file dimension the pending classifier needs. Files and
+// modules are dimensions, not nodes, so this is read separately from pending.
+type PendingFileDim struct {
+	Lang     string
+	ParseOK  bool
+	ModuleID int64
+}
+
+// SummarizePending classifies pending references into exactly one reason bucket
+// and derives the per-language and top-N name/module lists. It is pure so
+// status, check, and any later caller share one classifier instead of
+// reimplementing it.
 //
-//	parse-failure       the reference's file has parse_ok = 0
-//	member-scope        form = 'member' and the name exists somewhere
-//	missing-definition  no node has that name anywhere
-//	scope-gap           the name exists but the import/scope did not resolve
-//
-// Precedence is the order above. This is a heuristic diagnosis of the pending
-// table, not a compiler error: a member-scope reference may be an inherited
-// method or a typed receiver the resolver cannot infer, and a scope-gap may be
-// a barrel re-export or a workspace package. The aggregation runs in SQL and
-// never loads the pending rows into Go.
-func (s *Store) UnresolvedSummary(ctx context.Context, topN int) (UnresolvedSummary, error) {
+// Precedence is parse-failure > member-scope > missing-definition > scope-gap,
+// so the four reason counts always sum to Total. Nothing is retained after the
+// call: the pending slice is owned by the caller. Its row storage is ~7 MB and
+// the scanned strings add ~3 MB for 105k pending rows; peak RSS also carries
+// Go allocator headroom (measured +25 MB peak RSS on the Django corpus), all released
+// when the call returns.
+func SummarizePending(pending []PendingRef, fileDim map[int64]PendingFileDim, moduleNames map[int64]string, defined map[string]bool, topN int) UnresolvedSummary {
 	if topN <= 0 {
 		topN = 10
 	}
 	out := UnresolvedSummary{
+		Total:    len(pending),
 		ByReason: make(map[string]int, len(PendingReasons)),
 		ByLang:   map[string]int{},
 	}
@@ -725,109 +732,161 @@ func (s *Store) UnresolvedSummary(ctx context.Context, topN int) (UnresolvedSumm
 		out.ByReason[reason] = 0
 	}
 
-	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pending`).Scan(&out.Total); err != nil {
-		return UnresolvedSummary{}, err
-	}
-	if out.Total == 0 {
-		return out, nil
-	}
-
-	// Roll pending up per name first: Django has 105k pending rows but only a
-	// few thousand distinct names, so the nodes-name join stays small. The
-	// files join is a primary-key probe and the per-name grouping is indexed
-	// by pending_name, so this stays a bounded read on large trees.
-	var parseFailure, memberScope, missingDefinition, scopeGap int
-	err := s.db.QueryRowContext(ctx, `
-WITH pending_names(name) AS (SELECT DISTINCT name FROM pending),
-defined(name) AS (
-    SELECT DISTINCT n.name
-    FROM nodes n
-    JOIN pending_names pn ON pn.name = n.name
-),
-pn AS (
-    SELECT p.name AS name,
-           COUNT(*) AS total,
-           SUM(CASE WHEN p.form = 'member' AND COALESCE(f.parse_ok, 1) <> 0 THEN 1 ELSE 0 END) AS members,
-           SUM(CASE WHEN COALESCE(f.parse_ok, 1) = 0 THEN 1 ELSE 0 END) AS parse_fail
-    FROM pending p
-    LEFT JOIN files f ON f.id = p.file_id
-    GROUP BY p.name
-)
-SELECT
-    COALESCE(SUM(pn.parse_fail), 0),
-    COALESCE(SUM(CASE WHEN d.name IS NOT NULL THEN pn.members ELSE 0 END), 0),
-    COALESCE(SUM(CASE WHEN d.name IS NULL THEN pn.total - pn.parse_fail ELSE 0 END), 0),
-    COALESCE(SUM(CASE WHEN d.name IS NOT NULL THEN pn.total - pn.parse_fail - pn.members ELSE 0 END), 0)
-FROM pn
-LEFT JOIN defined d ON d.name = pn.name`).
-		Scan(&parseFailure, &memberScope, &missingDefinition, &scopeGap)
-	if err != nil {
-		return UnresolvedSummary{}, err
-	}
-	out.ByReason[PendingReasonParseFailure] = parseFailure
-	out.ByReason[PendingReasonMemberScope] = memberScope
-	out.ByReason[PendingReasonMissingDefinition] = missingDefinition
-	out.ByReason[PendingReasonScopeGap] = scopeGap
-
-	langRows, err := s.db.QueryContext(ctx, `
-SELECT f.lang, COUNT(*)
-FROM pending p
-JOIN files f ON f.id = p.file_id
-GROUP BY f.lang
-ORDER BY COUNT(*) DESC, f.lang`)
-	if err != nil {
-		return UnresolvedSummary{}, err
-	}
-	for langRows.Next() {
-		var lang string
-		var count int
-		if err := langRows.Scan(&lang, &count); err != nil {
-			langRows.Close()
-			return UnresolvedSummary{}, err
+	nameCounts := make(map[string]int)
+	moduleCounts := make(map[string]int)
+	for _, ref := range pending {
+		dim, hasDim := fileDim[ref.FileID]
+		switch {
+		case hasDim && !dim.ParseOK:
+			out.ByReason[PendingReasonParseFailure]++
+		case defined[ref.Name] && ref.Form == "member":
+			out.ByReason[PendingReasonMemberScope]++
+		case !defined[ref.Name]:
+			out.ByReason[PendingReasonMissingDefinition]++
+		default:
+			out.ByReason[PendingReasonScopeGap]++
 		}
-		out.ByLang[lang] = count
-	}
-	err = langRows.Err()
-	langRows.Close()
-	if err != nil {
-		return UnresolvedSummary{}, err
+		if hasDim {
+			out.ByLang[dim.Lang]++
+			moduleCounts[pendingModuleName(moduleNames, dim.ModuleID)]++
+		}
+		nameCounts[ref.Name]++
 	}
 
-	if out.TopNames, err = s.pendingBuckets(ctx,
-		`SELECT name, COUNT(*) c FROM pending GROUP BY name ORDER BY c DESC, name LIMIT ?`, topN); err != nil {
-		return UnresolvedSummary{}, err
-	}
-	if out.TopModules, err = s.pendingBuckets(ctx, `
-SELECT COALESCE(NULLIF(m.name, ''), '(root)') AS module, COUNT(*) c
-FROM pending p
-JOIN files f ON f.id = p.file_id
-LEFT JOIN modules m ON m.id = f.module_id
-GROUP BY module
-ORDER BY c DESC, module
-LIMIT ?`, topN); err != nil {
-		return UnresolvedSummary{}, err
-	}
-	return out, nil
+	out.TopNames = topPendingBuckets(nameCounts, topN)
+	out.TopModules = topPendingBuckets(moduleCounts, topN)
+	return out
 }
 
-// pendingBuckets runs a grouped pending query whose two columns are a name and
-// a count, with a deterministic name tie-break supplied by the caller's ORDER BY.
-func (s *Store) pendingBuckets(ctx context.Context, query string, limit int) ([]PendingBucket, error) {
-	rows, err := s.db.QueryContext(ctx, query, limit)
+// pendingModuleName resolves a module id to its display name; files without a
+// module (or with an unnamed one) fall back to "(root)" like module detection.
+func pendingModuleName(moduleNames map[int64]string, moduleID int64) string {
+	if name := moduleNames[moduleID]; name != "" {
+		return name
+	}
+	return "(root)"
+}
+
+// topPendingBuckets sorts a name→count map by count descending, then name
+// ascending, and truncates to topN. An empty map yields a nil list.
+func topPendingBuckets(counts map[string]int, topN int) []PendingBucket {
+	if len(counts) == 0 {
+		return nil
+	}
+	out := make([]PendingBucket, 0, len(counts))
+	for name, count := range counts {
+		out = append(out, PendingBucket{Name: name, Count: count})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Name < out[j].Name
+	})
+	if len(out) > topN {
+		out = out[:topN]
+	}
+	return out
+}
+
+// pendingClassificationRefs reads only the pending columns SummarizePending
+// uses (name, file id, form). The status path does not need kind or line, and
+// skipping them keeps the transient allocation proportional to the table
+// without a third string per row.
+func (s *Store) pendingClassificationRefs(ctx context.Context) ([]PendingRef, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT name, file_id, form FROM pending`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var out []PendingBucket
+	var out []PendingRef
 	for rows.Next() {
-		var bucket PendingBucket
-		if err := rows.Scan(&bucket.Name, &bucket.Count); err != nil {
+		var ref PendingRef
+		if err := rows.Scan(&ref.Name, &ref.FileID, &ref.Form); err != nil {
 			return nil, err
 		}
-		out = append(out, bucket)
+		out = append(out, ref)
 	}
 	return out, rows.Err()
+}
+
+// PendingFileDims reads the file dimension for unresolved-reference
+// classification: language, parse success, and module id.
+func (s *Store) PendingFileDims(ctx context.Context) (map[int64]PendingFileDim, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, lang, parse_ok, module_id FROM files`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[int64]PendingFileDim)
+	for rows.Next() {
+		var id int64
+		var dim PendingFileDim
+		if err := rows.Scan(&id, &dim.Lang, &dim.ParseOK, &dim.ModuleID); err != nil {
+			return nil, err
+		}
+		out[id] = dim
+	}
+	return out, rows.Err()
+}
+
+// pendingDefinedNames returns the node names that pending references ask for.
+// Restricting the query to pending names keeps it a bounded read on large trees.
+func (s *Store) pendingDefinedNames(ctx context.Context) (map[string]bool, error) {
+	rows, err := s.db.QueryContext(ctx, `
+SELECT DISTINCT n.name
+FROM nodes n
+JOIN (SELECT DISTINCT name FROM pending) pn ON pn.name = n.name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out[name] = true
+	}
+	return out, rows.Err()
+}
+
+// UnresolvedSummary classifies every pending reference into exactly one reason
+// bucket and reports the largest name and module buckets. topN bounds each
+// list; the reason totals are never truncated.
+//
+// The classification is SummarizePending; this method only performs the four
+// read-only lookups it needs (pending rows, the file dimension, module names,
+// and the node names pending references use) so status and check cannot
+// diverge. The pending slice is transient: UnresolvedSummary does not retain it.
+func (s *Store) UnresolvedSummary(ctx context.Context, topN int) (UnresolvedSummary, error) {
+	pending, err := s.pendingClassificationRefs(ctx)
+	if err != nil {
+		return UnresolvedSummary{}, err
+	}
+	fileDim, err := s.PendingFileDims(ctx)
+	if err != nil {
+		return UnresolvedSummary{}, err
+	}
+	modules, err := s.Modules(ctx)
+	if err != nil {
+		return UnresolvedSummary{}, err
+	}
+	moduleNames := make(map[int64]string, len(modules))
+	for _, module := range modules {
+		moduleNames[module.ID] = module.Name
+	}
+	defined := map[string]bool{}
+	if len(pending) > 0 {
+		if defined, err = s.pendingDefinedNames(ctx); err != nil {
+			return UnresolvedSummary{}, err
+		}
+	}
+	return SummarizePending(pending, fileDim, moduleNames, defined, topN), nil
 }
 
 // AmbiguousEdges counts 0.40-confidence ambiguity edges, which are excluded by
