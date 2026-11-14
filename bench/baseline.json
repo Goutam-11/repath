@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "generated_at": "2026-11-14T19:47:01+00:00",
+  "generated_at": "2026-11-14T19:49:04+00:00",
   "generated_by": "scripts/bench-corpora.sh",
-  "repath_commit": "4e8636834c019c0c1657af44429705c5ff0604a2",
-  "repath_version": "4e86368-dirty",
+  "repath_commit": "26e2f65c0452dfc29e931eab7d403d4b788b7f6a",
+  "repath_version": "26e2f65",
   "host": {
     "hostname": "fedora",
     "platform": "Linux x86_64",
@@ -12,16 +12,24 @@
     "cpu_logical": 12,
     "ram_bytes": 7677779968,
     "loadavg_1_5_15": [
-      1.9,
-      1.75,
-      2.26
+      3.81,
+      2.29,
+      2.37
     ],
-    "loadavg_before": null,
-    "loadavg_after": null,
+    "loadavg_before": [
+      1.34,
+      1.63,
+      2.19
+    ],
+    "loadavg_after": [
+      3.81,
+      2.29,
+      2.37
+    ],
     "python": "3.14.8"
   },
   "tools": {
-    "go": null,
+    "go": "go version go1.27.0 linux/amd64",
     "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
     "python": "Python 3.14.8",
     "node": "v24.18.0",
@@ -37,64 +45,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 4146.295,
-          "min": 4128.588,
-          "max": 4806.58
+          "median": 3966.501,
+          "min": 3862.064,
+          "max": 4065.937
         },
         "peak_rss_bytes": {
-          "median": 302108672,
-          "min": 295669760,
-          "max": 305442816
+          "median": 298758144,
+          "min": 283873280,
+          "max": 302907392
         },
         "incremental_ms": {
-          "median": 197.415,
-          "min": 195.085,
-          "max": 204.088
+          "median": 192.994,
+          "min": 190.165,
+          "max": 207.748
         },
         "impact_p50_ms": {
-          "median": 12.343,
-          "min": 12.3,
-          "max": 12.357
+          "median": 12.046,
+          "min": 11.778,
+          "max": 12.209
         },
         "impact_p95_ms": {
-          "median": 15.099,
-          "min": 13.891,
-          "max": 18.106
+          "median": 13.508,
+          "min": 13.43,
+          "max": 13.861
         },
         "callers_p50_ms": {
-          "median": 10.305,
-          "min": 10.168,
-          "max": 10.308
+          "median": 10.015,
+          "min": 9.527,
+          "max": 10.143
         },
         "callers_p95_ms": {
-          "median": 14.229,
-          "min": 10.954,
-          "max": 15.221
+          "median": 10.765,
+          "min": 10.215,
+          "max": 11.02
         },
         "path_p50_ms": {
-          "median": 19.263,
-          "min": 18.789,
-          "max": 19.398
+          "median": 18.361,
+          "min": 17.805,
+          "max": 18.893
         },
         "path_p95_ms": {
-          "median": 29.861,
-          "min": 24.974,
-          "max": 31.553
+          "median": 25.132,
+          "min": 24.119,
+          "max": 26.207
         },
         "map_p50_ms": {
-          "median": 142.243,
-          "min": 140.531,
-          "max": 142.917
+          "median": 142.838,
+          "min": 142.771,
+          "max": 144.786
         },
         "map_p95_ms": {
-          "median": 145.926,
-          "min": 145.015,
-          "max": 148.503
+          "median": 155.198,
+          "min": 143.489,
+          "max": 171.894
         },
         "check_ms": {
-          "median": 496.234,
-          "min": 479.423,
-          "max": 496.592
+          "median": 491.719,
+          "min": 485.758,
+          "max": 506.655
         },
         "check_findings": {
           "median": 200,
@@ -103,43 +111,43 @@
         },
         "artifact_bytes": {
           "median": 23347200,
-          "min": 23339008,
+          "min": 23343104,
           "max": 23347200
         },
         "artifact_export_ms": {
-          "median": 153.305,
-          "min": 149.374,
-          "max": 155.624
+          "median": 148.856,
+          "min": 147.499,
+          "max": 152.643
         },
         "artifact_pull_ms": {
-          "median": 13.574,
-          "min": 13.428,
-          "max": 16.616
+          "median": 13.193,
+          "min": 12.128,
+          "max": 13.557
         },
         "artifact_zstd_bytes": {
-          "median": 6083792,
-          "min": 6074751,
-          "max": 6111544
+          "median": 6078057,
+          "min": 6076771,
+          "max": 6093614
         },
         "artifact_zstd_export_ms": {
-          "median": 234.94,
-          "min": 233.858,
-          "max": 237.465
+          "median": 233.607,
+          "min": 231.764,
+          "max": 237.237
         },
         "artifact_zstd_pull_ms": {
-          "median": 38.727,
-          "min": 37.807,
-          "max": 39.297
+          "median": 35.999,
+          "min": 35.64,
+          "max": 39.617
         },
         "artifact_ratio": {
-          "median": 26.057908442982455,
-          "min": 26.01918431332237,
-          "max": 26.185963002369252
+          "median": 26.03334446957237,
+          "min": 26.032403402735127,
+          "max": 26.09997772752193
         },
         "adapter_wall_ms": {
-          "median": 5390.015,
-          "min": 5313.947,
-          "max": 5533.808
+          "median": 5495.583,
+          "min": 5426.09,
+          "max": 5531.589
         },
         "adapter_matched": {
           "median": 2013,
@@ -222,7 +230,7 @@
         "conflicts": 10,
         "skipped": 142241,
         "unmatched": 30565,
-        "wall_ms": 5390.015,
+        "wall_ms": 5495.583,
         "unresolved_before": 105319,
         "unresolved_after": 103306,
         "edges_before": 45834,
@@ -249,64 +257,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 283.401,
-          "min": 270.432,
-          "max": 310.54
+          "median": 273.149,
+          "min": 273.017,
+          "max": 273.344
         },
         "peak_rss_bytes": {
-          "median": 66105344,
-          "min": 65011712,
-          "max": 67891200
+          "median": 67506176,
+          "min": 65982464,
+          "max": 68419584
         },
         "incremental_ms": {
-          "median": 34.735,
-          "min": 32.832,
-          "max": 35.578
+          "median": 31.229,
+          "min": 29.628,
+          "max": 43.106
         },
         "impact_p50_ms": {
-          "median": 0.999,
-          "min": 0.899,
-          "max": 1.075
+          "median": 0.898,
+          "min": 0.856,
+          "max": 0.973
         },
         "impact_p95_ms": {
-          "median": 2.012,
-          "min": 1.776,
-          "max": 2.047
+          "median": 1.586,
+          "min": 1.539,
+          "max": 1.865
         },
         "callers_p50_ms": {
-          "median": 0.626,
-          "min": 0.588,
-          "max": 0.629
+          "median": 0.555,
+          "min": 0.554,
+          "max": 0.572
         },
         "callers_p95_ms": {
-          "median": 1.093,
-          "min": 0.761,
-          "max": 1.143
+          "median": 0.706,
+          "min": 0.618,
+          "max": 0.791
         },
         "path_p50_ms": {
-          "median": 2.349,
-          "min": 1.832,
-          "max": 2.364
+          "median": 1.98,
+          "min": 1.818,
+          "max": 2.106
         },
         "path_p95_ms": {
-          "median": 12.196,
-          "min": 12.101,
-          "max": 12.849
+          "median": 11.887,
+          "min": 11.828,
+          "max": 12.089
         },
         "map_p50_ms": {
-          "median": 7.02,
-          "min": 6.613,
-          "max": 7.71
+          "median": 7.16,
+          "min": 6.652,
+          "max": 7.177
         },
         "map_p95_ms": {
-          "median": 7.823,
-          "min": 6.726,
-          "max": 8.326
+          "median": 7.49,
+          "min": 6.728,
+          "max": 7.699
         },
         "check_ms": {
-          "median": 25.419,
-          "min": 25.11,
-          "max": 32.304
+          "median": 25.929,
+          "min": 25.183,
+          "max": 26.166
         },
         "check_findings": {
           "median": 200,
@@ -319,39 +327,39 @@
           "max": 1093632
         },
         "artifact_export_ms": {
-          "median": 8.978,
-          "min": 8.334,
-          "max": 9.783
+          "median": 8.725,
+          "min": 8.206,
+          "max": 8.98
         },
         "artifact_pull_ms": {
-          "median": 2.954,
-          "min": 2.895,
-          "max": 3.811
+          "median": 2.914,
+          "min": 2.845,
+          "max": 3.079
         },
         "artifact_zstd_bytes": {
-          "median": 320874,
-          "min": 320859,
-          "max": 321230
+          "median": 320663,
+          "min": 320405,
+          "max": 321238
         },
         "artifact_zstd_export_ms": {
-          "median": 16.711,
-          "min": 14.777,
-          "max": 19.07
+          "median": 22.236,
+          "min": 15.593,
+          "max": 23.392
         },
         "artifact_zstd_pull_ms": {
-          "median": 5.148,
-          "min": 4.89,
-          "max": 6.211
+          "median": 5.051,
+          "min": 5.032,
+          "max": 5.154
         },
         "artifact_ratio": {
-          "median": 29.340216818820224,
-          "min": 29.33884524227528,
-          "max": 29.37276890215356
+          "median": 29.320923308754683,
+          "min": 29.29733219218165,
+          "max": 29.373500409644194
         },
         "adapter_wall_ms": {
-          "median": 588.427,
-          "min": 584.185,
-          "max": 634.724
+          "median": 592.407,
+          "min": 573.539,
+          "max": 606.907
         },
         "adapter_matched": {
           "median": 141,
@@ -442,7 +450,7 @@
         "conflicts": 2,
         "skipped": 63242,
         "unmatched": 10208,
-        "wall_ms": 588.427,
+        "wall_ms": 592.407,
         "unresolved_before": 4222,
         "unresolved_after": 4081,
         "edges_before": 2706,
@@ -469,64 +477,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 97,
-          "min": 94.485,
-          "max": 102.252
+          "median": 92.849,
+          "min": 91.566,
+          "max": 93.146
         },
         "peak_rss_bytes": {
-          "median": 33714176,
-          "min": 33468416,
-          "max": 34267136
+          "median": 34078720,
+          "min": 33800192,
+          "max": 34193408
         },
         "incremental_ms": {
-          "median": 31.145,
-          "min": 27.198,
-          "max": 31.658
+          "median": 28.21,
+          "min": 26.938,
+          "max": 29.661
         },
         "impact_p50_ms": {
-          "median": 0.564,
-          "min": 0.558,
-          "max": 0.595
+          "median": 0.549,
+          "min": 0.527,
+          "max": 0.558
         },
         "impact_p95_ms": {
-          "median": 1.233,
-          "min": 1.218,
-          "max": 1.36
+          "median": 1.248,
+          "min": 1.229,
+          "max": 1.429
         },
         "callers_p50_ms": {
-          "median": 0.311,
-          "min": 0.296,
-          "max": 0.352
+          "median": 0.315,
+          "min": 0.305,
+          "max": 0.323
         },
         "callers_p95_ms": {
-          "median": 0.437,
-          "min": 0.39,
-          "max": 0.504
+          "median": 0.476,
+          "min": 0.438,
+          "max": 0.55
         },
         "path_p50_ms": {
-          "median": 1.146,
-          "min": 1.136,
-          "max": 1.198
+          "median": 1.171,
+          "min": 1.127,
+          "max": 1.231
         },
         "path_p95_ms": {
-          "median": 4.55,
-          "min": 3.8,
-          "max": 4.828
+          "median": 4.048,
+          "min": 3.757,
+          "max": 4.149
         },
         "map_p50_ms": {
-          "median": 2.41,
-          "min": 2.281,
-          "max": 2.536
+          "median": 2.371,
+          "min": 2.287,
+          "max": 2.418
         },
         "map_p95_ms": {
-          "median": 2.92,
-          "min": 2.857,
-          "max": 4.752
+          "median": 2.662,
+          "min": 2.558,
+          "max": 2.694
         },
         "check_ms": {
-          "median": 7.955,
-          "min": 7.427,
-          "max": 9.079
+          "median": 7.075,
+          "min": 7.004,
+          "max": 7.721
         },
         "check_findings": {
           "median": 16,
@@ -534,44 +542,44 @@
           "max": 16
         },
         "artifact_bytes": {
-          "median": 479232,
+          "median": 471040,
           "min": 471040,
           "max": 479232
         },
         "artifact_export_ms": {
-          "median": 3.976,
-          "min": 3.914,
-          "max": 4.267
+          "median": 4.179,
+          "min": 3.606,
+          "max": 4.362
         },
         "artifact_pull_ms": {
-          "median": 2.624,
-          "min": 2.477,
-          "max": 2.797
+          "median": 2.648,
+          "min": 2.536,
+          "max": 3.064
         },
         "artifact_zstd_bytes": {
-          "median": 107062,
-          "min": 106967,
-          "max": 107235
+          "median": 107136,
+          "min": 106920,
+          "max": 107201
         },
         "artifact_zstd_export_ms": {
-          "median": 7.774,
-          "min": 7.487,
-          "max": 7.998
+          "median": 8.124,
+          "min": 7.695,
+          "max": 8.594
         },
         "artifact_zstd_pull_ms": {
-          "median": 3.626,
-          "min": 3.532,
-          "max": 3.944
+          "median": 4.056,
+          "min": 3.63,
+          "max": 4.1
         },
         "artifact_ratio": {
-          "median": 22.376427283653847,
-          "min": 22.340327857905983,
-          "max": 22.708687160326086
+          "median": 22.744565217391305,
+          "min": 22.310697115384617,
+          "max": 22.758364470108695
         },
         "adapter_wall_ms": {
-          "median": 125.868,
-          "min": 122.352,
-          "max": 125.977
+          "median": 122.326,
+          "min": 121.019,
+          "max": 122.503
         },
         "adapter_matched": {
           "median": 20,
@@ -653,7 +661,7 @@
         "conflicts": 0,
         "skipped": 6305,
         "unmatched": 945,
-        "wall_ms": 125.868,
+        "wall_ms": 122.326,
         "unresolved_before": 543,
         "unresolved_after": 523,
         "edges_before": 1031,
@@ -763,15 +771,15 @@
         },
         "disagreements": [
           "SupportsRead <- has_read (src/requests/_types.py:32) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.__setstate__ (src/requests/adapters.py:226) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.build_connection_pool_key_attributes (src/requests/adapters.py:403) [false-negative/tree-sitter]",
           "HTTPAdapter <- HTTPAdapter.init_poolmanager (src/requests/adapters.py:239) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.send (src/requests/adapters.py:634) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.get_connection (src/requests/adapters.py:512) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.close (src/requests/adapters.py:555) [false-negative/tree-sitter]",
           "HTTPAdapter <- HTTPAdapter.__init__ (src/requests/adapters.py:201) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.send (src/requests/adapters.py:634) [false-negative/tree-sitter]",
           "HTTPAdapter <- HTTPAdapter.proxy_manager_for (src/requests/adapters.py:269) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.__setstate__ (src/requests/adapters.py:226) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.__getstate__ (src/requests/adapters.py:223) [false-negative/tree-sitter]",
           "HTTPAdapter <- HTTPAdapter.get_connection_with_tls_context (src/requests/adapters.py:455) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.close (src/requests/adapters.py:555) [false-negative/tree-sitter]"
+          "HTTPAdapter <- HTTPAdapter.get_connection (src/requests/adapters.py:512) [false-negative/tree-sitter]"
         ]
       }
     },
@@ -783,64 +791,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 245.967,
-          "min": 240.255,
-          "max": 291.997
+          "median": 240.062,
+          "min": 239.657,
+          "max": 246.49
         },
         "peak_rss_bytes": {
-          "median": 47702016,
-          "min": 46841856,
-          "max": 47960064
+          "median": 47620096,
+          "min": 47374336,
+          "max": 48095232
         },
         "incremental_ms": {
-          "median": 32.058,
-          "min": 31.048,
-          "max": 32.34
+          "median": 31.461,
+          "min": 31.352,
+          "max": 32.383
         },
         "impact_p50_ms": {
-          "median": 1.007,
-          "min": 0.998,
-          "max": 1.011
+          "median": 0.983,
+          "min": 0.963,
+          "max": 1.001
         },
         "impact_p95_ms": {
-          "median": 1.728,
-          "min": 1.692,
-          "max": 1.835
+          "median": 2.04,
+          "min": 1.631,
+          "max": 2.134
         },
         "callers_p50_ms": {
-          "median": 0.749,
-          "min": 0.734,
-          "max": 0.76
+          "median": 0.73,
+          "min": 0.697,
+          "max": 0.734
         },
         "callers_p95_ms": {
-          "median": 0.849,
-          "min": 0.837,
-          "max": 1.234
+          "median": 0.863,
+          "min": 0.804,
+          "max": 1.052
         },
         "path_p50_ms": {
-          "median": 1.599,
-          "min": 1.478,
-          "max": 1.724
+          "median": 1.573,
+          "min": 1.456,
+          "max": 1.709
         },
         "path_p95_ms": {
-          "median": 3.993,
-          "min": 3.821,
-          "max": 4.145
+          "median": 4.054,
+          "min": 3.796,
+          "max": 4.233
         },
         "map_p50_ms": {
-          "median": 7.218,
-          "min": 7.108,
-          "max": 7.56
+          "median": 7.474,
+          "min": 7.409,
+          "max": 7.686
         },
         "map_p95_ms": {
-          "median": 8.184,
-          "min": 7.844,
-          "max": 8.233
+          "median": 8.858,
+          "min": 7.946,
+          "max": 9.117
         },
         "check_ms": {
-          "median": 21.747,
-          "min": 21.19,
-          "max": 22.561
+          "median": 21.512,
+          "min": 20.224,
+          "max": 21.808
         },
         "check_findings": {
           "median": 200,
@@ -849,43 +857,43 @@
         },
         "artifact_bytes": {
           "median": 1003520,
-          "min": 1003520,
+          "min": 999424,
           "max": 1003520
         },
         "artifact_export_ms": {
-          "median": 8.427,
-          "min": 8.184,
-          "max": 8.97
+          "median": 8.363,
+          "min": 8.182,
+          "max": 8.867
         },
         "artifact_pull_ms": {
-          "median": 2.909,
-          "min": 2.689,
-          "max": 3.428
+          "median": 2.866,
+          "min": 2.822,
+          "max": 2.906
         },
         "artifact_zstd_bytes": {
-          "median": 298553,
-          "min": 298515,
-          "max": 298583
+          "median": 298516,
+          "min": 298073,
+          "max": 299013
         },
         "artifact_zstd_export_ms": {
-          "median": 14.892,
-          "min": 14.154,
-          "max": 15.21
+          "median": 14.334,
+          "min": 14.043,
+          "max": 14.552
         },
         "artifact_zstd_pull_ms": {
-          "median": 4.567,
-          "min": 4.472,
-          "max": 4.848
+          "median": 4.796,
+          "min": 4.542,
+          "max": 4.955
         },
         "artifact_ratio": {
-          "median": 29.750577965561224,
-          "min": 29.746791294642858,
-          "max": 29.75356744260204
+          "median": 29.796416613520407,
+          "min": 29.746890943877553,
+          "max": 29.824478899846312
         },
         "adapter_wall_ms": {
-          "median": 645.99,
-          "min": 643.285,
-          "max": 663.44
+          "median": 650.027,
+          "min": 638.031,
+          "max": 680.199
         },
         "adapter_matched": {
           "median": 834,
@@ -971,7 +979,7 @@
         "conflicts": 0,
         "skipped": 55898,
         "unmatched": 9428,
-        "wall_ms": 645.99,
+        "wall_ms": 650.027,
         "unresolved_before": 2048,
         "unresolved_after": 1214,
         "edges_before": 2161,
@@ -1080,16 +1088,16 @@
           "impact_truncated": 0
         },
         "disagreements": [
-          "BroadcastContext <- BroadcastContext.index (rayon-core/src/broadcast/mod.rs:65) [false-negative/tree-sitter]",
-          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]",
-          "BroadcastContext <- spawn_broadcast_in (rayon-core/src/broadcast/mod.rs:131) [false-negative/tree-sitter]",
-          "BroadcastContext <- ScopeBroadcast.inject (rayon-core/src/scope/mod.rs:835) [false-negative/tree-sitter]",
-          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
-          "BroadcastContext <- broadcast_in (rayon-core/src/broadcast/mod.rs:98) [false-negative/tree-sitter]",
-          "BroadcastContext <- ThreadPool.spawn_broadcast (rayon-core/src/thread_pool/mod.rs:366) [false-negative/tree-sitter]",
-          "BroadcastContext <- Scope.spawn_broadcast (rayon-core/src/scope/mod.rs:582) [false-negative/tree-sitter]",
           "BroadcastContext <- BroadcastContext.num_threads (rayon-core/src/broadcast/mod.rs:77) [false-negative/tree-sitter]",
-          "BroadcastContext <- ScopeFifo.spawn_broadcast (rayon-core/src/scope/mod.rs:633) [false-negative/tree-sitter]"
+          "BroadcastContext <- spawn_broadcast (rayon-core/src/broadcast/mod.rs:37) [false-negative/tree-sitter]",
+          "BroadcastContext <- ScopeBroadcast.inject (rayon-core/src/scope/mod.rs:835) [false-negative/tree-sitter]",
+          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]",
+          "BroadcastContext <- BroadcastContext.index (rayon-core/src/broadcast/mod.rs:65) [false-negative/tree-sitter]",
+          "BroadcastContext <- Scope.spawn_broadcast (rayon-core/src/scope/mod.rs:582) [false-negative/tree-sitter]",
+          "BroadcastContext <- ScopeFifo.spawn_broadcast (rayon-core/src/scope/mod.rs:633) [false-negative/tree-sitter]",
+          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
+          "BroadcastContext <- ThreadPool.broadcast (rayon-core/src/thread_pool/mod.rs:187) [false-negative/tree-sitter]",
+          "BroadcastContext <- ThreadPool.spawn_broadcast (rayon-core/src/thread_pool/mod.rs:366) [false-negative/tree-sitter]"
         ]
       }
     }

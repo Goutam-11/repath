@@ -655,23 +655,24 @@ percentage of the uncompressed artifact.
 ### Results (N=3, shared host)
 
 Host: AMD Ryzen 5 5600H, 12 logical CPUs, 7.2 GiB RAM, Linux 7.2, shared and
-noisy; load average **1.7/2.0/2.5** at the end of the run window (recorded in
-`summary.json`). Medians with the observed range in parentheses. These are the
-same pinned graphs as the #48/#53 tables above; the counts reconcile exactly.
+noisy; load average **1.34/1.63/2.19** before and **3.81/2.29/2.37** after the
+run window (both recorded in `summary.json`). Medians with the observed range in
+parentheses. These are the same pinned graphs as the #48/#53 tables above; the
+counts reconcile exactly.
 
 | Metric | `django` | `hyusk` | `requests` | `rayon` |
 | --- | --- | --- | --- | --- |
-| Cold index | **4.15 s** (4.13–4.81) | **283 ms** (270–311) | **97.0 ms** (94.5–102.3) | **246 ms** (240–292) |
-| Peak RSS (cold) | **288 MiB** (282–291) | **63.0 MiB** (62.0–64.7) | **32.2 MiB** (31.9–32.7) | **45.5 MiB** (44.7–45.7) |
-| 10-file incremental | **197 ms** (195–204) | **34.7 ms** (32.8–35.6) | **31.1 ms** (27.2–31.7) | **32.1 ms** (31.0–32.3) |
-| `impact` p50 / p95 | **12.3 / 15.1 ms** | **1.00 / 2.01 ms** | **0.56 / 1.23 ms** | **1.01 / 1.73 ms** |
-| `callers` p50 / p95 | **10.3 / 14.2 ms** | **0.63 / 1.09 ms** | **0.31 / 0.44 ms** | **0.75 / 0.85 ms** |
-| `path` p50 / p95 | **19.3 / 29.9 ms** | **2.35 / 12.2 ms** | **1.15 / 4.55 ms** | **1.60 / 3.99 ms** |
-| `map` p50 / p95 | **142 / 146 ms** | **7.02 / 7.82 ms** | **2.41 / 2.92 ms** | **7.22 / 8.18 ms** |
-| `check` | **496 ms** (200 findings, capped) | **25.4 ms** (200, capped) | **7.96 ms** (16) | **21.7 ms** (200, capped) |
-| Artifact | **22.3 MiB**, export 153 / pull 13.6 ms | **1.04 MiB**, export 8.98 / pull 2.95 ms | **468 KiB**, export 3.98 / pull 2.62 ms | **980 KiB**, export 8.43 / pull 2.91 ms |
-| Artifact zstd | **5.80 MiB** (26.06%), export 235 / pull 38.7 ms | **313 KiB** (29.34%), export 16.7 / pull 5.15 ms | **104.6 KiB** (22.38%), export 7.77 / pull 3.63 ms | **291.6 KiB** (29.75%), export 14.9 / pull 4.57 ms |
-| Adapter wall | **5.39 s** (5.31–5.53) | **588 ms** (584–635) | **126 ms** (122–126) | **646 ms** (643–663) |
+| Cold index | **3.97 s** (3.86–4.07) | **273 ms** (273–273) | **92.8 ms** (91.6–93.1) | **240 ms** (240–246) |
+| Peak RSS (cold) | **285 MiB** (271–289) | **64.4 MiB** (62.9–65.3) | **32.5 MiB** (32.2–32.6) | **45.4 MiB** (45.2–45.9) |
+| 10-file incremental | **193 ms** (190–208) | **31.2 ms** (29.6–43.1) | **28.2 ms** (26.9–29.7) | **31.5 ms** (31.4–32.4) |
+| `impact` p50 / p95 | **12.0 / 13.5 ms** | **0.90 / 1.59 ms** | **0.55 / 1.25 ms** | **0.98 / 2.04 ms** |
+| `callers` p50 / p95 | **10.0 / 10.8 ms** | **0.56 / 0.71 ms** | **0.32 / 0.48 ms** | **0.73 / 0.86 ms** |
+| `path` p50 / p95 | **18.4 / 25.1 ms** | **1.98 / 11.9 ms** | **1.17 / 4.05 ms** | **1.57 / 4.05 ms** |
+| `map` p50 / p95 | **143 / 155 ms** | **7.16 / 7.49 ms** | **2.37 / 2.66 ms** | **7.47 / 8.86 ms** |
+| `check` | **492 ms** (200 findings, capped) | **25.9 ms** (200, capped) | **7.08 ms** (16) | **21.5 ms** (200, capped) |
+| Artifact | **22.3 MiB**, export 149 / pull 13.2 ms | **1.04 MiB**, export 8.73 / pull 2.91 ms | **460 KiB**, export 4.18 / pull 2.65 ms | **980 KiB**, export 8.36 / pull 2.87 ms |
+| Artifact zstd | **5.80 MiB** (26.03%), export 234 / pull 36.0 ms | **313 KiB** (29.32%), export 22.2 / pull 5.05 ms | **104.6 KiB** (22.76%), export 8.12 / pull 4.06 ms | **291.5 KiB** (29.80%), export 14.3 / pull 4.80 ms |
+| Adapter wall | **5.50 s** (5.43–5.53) | **592 ms** (574–607) | **122 ms** (121–123) | **650 ms** (638–680) |
 | Matched / new edges | **2,013 / 1,669** | **141 / 88** | **20 / 18** | **834 / 749** |
 | Unresolved before → after | **105,319 → 103,306** | **4,222 → 4,081** | **543 → 523** | **2,048 → 1,214** |
 | Edges before → after | **45,834 → 47,503** | **2,706 → 2,794** | **1,031 → 1,049** | **2,161 → 2,910** |
