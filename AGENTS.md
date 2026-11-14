@@ -56,6 +56,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath tests --diff origin/main      # affected tests for a git change set
 make bench-real REPATH_BENCH_ROOT=...       # opt-in real-repo evidence (not CI)
 make bench-real-langs REPATH_BENCH_PY_ROOT=... REPATH_BENCH_RS_ROOT=...  # Python/Rust evidence
+make bench-corpora                          # reproducible corpus matrix + accuracy (opt-in)
 make release-snapshot                       # goreleaser current-platform snapshot
 ```
 
@@ -240,6 +241,27 @@ the database.
   uses `--target-only django` (909 files) with a 3 GB heap, and the producer
   limit is documented. `rust-analyzer` needs ~158 s / 7.1 MiB for `hyusk`.
   Both targets stay opt-in; CI needs no producer.
+- **`make bench-corpora` is reproducible evidence, not a gate.** Issue #61's
+  `scripts/bench-corpora.sh` pins `django` @ `f24f38c`, `hyusk` @ `06bdb2b`,
+  `requests` @ `3c7baaa`, and `rayon` @ `599425d` (repo + commit + optional
+  SCIP), clones missing clones only under `.cache/`, refuses a wrong HEAD or a
+  dirty tracked tree, and runs `TestBenchRealLanguages` N=3 in separate
+  processes. It writes `<outdir>/summary.json` (host/CPU/RAM/load before+after,
+  Go/Rust/Python/Node/git versions, per-metric medians/ranges, graph structure
+  including `unresolved_by_reason`, adapter stats) plus one JSON per run, a
+  condensed `accuracy-<corpus>.json`, and `failure-modes.json`. The checked-in
+  `bench/baseline.json` (text only, no DB/artifact) plus generated
+  `docs/benchmarks-history.md` are the history: a plain run prints deltas, and
+  only `--update-baseline` rewrites them. `TestSCIPAccuracy` is the opt-in
+  compiler check on `requests`/`rayon`: it samples 20 targets deterministically,
+  compares `callers` and `impact` depth 2 against SCIP definitions/references
+  using the adapter's own `EnclosingNode` mapping, is scope-matched to the SCIP
+  document set, and counts its exclusions. It is a sampled measurement with
+  documented caveats, not a correctness guarantee; `path` has no ground truth.
+  Missing producer input is `3`, malformed protobuf is `1` (not `2`), empty is a
+  zero-fact `0`, a non-git `index` falls back to full discovery at `0`, and a
+  read-only `.repath/` is `1`. Never make any of this a CI gate and never
+  commit corpora, databases, artifacts, or `.cache/`.
 - **Incremental change detection is git-aware.** With a matching
   `meta.git_head`, `git status -uno` plus one tagged `ls-files -t` pass decide
   what to re-read: clean tracked files skip both stat and hash, untracked files

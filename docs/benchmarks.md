@@ -530,5 +530,325 @@ this is not a repeat of `rayon`'s generic-bound corpus.
   tooling, not the corpus.
 - One host, warm page cache, three runs; no CPU pinning or multi-machine
   replication. `check` stopped at the 200-finding cap for both trees.
-- No `impact`/`callers`/`path` ground-truth spot-check against a compiler/LSP
-  was performed on these corpora.
+- `callers`/`impact` now have a compiler ground-truth check on the smaller
+  `requests` and `rayon` corpora (see [Reproducible corpora and compiler
+  accuracy](#reproducible-corpora-and-compiler-accuracy-2026-11-15-61)); the
+  large Django/hyusk numbers above were not accuracy-checked.
+
+## Reproducible corpora and compiler accuracy (2026-11-15, #61)
+
+The tables above were assembled from one-off runs. Issue #61 makes the same
+matrix reproducible in one command, writes machine-readable JSON instead of
+hand-edited tables, keeps a small baseline so a later run can print deltas, and
+measures correctness — not just speed — against the compiler's SCIP index. It is
+still **evidence, never a gate**: CI needs no producer and `make check` runs none
+of the corpus work.
+
+### Command and matrix
+
+```sh
+make bench-corpora
+# or, with flags:
+./scripts/bench-corpora.sh [--runs N] [--corpora django,hyusk,requests,rayon] \
+  [--out DIR] [--no-clone] [--update-baseline]
+```
+
+| Corpus key | Language | Repository @ commit | SCIP producer | Accuracy |
+| --- | --- | --- | --- | --- |
+| `django` | Python | `django/django` @ `f24f38c6b2825f15628c07bf2892f1664eed9361` | `scip-python` 0.6.8, production-only (909 documents) | — |
+| `hyusk` | Rust | `Goutam-11/hyusk` @ `06bdb2b15fcc0a0f7dc3f2b06e0003dc1731cb82` | `rust-analyzer` 1.97.0 (default features) | — |
+| `requests` | Python | `psf/requests` @ `3c7baaa05ab4aa49cc819ce3a819d260de19c157` | `scip-python` 0.6.8, `src/` only | ✅ |
+| `rayon` | Rust | `rayon-rs/rayon` @ `599425d4a4c64714632817f48496dbc53f656a90` | `rust-analyzer` 1.97.0 | ✅ |
+
+The script resolves this matrix, verifies each clone's `HEAD` against the pinned
+commit and refuses a dirty tracked tree (`?? .repath/` is ignored), clones a
+missing clone under `.cache/` unless `--no-clone` is passed, then runs
+`TestBenchRealLanguages` N times per corpus **in separate processes** so each
+linux `VmHWM` reading belongs to that tree. It also runs the hermetic
+`TestCorporaFailureModes` and, for corpora marked `accuracy`, the opt-in
+`TestSCIPAccuracy`. Per-corpus paths can be overridden without editing the
+script:
+
+```sh
+REPATH_BENCH_CORPUS_ROOT_DJANGO=/tmp/django \
+REPATH_BENCH_CORPUS_SCIP_DJANGO=/tmp/django.scip \
+  make bench-corpora ARGS="--corpora django --runs 1"
+```
+
+A missing clone is fetched/cloned; a missing SCIP file only skips the adapter
+half and accuracy for that corpus. The default output directory is
+`.cache/bench-corpora/<UTC>/` (gitignored); nothing tracked is written unless
+`--update-baseline` is passed explicitly.
+
+### Output and JSON schema
+
+`<out>/` contains:
+
+| Path | What |
+| --- | --- |
+| `summary.json` | aggregated result: host/CPU/RAM/load, tool versions, per-metric medians/ranges, structure, adapter stats, condensed accuracy |
+| `runs/<corpus>-<n>.json` | one process's raw run (schema below) |
+| `accuracy-<corpus>.json` | full SCIP accuracy report for `requests`/`rayon`, including disagreements and exclusions |
+| `failure-modes.json` / `failure-modes.txt` | per-case exit codes and the test log |
+| `logs/` | full `go test -v` log per run |
+
+`summary.json` and every run carry `"schema": 1`. A run record has:
+
+```json
+{
+  "schema": 1,
+  "corpus": "rayon",
+  "language": "rust",
+  "commit": "599425d4a4c64714632817f48496dbc53f656a90",
+  "go_version": "go1.27.0",
+  "started_at": "2026-11-15T01:13:00Z",
+  "finished_at": "2026-11-15T01:13:02Z",
+  "cold_index_ms": 245.967,
+  "peak_rss_bytes": 47702000,
+  "incremental_ms": 32.058,
+  "incremental_indexed": 10,
+  "queries": {
+    "impact":  {"p50_ms": 1.007, "p95_ms": 1.728, "samples": 20},
+    "callers": {"p50_ms": 0.749, "p95_ms": 0.849, "samples": 20},
+    "path":    {"p50_ms": 1.599, "p95_ms": 3.993, "samples": 15},
+    "map":     {"p50_ms": 7.218, "p95_ms": 8.184, "samples": 5}
+  },
+  "check": {"duration_ms": 21.747, "findings": 200},
+  "artifact": {
+    "uncompressed_bytes": 1003520, "export_ms": 8.427, "pull_ms": 2.909,
+    "zstd_bytes": 298553, "zstd_export_ms": 14.892, "zstd_pull_ms": 4.567,
+    "ratio": 29.75, "schema_version": 5,
+    "file_count": 191, "node_count": 3402, "edge_count": 2910
+  },
+  "structure": {
+    "files": 191, "nodes": 3402,
+    "nodes_by_kind": {"function": 866, "method": 1600},
+    "edges": {"CALLS": 1356, "REFERENCES": 472, "IMPLEMENTS": 333},
+    "edges_total": 2161, "ambiguous": 75, "ambiguity_rate": 0.0347,
+    "unresolved": 2048, "unresolved_rate": 0.4866,
+    "unresolved_by_reason": {"member-scope": 1357, "missing-definition": 510,
+                             "scope-gap": 181, "parse-failure": 0},
+    "parse_failures": 0, "entrypoints": 467, "git_head": "599425d4…"
+  },
+  "adapter": {
+    "name": "scip-rust", "definitions": 14878, "references": 53694,
+    "matched": 834, "edges": 749, "conflicts": 0, "skipped": 55898,
+    "unmatched": 9428, "wall_ms": 645.99,
+    "unresolved_before": 2048, "unresolved_after": 1214,
+    "edges_before": 2161, "edges_after": 2910,
+    "new_edges_by_source": {"production": 690, "test_path": 27, "test_entrypoint": 32},
+    "new_edges_by_rule": {"method": 640, "call": 92, "new": 17, "reference": 0}
+  }
+}
+```
+
+`summary.json` wraps those runs: `host` (hostname, platform, kernel, CPU model,
+logical CPUs, RAM bytes, load average before/after), `tools` (Go, Rust, Python,
+Node, git), `repath_commit`/`repath_version`, `runs_per_corpus`,
+`failure_modes`, and `corpora.<name>` with `metrics.<metric> =
+{median, min, max, runs, values}`, the structure counters, the aggregated
+adapter block, and the condensed accuracy report. `unresolved_by_reason` is the
+#60 read-time classifier, so the four buckets sum to `unresolved`. All timings
+are milliseconds and all byte counts are bytes; `artifact.ratio` is the zstd
+percentage of the uncompressed artifact.
+
+### Results (N=3, shared host)
+
+Host: AMD Ryzen 5 5600H, 12 logical CPUs, 7.2 GiB RAM, Linux 7.2, shared and
+noisy; load average **1.7/2.0/2.5** at the end of the run window (recorded in
+`summary.json`). Medians with the observed range in parentheses. These are the
+same pinned graphs as the #48/#53 tables above; the counts reconcile exactly.
+
+| Metric | `django` | `hyusk` | `requests` | `rayon` |
+| --- | --- | --- | --- | --- |
+| Cold index | **4.15 s** (4.13–4.81) | **283 ms** (270–311) | **97.0 ms** (94.5–102.3) | **246 ms** (240–292) |
+| Peak RSS (cold) | **288 MiB** (282–291) | **63.0 MiB** (62.0–64.7) | **32.2 MiB** (31.9–32.7) | **45.5 MiB** (44.7–45.7) |
+| 10-file incremental | **197 ms** (195–204) | **34.7 ms** (32.8–35.6) | **31.1 ms** (27.2–31.7) | **32.1 ms** (31.0–32.3) |
+| `impact` p50 / p95 | **12.3 / 15.1 ms** | **1.00 / 2.01 ms** | **0.56 / 1.23 ms** | **1.01 / 1.73 ms** |
+| `callers` p50 / p95 | **10.3 / 14.2 ms** | **0.63 / 1.09 ms** | **0.31 / 0.44 ms** | **0.75 / 0.85 ms** |
+| `path` p50 / p95 | **19.3 / 29.9 ms** | **2.35 / 12.2 ms** | **1.15 / 4.55 ms** | **1.60 / 3.99 ms** |
+| `map` p50 / p95 | **142 / 146 ms** | **7.02 / 7.82 ms** | **2.41 / 2.92 ms** | **7.22 / 8.18 ms** |
+| `check` | **496 ms** (200 findings, capped) | **25.4 ms** (200, capped) | **7.96 ms** (16) | **21.7 ms** (200, capped) |
+| Artifact | **22.3 MiB**, export 153 / pull 13.6 ms | **1.04 MiB**, export 8.98 / pull 2.95 ms | **468 KiB**, export 3.98 / pull 2.62 ms | **980 KiB**, export 8.43 / pull 2.91 ms |
+| Artifact zstd | **5.80 MiB** (26.06%), export 235 / pull 38.7 ms | **313 KiB** (29.34%), export 16.7 / pull 5.15 ms | **104.6 KiB** (22.38%), export 7.77 / pull 3.63 ms | **291.6 KiB** (29.75%), export 14.9 / pull 4.57 ms |
+| Adapter wall | **5.39 s** (5.31–5.53) | **588 ms** (584–635) | **126 ms** (122–126) | **646 ms** (643–663) |
+| Matched / new edges | **2,013 / 1,669** | **141 / 88** | **20 / 18** | **834 / 749** |
+| Unresolved before → after | **105,319 → 103,306** | **4,222 → 4,081** | **543 → 523** | **2,048 → 1,214** |
+| Edges before → after | **45,834 → 47,503** | **2,706 → 2,794** | **1,031 → 1,049** | **2,161 → 2,910** |
+
+Structure (tree-sitter cold graph, constant across the three runs):
+
+| | `django` | `hyusk` | `requests` | `rayon` |
+| --- | --- | --- | --- | --- |
+| Files / nodes / edges | 3,051 / 44,426 / 45,834 | 88 / 2,428 / 2,706 | 37 / 787 / 1,031 | 191 / 3,402 / 2,161 |
+| Unresolved (rate) | 105,319 (69.68%) | 4,222 (60.94%) | 543 (34.50%) | 2,048 (48.66%) |
+| Parse failures / ambiguous / entrypoints | 3 / 1,572 / 18,443 | 7 / 23 / 549 | 0 / 25 / 348 | 0 / 75 / 467 |
+| Unresolved by reason (`member-scope` / `missing-definition` / `scope-gap` / `parse-failure`) | 50,052 / 40,489 / 14,778 / 0 | 911 / 2,332 / 244 / 735 | 224 / 308 / 11 / 0 | 1,357 / 510 / 181 / 0 |
+
+The Django row shows why the reason buckets are a pointer, not a diagnosis:
+3 files fail to parse but contribute no pending rows, so `parse-failure` is 0
+while 105,319 references are still classified by the other three buckets.
+
+### Ground-truth accuracy
+
+`TestSCIPAccuracy` (opt-in, `REPATH_ACCURACY=1`) rebuilds the cold graph in a
+temporary store, loads the pinned SCIP index with the same hand-rolled parser
+the adapter uses, and treats the compiler as ground truth:
+
+- a **definition occurrence** maps to its enclosing repath node (the adapter's
+  `EnclosingNode(fileID, line+1)` mapping);
+- a **reference occurrence** maps to the repath node enclosing its file+line,
+  so the expected callers of a target are the enclosing nodes of its references;
+- **actual** callers are one-hop reverse edges at confidence ≥0.5, restricted to
+  source files the SCIP document set covers (scope-matched: `requests.scip`
+  covers `src/` only, so the 156 test-file callers are excluded and counted, not
+  scored as false positives);
+- 20 targets with an attributable caller are sampled deterministically: sort by
+  target path then SCIP symbol and take evenly spaced entries (175 candidates
+  for `requests`, 1,001 for `rayon`);
+- precision = TP / actual, recall = TP / expected, micro-averaged over the
+  sample. The same sample is measured **before** the adapter and after
+  `ApplySCIPAll` on the same store.
+
+`impact` depth 2 is compared through `graph.Blast` (the walker behind
+`query.Impact`; importing `query` from the adapter test would cycle) against a
+depth-2 reverse closure of the compiler graph, with truncated results excluded.
+`path` is **excluded**: SCIP gives definition/reference pairs, not a shortest
+chain, so there is no defensible ground truth for it.
+
+| | `requests` (Python) | `rayon` (Rust) |
+| --- | --- | --- |
+| Sampled / candidate targets | 20 / 175 | 20 / 1,001 |
+| SCIP references / definitions | 6,734 / 1,485 | 53,694 / 14,878 |
+| Attributable references | 440 | 5,670 |
+| `callers` tree-sitter | P **100.0%**, R **33.3%** (35 actual, 105 expected, 35 TP) | P **84.2%**, R **9.4%** (19 actual, 171 expected, 16 TP) |
+| `callers` after adapter | P **100.0%**, R **33.3%** (35 actual, 105 expected, 35 TP) | P **86.4%**, R **11.1%** (22 actual, 171 expected, 19 TP) |
+| `impact`≤2 tree-sitter | P **98.5%**, R **43.1%** (67 actual, 153 expected, 66 TP) | P **96.0%**, R **29.9%** (100 actual, 321 expected, 96 TP) |
+| `impact`≤2 after adapter | P **98.6%**, R **47.1%** (73 actual, 153 expected, 72 TP) | P **96.2%**, R **31.2%** (104 actual, 321 expected, 100 TP) |
+
+The uniform sample can miss every target the adapter repaired, so the test also
+reports the **adapter-repaired cohort** separately (targets with at least one
+`scip.py.*`/`scip.rs.*` edge; the "before" row filters those rules back out,
+which is exact because the merge never overwrites a tree-sitter edge):
+
+| Adapter-repaired cohort | `requests` | `rayon` |
+| --- | --- | --- |
+| Targets | 14 | 177 |
+| Expected callers | 27 | 1,432 |
+| `callers` tree-sitter | P **100.0%**, R **33.3%** (9 TP) | P **95.7%**, R **9.3%** (133 TP) |
+| `callers` after adapter | P **100.0%**, R **100.0%** (27 TP) | P **98.1%**, R **60.1%** (861 TP, **+728**) |
+
+Reading the numbers:
+
+- **Precision is high; recall is the gap.** Every scoped tree-sitter edge the
+  sample emitted for `requests` matched a compiler reference. The missing
+  references are mostly type-only uses (`SupportsRead` in
+  `src/requests/_types.py:32`), annotations, and same-class/mixin method calls
+  that tree-sitter does not emit; in `rayon` the missing references are
+  generic-bound/trait-dispatch and macro-generated calls. That is the documented
+  resolution ceiling measured as a number instead of described.
+- **The adapter is provably additive.** It recovers +18 TP across 14 sampled
+  Python targets (R 33.3% → 100.0%) and +728 TP across the 177 Rust targets
+  (R 9.3% → 60.1%) with no precision loss on those cohorts. It cannot repair
+  what still has no pending row (the unchanged R on the uniform sample).
+- **Some Rust false positives remain.** Before the adapter, 3 of 19 actual
+  callers in the sample point at a different target than SCIP's definition
+  (ambiguous inherent/trait `Type.method` attribution); the adapter's exact
+  edges improve precision to 86.4%. These are listed in
+  `accuracy-rayon.json`.
+
+Excluded facts, counted honestly in the same JSON (`exclusions`):
+
+| Exclusion | `requests` | `rayon` | Why |
+| --- | --- | --- | --- |
+| `unmapped-symbol` | 2,262 | 30,964 | local bindings/module descriptors reduce to no graph target |
+| `definition-unmapped-name` | 433 | 12,368 | definition is a module/namespace, not a symbol |
+| `no-definition` | 2,109 | 10,348 | external/std/builtin symbol with no repath node |
+| `no-enclosing-node` | 186 | 2,061 | top-level reference; repath's documented policy skips it |
+| `enclosing-not-function` | 110 | 477 | class/module-level reference, not a caller fact |
+| `recursive` | 1,212 | 83 | enclosing node == target; the adapter skips these by design |
+| `ambiguous-same-line-name` | 10 | 486 | one `(file, line, reduced name)` resolves to two compiler targets |
+| `definition-no-enclosing-node` | 103 | 74 | definition line outside any repath node |
+| `import` / `generated` | 0 | 0 | SCIP roles; excluded before attribution |
+
+Caveats: attribution is line-level, exactly the adapter's approximation, so two
+same-named calls on one line are excluded rather than guessed; the compiler
+graph covers only the SCIP document set (`requests` is `src/`-only and `rayon`
+is default-feature Rust); `impact` depth 2 compares a compiler graph built from
+attributable references only, so it is a sampled approximation, not a proof.
+The whole test takes 0.4 s (`requests`) and 1.6 s (`rayon`) and never runs in CI.
+
+### Failure modes
+
+`TestCorporaFailureModes` is hermetic (in-process CLI, no producer, no network)
+and therefore runs under `make check`; the driver also records it in
+`failure-modes.json`. Each case proves the index is not half-written where that
+is observable (`status --no-refresh` opens the DB after a failed adapter run).
+
+| Case | Command | Exit | Contract / note |
+| --- | --- | --- | --- |
+| Missing SCIP | `repath adapter --scip <missing>` | **3** | not-found, documented |
+| Corrupt / non-SCIP bytes | `repath adapter --scip <garbage>` | **1** | observed internal error (`parse scip: unsupported protobuf wire type`); issue #61 suggested `2`, but the CLI contract has no malformed-adapter-input code and `2` is reserved for usage/flags, so reality is recorded here and not changed |
+| Empty file | `repath adapter --scip <empty>` | **0** | parses as a zero-document index; it records a zero-fact run rather than failing |
+| Non-git directory + `index` | `repath index` | **0** | supported: full-discovery fallback, same as a plain directory |
+| Non-git directory + `tests --diff` | `repath tests --diff` | **3** | documented not-a-git-work-tree bucket |
+| Read-only `.repath/` | `repath index` | **1** | `open index: PRAGMA journal_mode = WAL: unable to open database file`; no `index.db` is left behind |
+
+The corrupt-vs-empty split is deliberate: the hand-rolled parser only fails on
+malformed protobuf framing, and an empty index is a valid but empty fact set.
+The read-only case is skipped when the suite runs as root.
+
+### Baseline and history
+
+- [`bench/baseline.json`](../bench/baseline.json) is the checked-in condensed
+  baseline (~30 KB, text only): per-corpus commit, condensed metrics with
+  medians/ranges, structure counters, adapter medians, and the accuracy summary.
+  No database, artifact, or producer output is committed.
+- [`docs/benchmarks-history.md`](benchmarks-history.md) is generated from that
+  baseline by `--update-baseline` — do not edit it by hand.
+- A normal run reads `bench/baseline.json` and prints deltas, for example:
+  `django cold_index_ms: 4146.3 -> 4201.7 (+1.3%)` and
+  `rayon structure.unresolved: 2048 -> 2051 (+3)`. A changed corpus commit is
+  reported as not comparable instead of pretending a delta is meaningful.
+- The **only** path that writes those two tracked files is
+  `--update-baseline`; every other run writes exclusively under the outdir
+  (default a gitignored `.cache/bench-corpora/<UTC>/`).
+
+### Adding a corpus
+
+1. Add a `corpus_spec` case in `scripts/bench-corpora.sh`:
+   `language|repo-url|pinned-commit|default-root|default-scip|accuracy`.
+   Roots and SCIP files live outside git (under `.cache/` by default).
+2. Pin a SCIP producer only when the adapter half is wanted; a missing file
+   skips it. Mark `accuracy=1` only when the SCIP document set covers the files
+   you intend to score (otherwise every out-of-scope caller is an honest
+   exclusion, not a false positive).
+3. Add the row to the matrix table above with the producer version and exact
+   SCIP size. Corpora are cloned/deleted, never committed.
+4. Run `make bench-corpora ARGS="--corpora newcorpus --runs 1"` first, then a
+   full `--runs 3` run; refresh the baseline only when the graph is intentional:
+   `make bench-corpora ARGS="--corpora newcorpus --update-baseline"` (or omit
+   `--corpora` to refresh all).
+5. A new *language* also needs a SCIP family (`isXDocument`, symbol reducer,
+   rule prefix) and an accuracy family branch; today only `python` and `rust`
+   are wired into `TestSCIPAccuracy`.
+
+### Not verified
+
+- One host, one run window, three runs per corpus. The host was shared (load
+  average 1.7/2.0/2.5) and the small trees are process-noise dominated; these
+  are medians for regression detection, not a statistical benchmark.
+- The clones already existed under `.cache/` from the earlier corpus-prep task.
+  The clone/fetch path is implemented and fails loudly, but was not exercised
+  end to end against the network in this run (`--no-clone` was not used either).
+- The SCIP files are the pinned artifacts from that prep task, not regenerated
+  here; producer versions/sizes are recorded in the matrix and
+  `docs/adapters.md`. `scip-python` still OOMs on the full Django tree, so its
+  accuracy was not measured; `hyusk` uses a default-feature Rust index.
+- Accuracy is sampled (20 targets per language) and scope-matched, and the
+  excluded-fact counts above are part of the result. It is a measurement of this
+  graph against this compiler index, not a general correctness guarantee.
+- `path` has no ground truth and is not scored; `impact` depth 2 is a
+  compiler-graph approximation with truncation counted, not a proof.
+- The failure-mode corrupt-SCIP exit code is **1**, not the issue's suggested
+  `2`; that discrepancy is documented above rather than silently changed.

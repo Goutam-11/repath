@@ -1,0 +1,1097 @@
+{
+  "schema": 1,
+  "generated_at": "2026-11-14T19:47:01+00:00",
+  "generated_by": "scripts/bench-corpora.sh",
+  "repath_commit": "4e8636834c019c0c1657af44429705c5ff0604a2",
+  "repath_version": "4e86368-dirty",
+  "host": {
+    "hostname": "fedora",
+    "platform": "Linux x86_64",
+    "kernel": "7.2.11-200.fc44.x86_64",
+    "cpu_model": "AMD Ryzen 5 5600H with Radeon Graphics",
+    "cpu_logical": 12,
+    "ram_bytes": 7677779968,
+    "loadavg_1_5_15": [
+      1.9,
+      1.75,
+      2.26
+    ],
+    "loadavg_before": null,
+    "loadavg_after": null,
+    "python": "3.14.8"
+  },
+  "tools": {
+    "go": null,
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+    "python": "Python 3.14.8",
+    "node": "v24.18.0",
+    "git": "git version 2.56.0"
+  },
+  "runs_per_corpus": 3,
+  "corpora": {
+    "django": {
+      "repo": "https://github.com/django/django",
+      "commit": "f24f38c6b2825f15628c07bf2892f1664eed9361",
+      "language": "python",
+      "scip_path": ".cache/django-60-prod.scip",
+      "runs": 3,
+      "metrics": {
+        "cold_index_ms": {
+          "median": 4146.295,
+          "min": 4128.588,
+          "max": 4806.58
+        },
+        "peak_rss_bytes": {
+          "median": 302108672,
+          "min": 295669760,
+          "max": 305442816
+        },
+        "incremental_ms": {
+          "median": 197.415,
+          "min": 195.085,
+          "max": 204.088
+        },
+        "impact_p50_ms": {
+          "median": 12.343,
+          "min": 12.3,
+          "max": 12.357
+        },
+        "impact_p95_ms": {
+          "median": 15.099,
+          "min": 13.891,
+          "max": 18.106
+        },
+        "callers_p50_ms": {
+          "median": 10.305,
+          "min": 10.168,
+          "max": 10.308
+        },
+        "callers_p95_ms": {
+          "median": 14.229,
+          "min": 10.954,
+          "max": 15.221
+        },
+        "path_p50_ms": {
+          "median": 19.263,
+          "min": 18.789,
+          "max": 19.398
+        },
+        "path_p95_ms": {
+          "median": 29.861,
+          "min": 24.974,
+          "max": 31.553
+        },
+        "map_p50_ms": {
+          "median": 142.243,
+          "min": 140.531,
+          "max": 142.917
+        },
+        "map_p95_ms": {
+          "median": 145.926,
+          "min": 145.015,
+          "max": 148.503
+        },
+        "check_ms": {
+          "median": 496.234,
+          "min": 479.423,
+          "max": 496.592
+        },
+        "check_findings": {
+          "median": 200,
+          "min": 200,
+          "max": 200
+        },
+        "artifact_bytes": {
+          "median": 23347200,
+          "min": 23339008,
+          "max": 23347200
+        },
+        "artifact_export_ms": {
+          "median": 153.305,
+          "min": 149.374,
+          "max": 155.624
+        },
+        "artifact_pull_ms": {
+          "median": 13.574,
+          "min": 13.428,
+          "max": 16.616
+        },
+        "artifact_zstd_bytes": {
+          "median": 6083792,
+          "min": 6074751,
+          "max": 6111544
+        },
+        "artifact_zstd_export_ms": {
+          "median": 234.94,
+          "min": 233.858,
+          "max": 237.465
+        },
+        "artifact_zstd_pull_ms": {
+          "median": 38.727,
+          "min": 37.807,
+          "max": 39.297
+        },
+        "artifact_ratio": {
+          "median": 26.057908442982455,
+          "min": 26.01918431332237,
+          "max": 26.185963002369252
+        },
+        "adapter_wall_ms": {
+          "median": 5390.015,
+          "min": 5313.947,
+          "max": 5533.808
+        },
+        "adapter_matched": {
+          "median": 2013,
+          "min": 2013,
+          "max": 2013
+        },
+        "adapter_edges": {
+          "median": 1669,
+          "min": 1669,
+          "max": 1669
+        },
+        "adapter_conflicts": {
+          "median": 10,
+          "min": 10,
+          "max": 10
+        },
+        "adapter_unresolved_before": {
+          "median": 105319,
+          "min": 105319,
+          "max": 105319
+        },
+        "adapter_unresolved_after": {
+          "median": 103306,
+          "min": 103306,
+          "max": 103306
+        },
+        "adapter_edges_before": {
+          "median": 45834,
+          "min": 45834,
+          "max": 45834
+        },
+        "adapter_edges_after": {
+          "median": 47503,
+          "min": 47503,
+          "max": 47503
+        }
+      },
+      "structure": {
+        "files": 3051,
+        "nodes": 44426,
+        "nodes_by_kind": {
+          "class": 11100,
+          "function": 3327,
+          "method": 29999
+        },
+        "edges": {
+          "CALLS": 17281,
+          "EXTENDS": 8688,
+          "REFERENCES": 19865
+        },
+        "edges_total": 45834,
+        "ambiguous": 1572,
+        "ambiguity_rate": 0.03429768294279356,
+        "unresolved": 105319,
+        "unresolved_rate": 0.696770821617831,
+        "unresolved_by_reason": {
+          "member-scope": 50052,
+          "missing-definition": 40489,
+          "parse-failure": 0,
+          "scope-gap": 14778
+        },
+        "unresolved_by_lang": {
+          "javascript": 1215,
+          "python": 104104
+        },
+        "parse_failures": 3,
+        "entrypoints": 18443,
+        "entrypoint_rules": {
+          "py.main": 5,
+          "py.test": 18438
+        },
+        "git_head": "f24f38c6b2825f15628c07bf2892f1664eed9361"
+      },
+      "adapter": {
+        "name": "scip-python",
+        "definitions": 52884,
+        "references": 157794,
+        "matched": 2013,
+        "edges": 1669,
+        "conflicts": 10,
+        "skipped": 142241,
+        "unmatched": 30565,
+        "wall_ms": 5390.015,
+        "unresolved_before": 105319,
+        "unresolved_after": 103306,
+        "edges_before": 45834,
+        "edges_after": 47503,
+        "new_edges_by_source": {
+          "production": 1590,
+          "test_path": 79,
+          "test_entrypoint": 0
+        },
+        "new_edges_by_rule": {
+          "call": 32,
+          "method": 1627,
+          "new": 0,
+          "reference": 10
+        }
+      },
+      "accuracy": null
+    },
+    "hyusk": {
+      "repo": "https://github.com/Goutam-11/hyusk",
+      "commit": "06bdb2b15fcc0a0f7dc3f2b06e0003dc1731cb82",
+      "language": "rust",
+      "scip_path": ".cache/hyusk-60.scip",
+      "runs": 3,
+      "metrics": {
+        "cold_index_ms": {
+          "median": 283.401,
+          "min": 270.432,
+          "max": 310.54
+        },
+        "peak_rss_bytes": {
+          "median": 66105344,
+          "min": 65011712,
+          "max": 67891200
+        },
+        "incremental_ms": {
+          "median": 34.735,
+          "min": 32.832,
+          "max": 35.578
+        },
+        "impact_p50_ms": {
+          "median": 0.999,
+          "min": 0.899,
+          "max": 1.075
+        },
+        "impact_p95_ms": {
+          "median": 2.012,
+          "min": 1.776,
+          "max": 2.047
+        },
+        "callers_p50_ms": {
+          "median": 0.626,
+          "min": 0.588,
+          "max": 0.629
+        },
+        "callers_p95_ms": {
+          "median": 1.093,
+          "min": 0.761,
+          "max": 1.143
+        },
+        "path_p50_ms": {
+          "median": 2.349,
+          "min": 1.832,
+          "max": 2.364
+        },
+        "path_p95_ms": {
+          "median": 12.196,
+          "min": 12.101,
+          "max": 12.849
+        },
+        "map_p50_ms": {
+          "median": 7.02,
+          "min": 6.613,
+          "max": 7.71
+        },
+        "map_p95_ms": {
+          "median": 7.823,
+          "min": 6.726,
+          "max": 8.326
+        },
+        "check_ms": {
+          "median": 25.419,
+          "min": 25.11,
+          "max": 32.304
+        },
+        "check_findings": {
+          "median": 200,
+          "min": 200,
+          "max": 200
+        },
+        "artifact_bytes": {
+          "median": 1093632,
+          "min": 1093632,
+          "max": 1093632
+        },
+        "artifact_export_ms": {
+          "median": 8.978,
+          "min": 8.334,
+          "max": 9.783
+        },
+        "artifact_pull_ms": {
+          "median": 2.954,
+          "min": 2.895,
+          "max": 3.811
+        },
+        "artifact_zstd_bytes": {
+          "median": 320874,
+          "min": 320859,
+          "max": 321230
+        },
+        "artifact_zstd_export_ms": {
+          "median": 16.711,
+          "min": 14.777,
+          "max": 19.07
+        },
+        "artifact_zstd_pull_ms": {
+          "median": 5.148,
+          "min": 4.89,
+          "max": 6.211
+        },
+        "artifact_ratio": {
+          "median": 29.340216818820224,
+          "min": 29.33884524227528,
+          "max": 29.37276890215356
+        },
+        "adapter_wall_ms": {
+          "median": 588.427,
+          "min": 584.185,
+          "max": 634.724
+        },
+        "adapter_matched": {
+          "median": 141,
+          "min": 141,
+          "max": 141
+        },
+        "adapter_edges": {
+          "median": 88,
+          "min": 88,
+          "max": 88
+        },
+        "adapter_conflicts": {
+          "median": 2,
+          "min": 2,
+          "max": 2
+        },
+        "adapter_unresolved_before": {
+          "median": 4222,
+          "min": 4222,
+          "max": 4222
+        },
+        "adapter_unresolved_after": {
+          "median": 4081,
+          "min": 4081,
+          "max": 4081
+        },
+        "adapter_edges_before": {
+          "median": 2706,
+          "min": 2706,
+          "max": 2706
+        },
+        "adapter_edges_after": {
+          "median": 2794,
+          "min": 2794,
+          "max": 2794
+        }
+      },
+      "structure": {
+        "files": 88,
+        "nodes": 2428,
+        "nodes_by_kind": {
+          "class": 19,
+          "const": 221,
+          "enum": 46,
+          "function": 1377,
+          "method": 570,
+          "struct": 182,
+          "trait": 2,
+          "type": 11
+        },
+        "edges": {
+          "CALLS": 2356,
+          "IMPLEMENTS": 1,
+          "REFERENCES": 349
+        },
+        "edges_total": 2706,
+        "ambiguous": 23,
+        "ambiguity_rate": 0.008499630450849963,
+        "unresolved": 4222,
+        "unresolved_rate": 0.6094110854503464,
+        "unresolved_by_reason": {
+          "member-scope": 911,
+          "missing-definition": 2332,
+          "parse-failure": 735,
+          "scope-gap": 244
+        },
+        "unresolved_by_lang": {
+          "javascript": 341,
+          "python": 282,
+          "rust": 3599
+        },
+        "parse_failures": 7,
+        "entrypoints": 549,
+        "entrypoint_rules": {
+          "py.main": 4,
+          "py.test": 20,
+          "rs.main": 2,
+          "rs.test": 523
+        },
+        "git_head": "06bdb2b15fcc0a0f7dc3f2b06e0003dc1731cb82"
+      },
+      "adapter": {
+        "name": "scip-rust",
+        "definitions": 10819,
+        "references": 65165,
+        "matched": 141,
+        "edges": 88,
+        "conflicts": 2,
+        "skipped": 63242,
+        "unmatched": 10208,
+        "wall_ms": 588.427,
+        "unresolved_before": 4222,
+        "unresolved_after": 4081,
+        "edges_before": 2706,
+        "edges_after": 2794,
+        "new_edges_by_source": {
+          "production": 54,
+          "test_path": 0,
+          "test_entrypoint": 34
+        },
+        "new_edges_by_rule": {
+          "call": 22,
+          "method": 66,
+          "new": 0,
+          "reference": 0
+        }
+      },
+      "accuracy": null
+    },
+    "requests": {
+      "repo": "https://github.com/psf/requests",
+      "commit": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+      "language": "python",
+      "scip_path": ".cache/requests.scip",
+      "runs": 3,
+      "metrics": {
+        "cold_index_ms": {
+          "median": 97,
+          "min": 94.485,
+          "max": 102.252
+        },
+        "peak_rss_bytes": {
+          "median": 33714176,
+          "min": 33468416,
+          "max": 34267136
+        },
+        "incremental_ms": {
+          "median": 31.145,
+          "min": 27.198,
+          "max": 31.658
+        },
+        "impact_p50_ms": {
+          "median": 0.564,
+          "min": 0.558,
+          "max": 0.595
+        },
+        "impact_p95_ms": {
+          "median": 1.233,
+          "min": 1.218,
+          "max": 1.36
+        },
+        "callers_p50_ms": {
+          "median": 0.311,
+          "min": 0.296,
+          "max": 0.352
+        },
+        "callers_p95_ms": {
+          "median": 0.437,
+          "min": 0.39,
+          "max": 0.504
+        },
+        "path_p50_ms": {
+          "median": 1.146,
+          "min": 1.136,
+          "max": 1.198
+        },
+        "path_p95_ms": {
+          "median": 4.55,
+          "min": 3.8,
+          "max": 4.828
+        },
+        "map_p50_ms": {
+          "median": 2.41,
+          "min": 2.281,
+          "max": 2.536
+        },
+        "map_p95_ms": {
+          "median": 2.92,
+          "min": 2.857,
+          "max": 4.752
+        },
+        "check_ms": {
+          "median": 7.955,
+          "min": 7.427,
+          "max": 9.079
+        },
+        "check_findings": {
+          "median": 16,
+          "min": 16,
+          "max": 16
+        },
+        "artifact_bytes": {
+          "median": 479232,
+          "min": 471040,
+          "max": 479232
+        },
+        "artifact_export_ms": {
+          "median": 3.976,
+          "min": 3.914,
+          "max": 4.267
+        },
+        "artifact_pull_ms": {
+          "median": 2.624,
+          "min": 2.477,
+          "max": 2.797
+        },
+        "artifact_zstd_bytes": {
+          "median": 107062,
+          "min": 106967,
+          "max": 107235
+        },
+        "artifact_zstd_export_ms": {
+          "median": 7.774,
+          "min": 7.487,
+          "max": 7.998
+        },
+        "artifact_zstd_pull_ms": {
+          "median": 3.626,
+          "min": 3.532,
+          "max": 3.944
+        },
+        "artifact_ratio": {
+          "median": 22.376427283653847,
+          "min": 22.340327857905983,
+          "max": 22.708687160326086
+        },
+        "adapter_wall_ms": {
+          "median": 125.868,
+          "min": 122.352,
+          "max": 125.977
+        },
+        "adapter_matched": {
+          "median": 20,
+          "min": 20,
+          "max": 20
+        },
+        "adapter_edges": {
+          "median": 18,
+          "min": 18,
+          "max": 18
+        },
+        "adapter_conflicts": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "adapter_unresolved_before": {
+          "median": 543,
+          "min": 543,
+          "max": 543
+        },
+        "adapter_unresolved_after": {
+          "median": 523,
+          "min": 523,
+          "max": 523
+        },
+        "adapter_edges_before": {
+          "median": 1031,
+          "min": 1031,
+          "max": 1031
+        },
+        "adapter_edges_after": {
+          "median": 1049,
+          "min": 1049,
+          "max": 1049
+        }
+      },
+      "structure": {
+        "files": 37,
+        "nodes": 787,
+        "nodes_by_kind": {
+          "class": 96,
+          "function": 181,
+          "method": 510
+        },
+        "edges": {
+          "CALLS": 707,
+          "EXTENDS": 41,
+          "REFERENCES": 283
+        },
+        "edges_total": 1031,
+        "ambiguous": 25,
+        "ambiguity_rate": 0.02424830261881668,
+        "unresolved": 543,
+        "unresolved_rate": 0.34498094027954257,
+        "unresolved_by_reason": {
+          "member-scope": 224,
+          "missing-definition": 308,
+          "parse-failure": 0,
+          "scope-gap": 11
+        },
+        "unresolved_by_lang": {
+          "python": 543
+        },
+        "parse_failures": 0,
+        "entrypoints": 348,
+        "entrypoint_rules": {
+          "py.main": 1,
+          "py.test": 347
+        },
+        "git_head": "3c7baaa05ab4aa49cc819ce3a819d260de19c157"
+      },
+      "adapter": {
+        "name": "scip-python",
+        "definitions": 1485,
+        "references": 6734,
+        "matched": 20,
+        "edges": 18,
+        "conflicts": 0,
+        "skipped": 6305,
+        "unmatched": 945,
+        "wall_ms": 125.868,
+        "unresolved_before": 543,
+        "unresolved_after": 523,
+        "edges_before": 1031,
+        "edges_after": 1049,
+        "new_edges_by_source": {
+          "production": 18,
+          "test_path": 0,
+          "test_entrypoint": 0
+        },
+        "new_edges_by_rule": {
+          "call": 0,
+          "method": 18,
+          "new": 0,
+          "reference": 0
+        }
+      },
+      "accuracy": {
+        "corpus": "requests",
+        "language": "python",
+        "commit": "3c7baaa05ab4aa49cc819ce3a819d260de19c157",
+        "documents": 19,
+        "references": 6734,
+        "definitions": 1485,
+        "attributable_references": 440,
+        "exclusions": {
+          "ambiguous-same-line-name": 10,
+          "definition-no-enclosing-node": 103,
+          "definition-unmapped-name": 433,
+          "enclosing-not-function": 110,
+          "no-definition": 2109,
+          "no-enclosing-node": 186,
+          "recursive": 1212,
+          "unmapped-symbol": 2262
+        },
+        "ambiguous_name_keys": 5,
+        "candidate_targets": 175,
+        "sampled_targets": 20,
+        "min_confidence": 0.5,
+        "before": {
+          "phase": "tree-sitter",
+          "samples": 20,
+          "expected_callers": 105,
+          "actual_callers": 35,
+          "true_positives": 35,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "out_of_scope_actual": 156,
+          "impact_expected": 153,
+          "impact_actual": 67,
+          "impact_true_positives": 66,
+          "impact_precision": 0.9850746268656716,
+          "impact_recall": 0.43137254901960786,
+          "impact_out_of_scope": 239,
+          "impact_truncated": 0
+        },
+        "after": {
+          "phase": "after-adapter",
+          "samples": 20,
+          "expected_callers": 105,
+          "actual_callers": 35,
+          "true_positives": 35,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "out_of_scope_actual": 156,
+          "impact_expected": 153,
+          "impact_actual": 73,
+          "impact_true_positives": 72,
+          "impact_precision": 0.9863013698630136,
+          "impact_recall": 0.47058823529411764,
+          "impact_out_of_scope": 239,
+          "impact_truncated": 0
+        },
+        "adapter_touched_targets": 14,
+        "adapter_touched_before": {
+          "phase": "adapter-targets tree-sitter",
+          "samples": 14,
+          "expected_callers": 27,
+          "actual_callers": 9,
+          "true_positives": 9,
+          "precision": 1,
+          "recall": 0.3333333333333333,
+          "out_of_scope_actual": 6,
+          "impact_expected": 0,
+          "impact_actual": 0,
+          "impact_true_positives": 0,
+          "impact_precision": 0,
+          "impact_recall": 0,
+          "impact_out_of_scope": 0,
+          "impact_truncated": 0
+        },
+        "adapter_touched_after": {
+          "phase": "adapter-targets after-adapter",
+          "samples": 14,
+          "expected_callers": 27,
+          "actual_callers": 27,
+          "true_positives": 27,
+          "precision": 1,
+          "recall": 1,
+          "out_of_scope_actual": 6,
+          "impact_expected": 51,
+          "impact_actual": 47,
+          "impact_true_positives": 47,
+          "impact_precision": 1,
+          "impact_recall": 0.9215686274509803,
+          "impact_out_of_scope": 59,
+          "impact_truncated": 0
+        },
+        "disagreements": [
+          "SupportsRead <- has_read (src/requests/_types.py:32) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.__setstate__ (src/requests/adapters.py:226) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.build_connection_pool_key_attributes (src/requests/adapters.py:403) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.init_poolmanager (src/requests/adapters.py:239) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.send (src/requests/adapters.py:634) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.get_connection (src/requests/adapters.py:512) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.__init__ (src/requests/adapters.py:201) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.proxy_manager_for (src/requests/adapters.py:269) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.get_connection_with_tls_context (src/requests/adapters.py:455) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.close (src/requests/adapters.py:555) [false-negative/tree-sitter]"
+        ]
+      }
+    },
+    "rayon": {
+      "repo": "https://github.com/rayon-rs/rayon",
+      "commit": "599425d4a4c64714632817f48496dbc53f656a90",
+      "language": "rust",
+      "scip_path": ".cache/rayon.scip",
+      "runs": 3,
+      "metrics": {
+        "cold_index_ms": {
+          "median": 245.967,
+          "min": 240.255,
+          "max": 291.997
+        },
+        "peak_rss_bytes": {
+          "median": 47702016,
+          "min": 46841856,
+          "max": 47960064
+        },
+        "incremental_ms": {
+          "median": 32.058,
+          "min": 31.048,
+          "max": 32.34
+        },
+        "impact_p50_ms": {
+          "median": 1.007,
+          "min": 0.998,
+          "max": 1.011
+        },
+        "impact_p95_ms": {
+          "median": 1.728,
+          "min": 1.692,
+          "max": 1.835
+        },
+        "callers_p50_ms": {
+          "median": 0.749,
+          "min": 0.734,
+          "max": 0.76
+        },
+        "callers_p95_ms": {
+          "median": 0.849,
+          "min": 0.837,
+          "max": 1.234
+        },
+        "path_p50_ms": {
+          "median": 1.599,
+          "min": 1.478,
+          "max": 1.724
+        },
+        "path_p95_ms": {
+          "median": 3.993,
+          "min": 3.821,
+          "max": 4.145
+        },
+        "map_p50_ms": {
+          "median": 7.218,
+          "min": 7.108,
+          "max": 7.56
+        },
+        "map_p95_ms": {
+          "median": 8.184,
+          "min": 7.844,
+          "max": 8.233
+        },
+        "check_ms": {
+          "median": 21.747,
+          "min": 21.19,
+          "max": 22.561
+        },
+        "check_findings": {
+          "median": 200,
+          "min": 200,
+          "max": 200
+        },
+        "artifact_bytes": {
+          "median": 1003520,
+          "min": 1003520,
+          "max": 1003520
+        },
+        "artifact_export_ms": {
+          "median": 8.427,
+          "min": 8.184,
+          "max": 8.97
+        },
+        "artifact_pull_ms": {
+          "median": 2.909,
+          "min": 2.689,
+          "max": 3.428
+        },
+        "artifact_zstd_bytes": {
+          "median": 298553,
+          "min": 298515,
+          "max": 298583
+        },
+        "artifact_zstd_export_ms": {
+          "median": 14.892,
+          "min": 14.154,
+          "max": 15.21
+        },
+        "artifact_zstd_pull_ms": {
+          "median": 4.567,
+          "min": 4.472,
+          "max": 4.848
+        },
+        "artifact_ratio": {
+          "median": 29.750577965561224,
+          "min": 29.746791294642858,
+          "max": 29.75356744260204
+        },
+        "adapter_wall_ms": {
+          "median": 645.99,
+          "min": 643.285,
+          "max": 663.44
+        },
+        "adapter_matched": {
+          "median": 834,
+          "min": 834,
+          "max": 834
+        },
+        "adapter_edges": {
+          "median": 749,
+          "min": 749,
+          "max": 749
+        },
+        "adapter_conflicts": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "adapter_unresolved_before": {
+          "median": 2048,
+          "min": 2048,
+          "max": 2048
+        },
+        "adapter_unresolved_after": {
+          "median": 1214,
+          "min": 1214,
+          "max": 1214
+        },
+        "adapter_edges_before": {
+          "median": 2161,
+          "min": 2161,
+          "max": 2161
+        },
+        "adapter_edges_after": {
+          "median": 2910,
+          "min": 2910,
+          "max": 2910
+        }
+      },
+      "structure": {
+        "files": 191,
+        "nodes": 3402,
+        "nodes_by_kind": {
+          "const": 86,
+          "enum": 8,
+          "function": 866,
+          "method": 1600,
+          "struct": 382,
+          "trait": 38,
+          "type": 422
+        },
+        "edges": {
+          "CALLS": 1356,
+          "IMPLEMENTS": 333,
+          "REFERENCES": 472
+        },
+        "edges_total": 2161,
+        "ambiguous": 75,
+        "ambiguity_rate": 0.034706154558074964,
+        "unresolved": 2048,
+        "unresolved_rate": 0.48657638393917796,
+        "unresolved_by_reason": {
+          "member-scope": 1357,
+          "missing-definition": 510,
+          "parse-failure": 0,
+          "scope-gap": 181
+        },
+        "unresolved_by_lang": {
+          "rust": 2048
+        },
+        "parse_failures": 0,
+        "entrypoints": 467,
+        "entrypoint_rules": {
+          "rs.main": 13,
+          "rs.test": 454
+        },
+        "git_head": "599425d4a4c64714632817f48496dbc53f656a90"
+      },
+      "adapter": {
+        "name": "scip-rust",
+        "definitions": 14878,
+        "references": 53694,
+        "matched": 834,
+        "edges": 749,
+        "conflicts": 0,
+        "skipped": 55898,
+        "unmatched": 9428,
+        "wall_ms": 645.99,
+        "unresolved_before": 2048,
+        "unresolved_after": 1214,
+        "edges_before": 2161,
+        "edges_after": 2910,
+        "new_edges_by_source": {
+          "production": 690,
+          "test_path": 27,
+          "test_entrypoint": 32
+        },
+        "new_edges_by_rule": {
+          "call": 92,
+          "method": 640,
+          "new": 17,
+          "reference": 0
+        }
+      },
+      "accuracy": {
+        "corpus": "rayon",
+        "language": "rust",
+        "commit": "599425d4a4c64714632817f48496dbc53f656a90",
+        "documents": 187,
+        "references": 53694,
+        "definitions": 14878,
+        "attributable_references": 5670,
+        "exclusions": {
+          "ambiguous-same-line-name": 486,
+          "definition-no-enclosing-node": 74,
+          "definition-unmapped-name": 12368,
+          "enclosing-not-function": 477,
+          "no-definition": 10348,
+          "no-enclosing-node": 2061,
+          "recursive": 83,
+          "unmapped-symbol": 30964
+        },
+        "ambiguous_name_keys": 242,
+        "candidate_targets": 1001,
+        "sampled_targets": 20,
+        "min_confidence": 0.5,
+        "before": {
+          "phase": "tree-sitter",
+          "samples": 20,
+          "expected_callers": 171,
+          "actual_callers": 19,
+          "true_positives": 16,
+          "precision": 0.8421052631578947,
+          "recall": 0.0935672514619883,
+          "out_of_scope_actual": 0,
+          "impact_expected": 321,
+          "impact_actual": 100,
+          "impact_true_positives": 96,
+          "impact_precision": 0.96,
+          "impact_recall": 0.29906542056074764,
+          "impact_out_of_scope": 0,
+          "impact_truncated": 0
+        },
+        "after": {
+          "phase": "after-adapter",
+          "samples": 20,
+          "expected_callers": 171,
+          "actual_callers": 22,
+          "true_positives": 19,
+          "precision": 0.8636363636363636,
+          "recall": 0.1111111111111111,
+          "out_of_scope_actual": 0,
+          "impact_expected": 321,
+          "impact_actual": 104,
+          "impact_true_positives": 100,
+          "impact_precision": 0.9615384615384616,
+          "impact_recall": 0.3115264797507788,
+          "impact_out_of_scope": 0,
+          "impact_truncated": 0
+        },
+        "adapter_touched_targets": 177,
+        "adapter_touched_before": {
+          "phase": "adapter-targets tree-sitter",
+          "samples": 177,
+          "expected_callers": 1432,
+          "actual_callers": 139,
+          "true_positives": 133,
+          "precision": 0.9568345323741008,
+          "recall": 0.09287709497206705,
+          "out_of_scope_actual": 0,
+          "impact_expected": 0,
+          "impact_actual": 0,
+          "impact_true_positives": 0,
+          "impact_precision": 0,
+          "impact_recall": 0,
+          "impact_out_of_scope": 0,
+          "impact_truncated": 0
+        },
+        "adapter_touched_after": {
+          "phase": "adapter-targets after-adapter",
+          "samples": 177,
+          "expected_callers": 1432,
+          "actual_callers": 878,
+          "true_positives": 861,
+          "precision": 0.9806378132118451,
+          "recall": 0.6012569832402235,
+          "out_of_scope_actual": 0,
+          "impact_expected": 2258,
+          "impact_actual": 1243,
+          "impact_true_positives": 1159,
+          "impact_precision": 0.9324215607401448,
+          "impact_recall": 0.5132860938883969,
+          "impact_out_of_scope": 0,
+          "impact_truncated": 0
+        },
+        "disagreements": [
+          "BroadcastContext <- BroadcastContext.index (rayon-core/src/broadcast/mod.rs:65) [false-negative/tree-sitter]",
+          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]",
+          "BroadcastContext <- spawn_broadcast_in (rayon-core/src/broadcast/mod.rs:131) [false-negative/tree-sitter]",
+          "BroadcastContext <- ScopeBroadcast.inject (rayon-core/src/scope/mod.rs:835) [false-negative/tree-sitter]",
+          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
+          "BroadcastContext <- broadcast_in (rayon-core/src/broadcast/mod.rs:98) [false-negative/tree-sitter]",
+          "BroadcastContext <- ThreadPool.spawn_broadcast (rayon-core/src/thread_pool/mod.rs:366) [false-negative/tree-sitter]",
+          "BroadcastContext <- Scope.spawn_broadcast (rayon-core/src/scope/mod.rs:582) [false-negative/tree-sitter]",
+          "BroadcastContext <- BroadcastContext.num_threads (rayon-core/src/broadcast/mod.rs:77) [false-negative/tree-sitter]",
+          "BroadcastContext <- ScopeFifo.spawn_broadcast (rayon-core/src/scope/mod.rs:633) [false-negative/tree-sitter]"
+        ]
+      }
+    }
+  }
+}

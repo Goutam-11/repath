@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/Goutam-11/repath/internal/cli.version=$(VERSION)
 
-.PHONY: build test vet fmt check clean perf perf-10k perf-50k bench-real bench-real-langs release-snapshot
+.PHONY: build test vet fmt check clean perf perf-10k perf-50k bench-real bench-real-langs bench-corpora release-snapshot
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/repath ./cmd/repath
@@ -48,6 +48,15 @@ bench-real-langs:
 	REPATH_BENCH_LANGS=1 REPATH_BENCH_LANG=rust \
 		REPATH_BENCH_RS_ROOT="$(REPATH_BENCH_RS_ROOT)" REPATH_BENCH_RS_COMMIT="$(REPATH_BENCH_RS_COMMIT)" REPATH_BENCH_RS_SCIP="$(REPATH_BENCH_RS_SCIP)" \
 		go test ./internal/index -run '^TestBenchRealLanguages$$' -v -count=1
+
+# Reproducible corpus evidence (issue #61), never a CI gate. Runs the pinned
+# django/hyusk/requests/rayon matrix N=3 in separate processes, writes
+# <outdir>/summary.json plus accuracy and failure-mode JSON, and prints deltas
+# against bench/baseline.json. ARGS passes flags through, e.g.
+#   make bench-corpora ARGS="--runs 1 --corpora requests"
+# Only `--update-baseline` rewrites the checked-in baseline/history.
+bench-corpora:
+	./scripts/bench-corpora.sh $(ARGS)
 
 # Local snapshot of the current platform. Requires goreleaser >= 2.20 on PATH;
 # the tag-triggered release workflow builds both amd64 and arm64.

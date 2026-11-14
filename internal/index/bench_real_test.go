@@ -81,6 +81,8 @@ func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) 
 	}
 	defer func() { _ = st.Close() }()
 
+	run := newBenchRun(opts, wantCommit, root)
+
 	// Cold index.
 	start := time.Now()
 	cold, err := index.Run(ctx, st, root, index.Options{})
@@ -89,6 +91,9 @@ func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) 
 		t.Fatalf("%scold index: %v", opts.label, err)
 	}
 	coldRSS := peakRSSBytes()
+	run.ColdIndexMS = durationMS(coldDuration)
+	run.PeakRSSBytes = coldRSS
+	run.Structure = benchStatus(t, ctx, st, root)
 	t.Logf("%scold index: %d files, %d nodes in %s; peak RSS %s",
 		opts.label, cold.Files, cold.Nodes, coldDuration, formatBytes(coldRSS))
 	warnBudget(t, "cold <3m", coldDuration, 3*time.Minute)
@@ -149,6 +154,8 @@ func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) 
 	if incremental.Indexed != 10 {
 		t.Fatalf("%sincremental indexed = %d, want 10", opts.label, incremental.Indexed)
 	}
+	run.IncrementalMS = durationMS(incrementalDuration)
+	run.IncrementalIndexed = incremental.Indexed
 	t.Logf("%s10-file incremental: %s (peak RSS %s; %d files, edges %d, unresolved %d; cold edges %d, unresolved %d)",
 		opts.label, incrementalDuration, formatBytes(peakRSSBytes()), incremental.Indexed,
 		incremental.Edges, incremental.Unresolved, cold.Edges, cold.Unresolved)
@@ -235,6 +242,12 @@ func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) 
 	callerP50, callerP95 := percentile(callerSamples)
 	pathP50, pathP95 := percentile(pathSamples)
 	mapP50, mapP95 := percentile(mapSamples)
+	run.Queries = benchQueries{
+		Impact:  benchDuration{P50MS: durationMS(impactP50), P95MS: durationMS(impactP95), Samples: len(impactSamples)},
+		Callers: benchDuration{P50MS: durationMS(callerP50), P95MS: durationMS(callerP95), Samples: len(callerSamples)},
+		Path:    benchDuration{P50MS: durationMS(pathP50), P95MS: durationMS(pathP95), Samples: len(pathSamples)},
+		Map:     benchDuration{P50MS: durationMS(mapP50), P95MS: durationMS(mapP95), Samples: len(mapSamples)},
+	}
 	t.Logf("%simpact p50=%s p95=%s (n=%d, budget p95 <150ms)", opts.label, impactP50, impactP95, len(impactSamples))
 	t.Logf("%scallers p50=%s p95=%s (n=%d, budget p95 <150ms)", opts.label, callerP50, callerP95, len(callerSamples))
 	t.Logf("%spath p50=%s p95=%s (n=%d, budget p95 <250ms)", opts.label, pathP50, pathP95, len(pathSamples))
@@ -251,6 +264,7 @@ func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) 
 	if err != nil {
 		t.Fatalf("%scheck: %v", opts.label, err)
 	}
+	run.Check = benchCheck{DurationMS: durationMS(checkDuration), Findings: len(report.Findings)}
 	t.Logf("%scheck: %s (%d findings)", opts.label, checkDuration, len(report.Findings))
 
 	// Artifact export/pull, uncompressed and opt-in zstd.
@@ -300,6 +314,19 @@ func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) 
 	if zstManifest.Format != "sqlite+zstd" {
 		t.Fatalf("%scompressed manifest format = %q", opts.label, zstManifest.Format)
 	}
+	run.Artifact = benchArtifact{
+		UncompressedBytes: uint64(info.Size()),
+		ExportMS:          durationMS(exportDuration),
+		PullMS:            durationMS(pullDuration),
+		ZstdBytes:         uint64(zstInfo.Size()),
+		ZstdExportMS:      durationMS(zstExport),
+		ZstdPullMS:        durationMS(zstPull),
+		Ratio:             100 * float64(zstInfo.Size()) / float64(info.Size()),
+		SchemaVersion:     manifest.SchemaVersion,
+		FileCount:         manifest.FileCount,
+		NodeCount:         manifest.NodeCount,
+		EdgeCount:         manifest.EdgeCount,
+	}
 	t.Logf("%sartifact zstd: %s export=%s pull=%s (%.1f%% of uncompressed)",
 		opts.label, formatBytes(uint64(zstInfo.Size())), zstExport, zstPull,
 		100*float64(zstInfo.Size())/float64(info.Size()))
@@ -331,15 +358,18 @@ func runRealBench(t *testing.T, root, wantCommit string, opts realBenchOptions) 
 		}
 		t.Logf("%sadapter baseline cold re-index: %s (%d files, edges %d, unresolved %d; %s)",
 			opts.label, time.Since(baselineStart), baseline.Files, baseline.Edges, baseline.Unresolved, match)
-		runAdapterBench(t, ctx, st, opts)
+		runAdapterBench(t, ctx, st, opts, run)
+		run.FinalStructure = benchStatus(t, ctx, st, root)
 	}
 
 	t.Logf("%speak RSS after all measurements: %s", opts.label, formatBytes(peakRSSBytes()))
+	run.finish()
+	run.write(t)
 }
 
 // runAdapterBench applies one pinned SCIP index and reports the before/after
 // unresolved count plus production/test and rule splits of the new edges.
-func runAdapterBench(t *testing.T, ctx context.Context, st *store.Store, opts realBenchOptions) {
+func runAdapterBench(t *testing.T, ctx context.Context, st *store.Store, opts realBenchOptions, run *benchRun) {
 	t.Helper()
 	unresolvedBefore, err := st.CountPending(ctx)
 	if err != nil {
@@ -435,6 +465,27 @@ func runAdapterBench(t *testing.T, ctx context.Context, st *store.Store, opts re
 		opts.label, stats.Adapter, production, testEdges, testPath, testEntry, method, call, newEdges, reference)
 	t.Logf("%sadapter %s: new-edge source roots: %s",
 		opts.label, stats.Adapter, formatRootCounts(roots))
+	if run != nil {
+		run.Adapter = &benchAdapter{
+			Name:             stats.Adapter,
+			Definitions:      stats.Definitions,
+			References:       stats.References,
+			Matched:          stats.Matched,
+			Edges:            stats.Edges,
+			Conflicts:        stats.Conflicts,
+			Skipped:          stats.Skipped,
+			Unmatched:        stats.Unmatched,
+			WallMS:           durationMS(duration),
+			UnresolvedBefore: unresolvedBefore,
+			UnresolvedAfter:  unresolvedAfter,
+			EdgesBefore:      edgesBefore,
+			EdgesAfter:       edgesAfter,
+			NewEdgesBySource: benchEdgeSource{Production: production, TestPath: testPath, TestEntrypoint: testEntry},
+			NewEdgesByRule: map[string]int{
+				"method": method, "call": call, "new": newEdges, "reference": reference,
+			},
+		}
+	}
 }
 
 func unresolvedRate(edges, unresolved int) float64 {
