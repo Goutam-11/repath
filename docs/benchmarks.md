@@ -642,6 +642,12 @@ half and accuracy for that corpus. The default output directory is
 }
 ```
 
+`new_edges_by_source.production` is the non-test bucket: for `rayon` it is 690
+non-test edges, including the 53 `rayon-demo` edges the #48 table reports
+separately; the harness log also carries the per-root split.
+`new_edges_by_rule` counts `scip.<lang>.*` suffixes, so `reference` is the
+catch-all beyond `method`/`call`/`new`.
+
 `summary.json` wraps those runs: `host` (hostname, platform, kernel, CPU model,
 logical CPUs, RAM bytes, load average before/after), `tools` (Go, Rust, Python,
 Node, git), `repath_commit`/`repath_version`, `runs_per_corpus`,
