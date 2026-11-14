@@ -162,6 +162,17 @@ the database.
   property when touching the indexer.
 - **Pending retries only re-link identifiers.** `pending.form` exists so an
   untyped `obj.get()` is never retried as a repo-wide name guess.
+- **Unresolved reasons are a heuristic, computed at read time.** `status` and
+  `check --json` bucket every pending row exactly once: `parse-failure`
+  (`files.parse_ok = 0`), `member-scope` (`form = 'member'` and the name exists
+  somewhere), `missing-definition` (no node has the name), `scope-gap` (name
+  exists but the import/scope did not resolve), in that precedence; the buckets
+  must sum to `unresolved`. The one implementation is
+  `store.UnresolvedSummary` — do not reimplement it in `query`, `check`, `mcp`,
+  or `serve`, and do not persist the buckets (that would be a schema change).
+  Treat the buckets as a pointer to a resolver gap, not a compiler diagnosis:
+  inheritance, barrel re-exports, workspace imports, and macro-generated
+  symbols legitimately land in `member-scope`/`scope-gap`.
 - **Rust module resolution is convention-based.** Crate roots come from
   Cargo packages (`src/lib.rs` or `src/main.rs`); `src/foo.rs` is `crate::foo`.
   `#[path]`, inline `mod` blocks as import targets, and workspace cross-crate

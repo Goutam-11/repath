@@ -662,6 +662,174 @@ func (s *Store) CountPending(ctx context.Context) (int, error) {
 	return n, err
 }
 
+// Pending reason buckets. They are coarse, documented classifications of an
+// unresolved reference and are computed at read time from the pending table,
+// the file's parse_ok flag, and whether the name exists anywhere in nodes. The
+// constants are also the classifier precedence, in order.
+const (
+	PendingReasonParseFailure      = "parse-failure"
+	PendingReasonMemberScope       = "member-scope"
+	PendingReasonMissingDefinition = "missing-definition"
+	PendingReasonScopeGap          = "scope-gap"
+)
+
+// PendingReasons is the canonical bucket order used by JSON consumers and text
+// renderers. Keep it in sync with the constants above.
+var PendingReasons = []string{
+	PendingReasonParseFailure,
+	PendingReasonMemberScope,
+	PendingReasonMissingDefinition,
+	PendingReasonScopeGap,
+}
+
+// PendingBucket is one named group in an unresolved summary.
+type PendingBucket struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+// UnresolvedSummary explains the pending (unresolved) references. It is
+// derived at read time so it cannot drift from the counts, and its reason
+// counts always sum to Total.
+type UnresolvedSummary struct {
+	Total      int             `json:"total"`
+	ByReason   map[string]int  `json:"by_reason"`
+	ByLang     map[string]int  `json:"by_lang,omitempty"`
+	TopNames   []PendingBucket `json:"top_names,omitempty"`
+	TopModules []PendingBucket `json:"top_modules,omitempty"`
+}
+
+// UnresolvedSummary classifies every pending reference into exactly one reason
+// bucket and reports the largest name and module buckets. topN bounds each
+// list; the reason totals are never truncated. The classifier is:
+//
+//	parse-failure       the reference's file has parse_ok = 0
+//	member-scope        form = 'member' and the name exists somewhere
+//	missing-definition  no node has that name anywhere
+//	scope-gap           the name exists but the import/scope did not resolve
+//
+// Precedence is the order above. This is a heuristic diagnosis of the pending
+// table, not a compiler error: a member-scope reference may be an inherited
+// method or a typed receiver the resolver cannot infer, and a scope-gap may be
+// a barrel re-export or a workspace package. The aggregation runs in SQL and
+// never loads the pending rows into Go.
+func (s *Store) UnresolvedSummary(ctx context.Context, topN int) (UnresolvedSummary, error) {
+	if topN <= 0 {
+		topN = 10
+	}
+	out := UnresolvedSummary{
+		ByReason: make(map[string]int, len(PendingReasons)),
+		ByLang:   map[string]int{},
+	}
+	for _, reason := range PendingReasons {
+		out.ByReason[reason] = 0
+	}
+
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM pending`).Scan(&out.Total); err != nil {
+		return UnresolvedSummary{}, err
+	}
+	if out.Total == 0 {
+		return out, nil
+	}
+
+	// Roll pending up per name first: Django has 105k pending rows but only a
+	// few thousand distinct names, so the nodes-name join stays small. The
+	// files join is a primary-key probe and the per-name grouping is indexed
+	// by pending_name, so this stays a bounded read on large trees.
+	var parseFailure, memberScope, missingDefinition, scopeGap int
+	err := s.db.QueryRowContext(ctx, `
+WITH pending_names(name) AS (SELECT DISTINCT name FROM pending),
+defined(name) AS (
+    SELECT DISTINCT n.name
+    FROM nodes n
+    JOIN pending_names pn ON pn.name = n.name
+),
+pn AS (
+    SELECT p.name AS name,
+           COUNT(*) AS total,
+           SUM(CASE WHEN p.form = 'member' AND COALESCE(f.parse_ok, 1) <> 0 THEN 1 ELSE 0 END) AS members,
+           SUM(CASE WHEN COALESCE(f.parse_ok, 1) = 0 THEN 1 ELSE 0 END) AS parse_fail
+    FROM pending p
+    LEFT JOIN files f ON f.id = p.file_id
+    GROUP BY p.name
+)
+SELECT
+    COALESCE(SUM(pn.parse_fail), 0),
+    COALESCE(SUM(CASE WHEN d.name IS NOT NULL THEN pn.members ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN d.name IS NULL THEN pn.total - pn.parse_fail ELSE 0 END), 0),
+    COALESCE(SUM(CASE WHEN d.name IS NOT NULL THEN pn.total - pn.parse_fail - pn.members ELSE 0 END), 0)
+FROM pn
+LEFT JOIN defined d ON d.name = pn.name`).
+		Scan(&parseFailure, &memberScope, &missingDefinition, &scopeGap)
+	if err != nil {
+		return UnresolvedSummary{}, err
+	}
+	out.ByReason[PendingReasonParseFailure] = parseFailure
+	out.ByReason[PendingReasonMemberScope] = memberScope
+	out.ByReason[PendingReasonMissingDefinition] = missingDefinition
+	out.ByReason[PendingReasonScopeGap] = scopeGap
+
+	langRows, err := s.db.QueryContext(ctx, `
+SELECT f.lang, COUNT(*)
+FROM pending p
+JOIN files f ON f.id = p.file_id
+GROUP BY f.lang
+ORDER BY COUNT(*) DESC, f.lang`)
+	if err != nil {
+		return UnresolvedSummary{}, err
+	}
+	for langRows.Next() {
+		var lang string
+		var count int
+		if err := langRows.Scan(&lang, &count); err != nil {
+			langRows.Close()
+			return UnresolvedSummary{}, err
+		}
+		out.ByLang[lang] = count
+	}
+	err = langRows.Err()
+	langRows.Close()
+	if err != nil {
+		return UnresolvedSummary{}, err
+	}
+
+	if out.TopNames, err = s.pendingBuckets(ctx,
+		`SELECT name, COUNT(*) c FROM pending GROUP BY name ORDER BY c DESC, name LIMIT ?`, topN); err != nil {
+		return UnresolvedSummary{}, err
+	}
+	if out.TopModules, err = s.pendingBuckets(ctx, `
+SELECT COALESCE(NULLIF(m.name, ''), '(root)') AS module, COUNT(*) c
+FROM pending p
+JOIN files f ON f.id = p.file_id
+LEFT JOIN modules m ON m.id = f.module_id
+GROUP BY module
+ORDER BY c DESC, module
+LIMIT ?`, topN); err != nil {
+		return UnresolvedSummary{}, err
+	}
+	return out, nil
+}
+
+// pendingBuckets runs a grouped pending query whose two columns are a name and
+// a count, with a deterministic name tie-break supplied by the caller's ORDER BY.
+func (s *Store) pendingBuckets(ctx context.Context, query string, limit int) ([]PendingBucket, error) {
+	rows, err := s.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []PendingBucket
+	for rows.Next() {
+		var bucket PendingBucket
+		if err := rows.Scan(&bucket.Name, &bucket.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, bucket)
+	}
+	return out, rows.Err()
+}
+
 // AmbiguousEdges counts 0.40-confidence ambiguity edges, which are excluded by
 // the default query threshold but must stay visible in status.
 func (s *Store) AmbiguousEdges(ctx context.Context) (int, error) {

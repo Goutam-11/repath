@@ -70,17 +70,20 @@ type Counts struct {
 
 // Report is the `check --json` contract.
 type Report struct {
-	Root          string             `json:"root"`
-	SchemaVersion int                `json:"schema_version"`
-	MinConfidence float64            `json:"min_confidence"`
-	MaxFindings   int                `json:"max_findings"`
-	Files         int                `json:"files"`
-	Nodes         int                `json:"nodes"`
-	Edges         int                `json:"edges"`
-	Counts        Counts             `json:"counts"`
-	Findings      []Finding          `json:"findings"`
-	Diagnostics   *DiagnosticSummary `json:"diagnostics,omitempty"`
-	Truncated     bool               `json:"truncated"`
+	Root          string  `json:"root"`
+	SchemaVersion int     `json:"schema_version"`
+	MinConfidence float64 `json:"min_confidence"`
+	MaxFindings   int     `json:"max_findings"`
+	Files         int     `json:"files"`
+	Nodes         int     `json:"nodes"`
+	Edges         int     `json:"edges"`
+	// Unresolved explains the pending references with the same classifier as
+	// `status --json`. Its reason buckets always sum to Unresolved.Total.
+	Unresolved  store.UnresolvedSummary `json:"unresolved"`
+	Counts      Counts                  `json:"counts"`
+	Findings    []Finding               `json:"findings"`
+	Diagnostics *DiagnosticSummary      `json:"diagnostics,omitempty"`
+	Truncated   bool                    `json:"truncated"`
 }
 
 // Run executes every check against the current index.
@@ -119,6 +122,10 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Repor
 	if err != nil {
 		return Report{}, err
 	}
+	unresolvedSummary, err := st.UnresolvedSummary(ctx, 10)
+	if err != nil {
+		return Report{}, err
+	}
 
 	report := Report{
 		Root:          root,
@@ -128,6 +135,7 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Repor
 		Files:         len(files),
 		Nodes:         len(nodes),
 		Edges:         len(edges),
+		Unresolved:    unresolvedSummary,
 		Findings:      make([]Finding, 0),
 	}
 

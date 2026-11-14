@@ -81,6 +81,66 @@ an approximation (external imports are not pending, and ambiguous edges below
 the threshold are excluded), so it is reported only for modules with at least 3
 pending references and a rate of at least 50%.
 
+## Unresolved reasons
+
+`status --json` and `check --json` explain *why* references are unresolved, not
+only how many. The same classifier runs in both commands, at read time, through
+`store.UnresolvedSummary` — it is not stored and cannot drift from the pending
+count. Every pending row lands in exactly one bucket, in this precedence:
+
+| Reason | Meaning |
+| --- | --- |
+| `parse-failure` | the reference's file has `parse_ok = 0`, so its facts are partial by definition |
+| `member-scope` | `form = 'member'` and a node with that name exists somewhere (typed-receiver, inheritance, or visibility gap) |
+| `missing-definition` | no node anywhere has that name (external library, dynamic call, macro-generated symbol) |
+| `scope-gap` | the name exists, but the import/scope/workspace path did not resolve it |
+
+The reasons always sum to `unresolved`; the top lists are bounded to ten and
+tie-break by name.
+
+```text
+$ repath status
+edges CALLS 17281 · EXTENDS 8688 · REFERENCES 19865 · ambiguous 1572 (3.4%) · unresolved 105319 (69.7%)
+unresolved reasons: parse-failure 0 · member-scope 50052 · missing-definition 40489 · scope-gap 14778
+unresolved top names: assertEqual (19032) · create (5330) · get (4027)
+```
+
+```json
+{
+  "unresolved": 105319,
+  "unresolved_by_reason": {
+    "parse-failure": 0,
+    "member-scope": 50052,
+    "missing-definition": 40489,
+    "scope-gap": 14778
+  },
+  "unresolved_by_lang": {"python": 104104, "javascript": 1215},
+  "unresolved_top_names": [{"name": "assertEqual", "count": 19032}],
+  "unresolved_top_modules": [{"name": "tests", "count": 90761}]
+}
+```
+
+`check --json` carries the same shape in one nested object, so the CI payload
+can explain the unresolved rate it reports:
+
+```json
+{"unresolved": {"total": 105319,
+                "by_reason": {"parse-failure": 0, "member-scope": 50052,
+                              "missing-definition": 40489, "scope-gap": 14778},
+                "by_lang": {"python": 104104, "javascript": 1215},
+                "top_names": [{"name": "assertEqual", "count": 19032}],
+                "top_modules": [{"name": "tests", "count": 90761}]}}
+```
+
+**These buckets are a coarse diagnosis of the pending table, not a compiler
+error.** `member-scope` may be a method inherited from a base class or a
+receiver whose type the resolver cannot infer; `scope-gap` may be a barrel
+re-export, a workspace package, or a Rust generic bound. The buckets are
+designed to point at a resolver gap to investigate, never to claim a reference
+is invalid — the fixtures and the eval gate, not this summary, define
+resolution. Like `status` itself, the summary never refreshes the index, so
+`/status` exposes it read-only and unchanged until the next index run.
+
 ## SARIF diagnostics (opt-in)
 
 `--sarif` is a **bridge, not a compiler frontend**. repath never shells out to
@@ -215,6 +275,14 @@ classifier (including `testdata/`, `__tests__/`, `*.test.*`, `*.spec.*`,
 `test_*.py`, and `conftest.py`). The classifier is
 `internal/testpath.IsTest`, shared with `repath tests`. `internal/cli/check_test.go`
 covers the text report, JSON, `--fail-on` thresholds, and usage errors.
+
+The unresolved-reason classifier is pinned in `internal/store/store_test.go`
+(a table-driven fixture that exercises all four buckets, the parse-failure
+precedence, top-list truncation/tie-break, and the empty graph),
+`internal/cli/status_test.go` (JSON fields and the text lines, absent when
+clean), and `internal/cli/check_test.go` (the nested object agrees with
+`status`). The Django corpus reconciles at 105,319 pending across the four
+buckets.
 
 On the reproducible 50k tree from `make perf-50k`, `check` takes **464 ms**
 (0 findings); the 10k tree takes **86 ms**. The 50k tree is synthetic and has
