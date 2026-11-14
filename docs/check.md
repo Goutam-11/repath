@@ -85,8 +85,10 @@ pending references and a rate of at least 50%.
 
 `status --json` and `check --json` explain *why* references are unresolved, not
 only how many. The same classifier runs in both commands, at read time, through
-`store.UnresolvedSummary` — it is not stored and cannot drift from the pending
-count. Every pending row lands in exactly one bucket, in this precedence:
+the pure `store.SummarizePending` (`store.UnresolvedSummary` feeds it for
+status; `check` reuses the pending rows it already loads) — it is not stored
+and cannot drift from the pending count. Every pending row lands in exactly one
+bucket, in this precedence:
 
 | Reason | Meaning |
 | --- | --- |
@@ -99,11 +101,17 @@ The reasons always sum to `unresolved`; the top lists are bounded to ten and
 tie-break by name.
 
 ```text
-$ repath status
+$ repath status --no-refresh
 edges CALLS 17281 · EXTENDS 8688 · REFERENCES 19865 · ambiguous 1572 (3.4%) · unresolved 105319 (69.7%)
 unresolved reasons: parse-failure 0 · member-scope 50052 · missing-definition 40489 · scope-gap 14778
-unresolved top names: assertEqual (19032) · create (5330) · get (4027)
+unresolved top names: assertEqual (19032) · create (5330) · get (4027) · filter (2589) · assertRaisesMessage (2511) · CharField (2162) · assertIs (1862) · assertIn (1710) · assertSequenceEqual (1485) · all (1340)
 ```
+
+That is verbatim output from one real run on `django/django` @ `f24f38c`
+(3,051 files, 105,319 pending), not a template; it is an excerpt of the
+unresolved lines, and text percentages are rounded to one decimal. Top modules
+are not rendered in the text form by design (the two new lines are the whole
+text addition); they are available in JSON only.
 
 ```json
 {
@@ -281,8 +289,9 @@ The unresolved-reason classifier is pinned in `internal/store/store_test.go`
 precedence, top-list truncation/tie-break, and the empty graph),
 `internal/cli/status_test.go` (JSON fields and the text lines, absent when
 clean), and `internal/cli/check_test.go` (the nested object agrees with
-`status`). The Django corpus reconciles at 105,319 pending across the four
-buckets.
+`status`). Because the classifier is pure, `check` reuses the pending rows it
+already loads instead of classifying twice. The Django corpus reconciles at
+105,319 pending across the four buckets.
 
 On the reproducible 50k tree from `make perf-50k`, `check` takes **464 ms**
 (0 findings); the 10k tree takes **86 ms**. The 50k tree is synthetic and has
