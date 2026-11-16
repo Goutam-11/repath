@@ -162,3 +162,71 @@ func keys(m map[string]Symbol) []string {
 	}
 	return out
 }
+
+// TestExtractBarrelAndDynamicImports pins the #56 extraction facts: `export *`,
+// named/aliased/default re-exports, and static require()/import() bindings.
+func TestExtractBarrelAndDynamicImports(t *testing.T) {
+	src := `export * from "./util";
+export * from "./more";
+export { clamp, add as plus } from "./math";
+export { default as fmt, default } from "./format";
+export * as ns from "./ns";
+export { localName };
+import eq = require("./eq");
+
+const tools = require("./util");
+const { a, b: renamed, c = 1, ...rest } = require("./destructured");
+const later = await import("./later");
+const webpack = await import(/* webpackChunkName: "chunk" */ "./webpack");
+const required = require(/* comment */ "./required");
+const computed = await import(` + "`./${name}`" + `);
+`
+	result := New().Extract([]byte(src), TypeScript)
+	if !result.OK {
+		t.Fatalf("parse failed: %s", result.Err)
+	}
+
+	type binding struct {
+		local, imported, source string
+		public                  bool
+	}
+	var got []binding
+	for _, imp := range result.Imports {
+		got = append(got, binding{imp.Local, imp.Imported, imp.Source, imp.Public})
+	}
+
+	want := []binding{
+		// `export *` keeps one binding per source: two of them must survive.
+		{"*", "*", "./util", true},
+		{"*", "*", "./more", true},
+		{"clamp", "clamp", "./math", true},
+		{"plus", "add", "./math", true},
+		{"fmt", "default", "./format", true},
+		{"default", "default", "./format", true},
+		// `export * as ns` is deliberately not followed, and a sourceless
+		// `export { localName }` creates no binding.
+		{"eq", "*", "./eq", false},
+		{"tools", "*", "./util", false},
+		{"a", "a", "./destructured", false},
+		{"renamed", "b", "./destructured", false},
+		{"c", "c", "./destructured", false},
+		{"later", "*", "./later", false},
+		{"webpack", "*", "./webpack", false},
+		{"required", "*", "./required", false},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("imports = %d, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("import %d = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+
+	// A computed specifier must not create a binding.
+	for _, imp := range result.Imports {
+		if imp.Source == "./${name}" || imp.Source == "" {
+			t.Errorf("computed specifier produced a binding: %+v", imp)
+		}
+	}
+}

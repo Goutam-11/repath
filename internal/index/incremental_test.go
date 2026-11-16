@@ -2,9 +2,12 @@ package index_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -336,4 +339,107 @@ func TestIncrementalOutsideGitRepo(t *testing.T) {
 	if changed.Indexed != 1 || changed.Unchanged != 1 {
 		t.Fatalf("non-git incremental = indexed %d unchanged %d, want 1/1", changed.Indexed, changed.Unchanged)
 	}
+}
+
+// graphRows renders every edge and pending reference as a stable text row, so
+// warm/cold parity can be compared as row sets instead of only as counts.
+// Counts alone hide a swap (one edge lost, another gained) and an edge+pending
+// pair for the same reference.
+func graphRows(t *testing.T, dir string) []string {
+	t.Helper()
+	ctx := context.Background()
+	st := openIndex(t, dir)
+	defer st.Close()
+
+	edges, err := st.Edges(ctx, 0)
+	if err != nil {
+		t.Fatalf("edges: %v", err)
+	}
+	paths, err := st.FilePaths(ctx)
+	if err != nil {
+		t.Fatalf("file paths: %v", err)
+	}
+	pending, err := st.Pending(ctx)
+	if err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+
+	rows := make([]string, 0, len(edges)+len(pending))
+	for _, e := range edges {
+		rows = append(rows, fmt.Sprintf("edge %s:%s -> %s:%s %s %.2f %s line %d",
+			e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind, e.Confidence, e.Rule, e.Line))
+	}
+	for _, p := range pending {
+		rows = append(rows, fmt.Sprintf("pending %s %s %s %s line %d",
+			paths[p.FileID], p.Name, p.Kind, p.Form, p.Line))
+	}
+	sort.Strings(rows)
+	return rows
+}
+
+// TestIncrementalFollowsTSBarrelThroughUnchangedModule is the TypeScript half of
+// #49 and the #56 parity regression. A ten-file Kibana edit re-resolves only the
+// changed files, so a barrel re-export chain continues through modules the run
+// did not touch; their bindings have to be loaded lazily or the same reference
+// is an edge in the cold graph and pending in the warm one.
+func TestIncrementalFollowsTSBarrelThroughUnchangedModule(t *testing.T) {
+	dir := newGitRepo(t)
+	writeSource(t, dir, "impl.ts", "export function helper() { return 1; }\n")
+	writeSource(t, dir, "barrel.ts", "export * from './impl';\n")
+	writeSource(t, dir, "use.ts", "import { helper } from './barrel';\nexport function run() { return helper(); }\n")
+	commitAll(t, dir, "seed")
+
+	cold := runIndex(t, dir)
+	if cold.Unresolved != 0 {
+		t.Fatalf("cold unresolved = %d, want 0", cold.Unresolved)
+	}
+	coldRows := graphRows(t, dir)
+	assertBarrelEdge(t, dir, "ts.import.star")
+
+	// Touch only the consumer: barrel.ts and impl.ts stay unchanged.
+	writeSource(t, dir, "use.ts", "import { helper } from './barrel';\nexport function run() { return helper(); }\n// comment\n")
+	warm := runIndex(t, dir)
+	if warm.Indexed != 1 || warm.Unchanged != 2 {
+		t.Fatalf("warm run = indexed %d unchanged %d, want 1/2", warm.Indexed, warm.Unchanged)
+	}
+	if warm.Edges != cold.Edges || warm.Unresolved != cold.Unresolved {
+		t.Fatalf("warm run = edges %d unresolved %d, want cold %d/%d",
+			warm.Edges, warm.Unresolved, cold.Edges, cold.Unresolved)
+	}
+	if rows := graphRows(t, dir); !reflect.DeepEqual(rows, coldRows) {
+		t.Fatalf("warm run changed the row set:\n cold: %v\n warm: %v", coldRows, rows)
+	}
+	assertBarrelEdge(t, dir, "ts.import.star")
+
+	// A second --full run must reproduce the cold graph row for row.
+	full := runIndexOptions(t, dir, index.Options{Full: true})
+	if full.Edges != cold.Edges || full.Unresolved != cold.Unresolved {
+		t.Fatalf("full run = edges %d unresolved %d, want cold %d/%d",
+			full.Edges, full.Unresolved, cold.Edges, cold.Unresolved)
+	}
+	if rows := graphRows(t, dir); !reflect.DeepEqual(rows, coldRows) {
+		t.Fatalf("second --full run changed the row set:\n cold: %v\n full: %v", coldRows, rows)
+	}
+}
+
+// assertBarrelEdge requires the run() -> helper() edge to carry the barrel rule.
+// The pending retry would otherwise link the same call as ts.global.unique once
+// the target exists, which is exactly the failure mode this test guards.
+func assertBarrelEdge(t *testing.T, dir, rule string) {
+	t.Helper()
+	st := openIndex(t, dir)
+	defer st.Close()
+	edges, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("edges: %v", err)
+	}
+	for _, edge := range edges {
+		if edge.SrcQName == "run" && edge.DstQName == "helper" {
+			if edge.Rule != rule {
+				t.Fatalf("run -> helper rule = %q, want %q", edge.Rule, rule)
+			}
+			return
+		}
+	}
+	t.Fatalf("run -> helper edge missing: %+v", edges)
 }

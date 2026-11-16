@@ -409,3 +409,56 @@ func loadExpected(t *testing.T, path string) []expectedEdge {
 	}
 	return edges
 }
+
+// TestTypeScriptRuleIDs pins the #56 ladder: every barrel, workspace, and
+// static-dynamic-import rule id must be reachable from the fixture, and a
+// TypeScript file must never produce a Python or Rust rule.
+func TestTypeScriptRuleIDs(t *testing.T) {
+	_, st, _ := indexFixture(t, "ts")
+	edges, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+
+	got := make(map[string]string, len(edges))
+	for _, e := range edges {
+		got[edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)] = e.Rule
+	}
+
+	want := map[string]string{
+		// Direct imports stay on the existing rules.
+		"src/math.ts:sum -> src/util.ts:add CALLS":             "ts.import.named",
+		"src/fmt.ts:print -> src/format.ts:format CALLS":       "ts.import.default",
+		"src/cart.ts:Cart.total -> src/cart.ts:Cart.add CALLS": "ts.this.method",
+
+		// #56: `export *`, named re-export, and default re-export barrels.
+		"src/barrel-use.ts:viaBarrel -> src/util.ts:add CALLS":        "ts.import.star",
+		"src/barrel-use.ts:viaBarrel -> src/util.ts:clamp CALLS":      "ts.import.reexport",
+		"src/barrel-use.ts:viaBarrel -> src/format.ts:format CALLS":   "ts.import.reexport",
+		"src/barrel-use.ts:viaBarrel -> src/cart.ts:Cart REFERENCES":  "ts.import.reexport",
+		"src/barrel-use.ts:viaBarrel -> src/cart.ts:Cart.total CALLS": "ts.typed.method.reexport",
+		"src/cycle-use.ts:both -> src/cycle-a.ts:alpha CALLS":         "ts.import.named",
+		"src/cycle-use.ts:both -> src/cycle-b.ts:beta CALLS":          "ts.import.star",
+		"src/deep-use.ts:capped -> src/util.ts:clamp CALLS":           "ts.import.reexport",
+
+		// #56: static require()/import() bindings.
+		"src/dynamic-use.ts:dynamic -> src/util.ts:add CALLS":        "ts.import.namespace",
+		"src/dynamic-use.ts:dynamic -> src/util.ts:clamp CALLS":      "ts.import.reexport",
+		"src/dynamic-use.ts:dynamicAwait -> src/util.ts:clamp CALLS": "ts.import.namespace",
+
+		// #56: package.json workspaces, direct entry and re-exported entry.
+		"src/workspace-use.ts:viaWorkspace -> packages/gizmo/index.ts:spin CALLS":       "ts.import.workspace",
+		"src/workspace-use.ts:viaWorkspace -> packages/widget/src/impl.ts:gadget CALLS": "ts.import.workspace.star",
+	}
+	for key, rule := range want {
+		if got[key] != rule {
+			t.Errorf("edge %q rule = %q, want %q", key, got[key], rule)
+		}
+	}
+
+	for key, rule := range got {
+		if strings.HasPrefix(rule, "py.") || strings.HasPrefix(rule, "rs.") {
+			t.Errorf("TypeScript edge %q used rule %q", key, rule)
+		}
+	}
+}

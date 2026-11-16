@@ -1,0 +1,5 @@
+{
+  "name": "@fixture/gizmo",
+  "private": true,
+  "exports": "./index.ts"
+}

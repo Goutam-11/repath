@@ -1,0 +1,5 @@
+{
+  "name": "@fixture/widget",
+  "private": true,
+  "main": "src/index.ts"
+}

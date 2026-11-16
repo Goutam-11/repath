@@ -166,6 +166,22 @@ the database.
 - **Python re-exports are followed through the imports table.** `py.import.reexport`
   covers `__init__.py` and ordinary modules such as `requests.compat`; a chain
   ending at the standard library is external, not pending.
+- **TypeScript barrels, workspaces, and dynamic imports are bounded inputs.**
+  `export * from` and `export { a } from` are persisted as public import
+  bindings and followed at ≤8 hops with a visited set; a declaration beats a
+  named re-export beats `export *`; `export *` never carries a default; a chain
+  ending at a dependency is external. A re-export creates no local binding, so
+  it is **not** in the local-name imports map (Python/Rust re-exports are).
+  `@scope/pkg` resolves only from the root package.json `workspaces` field to
+  the package's source entry (`exports`/`source`/`types`/`module`/`main`, then
+  `src/index`); `pnpm-workspace.yaml`, lockfiles, and registries are not read,
+  which is why Kibana's `@kbn/*` imports stay external. Static
+  `require("./x")` / `import("./x")` bindings, including bundler magic comments
+  in the argument list, reuse the namespace/named rules; computed specifiers
+  create no binding. `export * as ns` and CommonJS `module.exports` shapes are
+  not modelled. A name a local barrel re-exports from a dependency is now
+  external instead of a 0.60 same-name guess — keep that trade-off, do not
+  re-add the guess.
 - **Node ids are stable across re-index.** `ReplaceNodes` upserts by
   `(qname, arity)` so a file edit does not orphan incoming edges; keep that
   property when touching the indexer.
@@ -182,8 +198,10 @@ the database.
   in `query`, `check`, `mcp`, or `serve`, and do not persist the buckets (that
   would be a schema change).
   Treat the buckets as a pointer to a resolver gap, not a compiler diagnosis:
-  inheritance, barrel re-exports, workspace imports, and macro-generated
-  symbols legitimately land in `member-scope`/`scope-gap`.
+  inheritance, macro-generated symbols, `export * as ns`, and workspace imports
+  declared outside package.json legitimately land in
+  `member-scope`/`scope-gap`. TypeScript barrels, package.json workspaces, and
+  static dynamic imports no longer do (#56, see `docs/resolution.md`).
 - **Rust module resolution is convention-based.** Crate roots come from
   Cargo packages (`src/lib.rs` or `src/main.rs`); `src/foo.rs` is `crate::foo`.
   `#[path]`, inline `mod` blocks as import targets, and workspace cross-crate
@@ -234,7 +252,14 @@ the database.
   them, and logs budget misses instead of failing. Issue #43 closed the three
   #31 misses: cold **19.2 s** (<3 min), 10-file incremental **582 ms** (<1 s),
   and `map` p95 **223 ms** (<300 ms); RSS, `impact`/`callers`/`path`, and the
-  26.2% zstd ratio also pass. Run-to-run variance under host load can push
+  26.2% zstd ratio also pass. Issue #56 (TS barrels/workspaces/static dynamic
+  imports) re-ran the same matrix on a private copy: edges **61,904 → 62,489**,
+  pending **158,503 → 157,205** (`scope-gap` 4,486 → 3,535, no pending rows
+  added), ambiguous **5,242 → 5,138**, cold **27.4 s**, 10-file incremental
+  **737 ms**, `map` p95 **313 ms** on a load-4 host, with cold / incremental /
+  second `--full` edge and pending **row sets identical**.
+  `ts.import.workspace*` stays 0 on Kibana because it declares workspaces in
+  `pnpm-workspace.yaml`. Run-to-run variance under host load can push
   incremental to ~1.3 s and `impact` p95 past 150 ms; report medians and the
   load caveat, never turn it into CI, and do not weaken the synthetic
   `make perf` budgets because of it. `make bench-real-langs` is the #48
@@ -279,17 +304,21 @@ the database.
   back to full discovery. The pending retry is a `pending_name`-indexed query
   over the resolver's unique names and is skipped when no symbol was added or
   removed; a cold run completes it so cold and warmed graphs agree for the #43
-  TypeScript tree. Warm Python/Rust resolution lazily loads the import bindings
-  of a re-export chain's unchanged modules (`importsOf`, one `imports_file`
-  read per file, one bulk read after 256 files); TypeScript is deliberately not
-  expanded so the Kibana incremental path stays targeted, and barrel re-exports
-  remain its documented gap. A `--full` run also completes the pending retry,
-  like a cold run (#49). Measured parity on the #48 corpora: `requests` stays
+  TypeScript tree. Warm Python/Rust/TypeScript resolution lazily loads the
+  import bindings of a re-export chain's unchanged modules (`importsOf`, one
+  `imports_file`-indexed read per file, one bulk read after 256 files).
+  TypeScript barrel hops go through the same path (#56): the walk is bounded at
+  eight hops, cycle-safe, and loads only the barrels a reference actually
+  reaches, so the Kibana incremental budget stays met. A `--full` run also
+  completes the pending retry, like a cold run (#49). Measured parity on the #48 corpora: `requests` stays
   **543 pending / 1,031 edges** and `rayon` **2,048 / 2,161** after a ten-file
   comment edit and after a second `index --full`, with identical pending and
   edge row sets and no edge+pending pair. Keep the lazy load error-checked and
-  bounded; do not expand TypeScript imports, and do not drop the retry from the
-  cold/full path. Edge and pending writes are multi-row statements, and the WAL
+  bounded; do not drop the retry from the cold/full path. Measured parity after
+  #56 on the Kibana tree: a ten-file comment edit and a second `index --full`
+  reproduce the cold graph's **62,489 edge rows and 157,435 pending rows**
+  exactly (path and qname, rule, confidence, line, and ambiguous candidate ids).
+  Edge and pending writes are multi-row statements, and the WAL
   is checkpointed after a run. Keep those properties: reverting to per-file
   pending deletes or hashing every file brings back the #43 cold/incremental
   regressions.
