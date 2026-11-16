@@ -16,9 +16,11 @@ Three adapters consume **SCIP**, the Sourcegraph Code Intelligence Protocol inde
 | `rust-analyzer scip` | `.rs` | `scip-rust` | `scip.rs.*` |
 
 repath does not bundle SCIP, TypeScript, Node, Python, Rust, or a language
-server: it parses the `.scip` protobuf itself and merges only the facts that
-tree-sitter could not resolve. Every producer is an external tool, not a Go
-dependency.
+server: it parses the `.scip` protobuf itself, merges the facts that tree-sitter
+could not resolve, and may replace a tree-sitter **ambiguous** candidate group
+with the compiler's exact target (see
+[Ambiguous replacement](#ambiguous-replacement)). Every producer is an external
+tool, not a Go dependency.
 
 ## Setup
 
@@ -29,6 +31,10 @@ npx --yes --package=@sourcegraph/scip-typescript@0.6.2 \
 
 # Python, from the project root (scip-python 0.6.8 measured here):
 npx --yes --package=@sourcegraph/scip-python@0.6.8 \
+  scip-python index --project-name myproject --output index.scip
+
+# Python, full tree that OOMs at the default Node heap (measured on Django):
+NODE_OPTIONS=--max-old-space-size=4096 \
   scip-python index --project-name myproject --output index.scip
 
 # Rust, from the crate/workspace root (rust-analyzer 1.97.0 measured here):
@@ -59,12 +65,17 @@ The adapter reads per-document occurrences. A definition occurrence gives a
 symbol string and a file/line; a reference occurrence gives the same symbol plus
 its own file/line. The merge is deliberately narrow:
 
-- **Only pending references are candidates.** If tree-sitter already resolved a
-  reference, the adapter leaves it alone. This is what makes overwriting
-  impossible in the normal path.
-- A pending row is matched by **file + line + name**. The index does not store
-  reference columns, so two same-named calls on one line cannot be distinguished;
-  that is a documented approximation, not a compiler-grade guarantee.
+- **Pending references are the first candidate class.** A pending row is
+  matched by **file + line + name**. The index does not store reference
+  columns, so two same-named calls on one line cannot be distinguished; that is
+  a documented approximation, not a compiler-grade guarantee.
+- **A tree-sitter ambiguous group may be replaced** when the compiler's
+  occurrence maps to the same source node and line and names one of that
+  group's candidates. This is the second, narrow candidate class; the exact
+  rules are below.
+- If tree-sitter already resolved a reference at `>= 0.5`, the adapter leaves
+  it alone. The replacement path only ever deletes candidate rows of one
+  ambiguous group; it cannot remove an import/`this`/local/typed edge.
 - The target node comes from the SCIP definition at its file/line; the source
   node is the tree-sitter symbol enclosing the reference line.
 - Matched pending rows are removed, so `unresolved` drops immediately.
@@ -85,14 +96,49 @@ its own file/line. The merge is deliberately narrow:
 | `scip.rs.new` | Rust | constructor-like reference |
 | `scip.rs.reference` | Rust | any other pending reference |
 
+## Ambiguous replacement
+
+Tree-sitter emits an ambiguous reference as one edge per same-name candidate,
+2-5 of them, at confidence `0.40` with a rule ending in `.ambiguous` (for
+example `py.global.ambiguous`). The whole group shares source node, reference
+line, edge kind, rule, and the `candidates` id list stored on each row. The
+adapter may replace **that group only** with the compiler's exact target:
+
+1. A SCIP definition occurrence gives the exact target node (the same
+   `EnclosingNode` mapping as the pending path).
+2. A SCIP reference occurrence gives the source node enclosing its file+line.
+   The group at that source node and line is a candidate if the target id is
+   one of its candidates.
+3. Exactly **one** SCIP reference occurrence must map to the group. If two
+   occurrences map to it — the same-line, same-name case the schema cannot
+   distinguish — the group is left untouched and the references are counted as
+   unmatched. The adapter never merges two references.
+4. `store.ReplaceAmbiguousGroup` runs in one transaction: it deletes rows only
+   when `src`, `line`, `kind`, `confidence < 0.5`, rule suffix `.ambiguous`,
+   and `dst IN (candidates)` all match, then inserts the exact edge at `0.99`
+   with the visible `scip.<lang>.*` rule. A resolved row at the exact key is
+   reported as a conflict and nothing is deleted or overwritten.
+5. The run counts every replacement: `replaced` groups and `replaced_edges`
+   candidate rows in the adapter stats (persisted in `meta`, surfaced in
+   `status.adapters`). A group the compiler cannot disambiguate stays ambiguous
+   and is visible in `status.ambiguous`.
+
+The rule id of the replacement follows the same selector as the pending path:
+an ambiguous method rule (`rs.typed.method.ambiguous`) becomes
+`scip.rs.method`; an edge kind of `CALLS` becomes `scip.<lang>.call`; other
+kinds become `scip.<lang>.reference`. The schema stores the resolved edge kind,
+not the original reference form, so a global ambiguous call whose candidates
+are all classes is a `REFERENCES` edge and gets the `reference` rule.
+
 ## Merge rules and conflicts
 
 `store.MergeEdges` inserts only when `(src, dst, kind)` is free and counts a
 conflict otherwise. It never performs the upsert that tree-sitter edges use.
+`store.ReplaceAmbiguousGroup` has the same rule for its exact edge: if a
+resolved edge already owns the key it reports a conflict and changes nothing.
 A conflict therefore means an edge already existed; the existing edge keeps its
 rule and confidence, and the adapter reports the conflict instead of choosing a
-winner. In the normal path there are no conflicts because only pending rows are
-candidates.
+winner.
 
 ## Status
 
@@ -106,6 +152,8 @@ candidates.
       "definitions": 544,
       "references": 2212,
       "matched": 22,
+      "replaced": 0,
+      "replaced_edges": 0,
       "edges": 18,
       "conflicts": 0,
       "skipped": 2050,
@@ -117,6 +165,8 @@ candidates.
       "definitions": 1485,
       "references": 6734,
       "matched": 20,
+      "replaced": 0,
+      "replaced_edges": 0,
       "edges": 18,
       "conflicts": 0,
       "skipped": 6305,
@@ -128,6 +178,8 @@ candidates.
       "definitions": 5200,
       "references": 23264,
       "matched": 114,
+      "replaced": 0,
+      "replaced_edges": 0,
       "edges": 74,
       "conflicts": 1,
       "skipped": 22640,
@@ -140,12 +192,35 @@ candidates.
 
 - `definitions` / `references`: occurrences seen in the SCIP file.
 - `matched`: pending references the adapter attached to a definition.
-- `edges`: newly inserted adapter edges.
+- `replaced`: tree-sitter ambiguous groups replaced by one exact compiler edge.
+- `replaced_edges`: candidate rows deleted by those replacements.
+- `edges`: newly inserted adapter edges (including replacement edges).
 - `conflicts`: edges that already existed (never overwritten).
 - `skipped`: occurrences with no usable graph mapping (module/local symbols,
   external definitions, or no enclosing source symbol).
-- `unmatched`: references resolved by SCIP but with no pending tree-sitter row
-  (the normal case for code tree-sitter already handled).
+- `unmatched`: references resolved by SCIP with no pending row and no
+  replaceable ambiguous group (the normal case for code tree-sitter already
+  handled, plus groups the compiler could not disambiguate).
+
+## Producer matrix
+
+Versions measured for this repository; none is a build dependency and CI never
+runs a producer (the SCIP inputs are pinned fixtures). Times and sizes below
+are from the corpora in [`docs/benchmarks.md`](benchmarks.md).
+
+| Producer | Version | Output measured | Scope | Notes |
+| --- | --- | --- | --- | --- |
+| `scip-typescript` | 0.6.2 | 8-file `microsoft/vscode-uri` index | repo with `tsconfig.json` | smallest producer; fixture `testdata/fixtures/ts-adapter` |
+| `scip-python` | 0.6.8 | 798 KiB (`requests`), 30.3 MiB (Django production 909 files), 100.3 MiB (Django full tree 2,941 `.py`) | project root | needs Python 3.12; 0.6.8 rejects Python 3.14; full Django tree needs `NODE_OPTIONS=--max-old-space-size=4096` |
+| `rust-analyzer` | 1.97.0 | 7.4 MiB (`rayon`), 7.1 MiB (`hyusk`) | crate/workspace root | needs `cargo metadata` plus the crate's dependencies |
+
+The pinned fixtures were produced externally and committed:
+`testdata/fixtures/ts-adapter` (scip-typescript 0.6.2),
+`testdata/fixtures/py-adapter` (scip-python 0.6.8), and
+`testdata/fixtures/rs-adapter` (rust-analyzer 1.97.0). Regenerate them
+deliberately when the producer or fixture source changes, and record the
+producer version in the fixture README. The ambiguity tests build their SCIP
+index in-process (`SCIPIndex`) instead of committing another producer file.
 
 ## Measured
 
@@ -165,16 +240,19 @@ candidates.
 - **`psf/requests` @ `3c7baaa05ab4aa49cc819ce3a819d260de19c157`** (37 indexed
   files, 787 nodes, 543 pending): unresolved **543 → 523** (unresolved rate
   **34.50% → 33.27%**) with **18** adapter edges, **20** matched pending refs,
-  **0** conflicts. The adapter wall time was **0.27 s** (peak RSS 18 MiB) on an
-  798 KiB SCIP file. The new edges are real inherited/mixin method calls such as
+  **0** replaced groups, **0** conflicts. The 25 ambiguous candidate rows
+  (8 groups, 3–4 candidates each) were not named by this producer's references
+  and stay ambiguous. The adapter wall time was **0.30 s** (0.30–0.32, three
+  runs) and peak RSS **18.6 MiB** (18.2–18.7) on an 798 KiB SCIP file. The new
+  edges are real inherited/mixin method calls such as
   `HTTPDigestAuth.__call__ -> RequestHooksMixin.register_hook`,
   `JSONDecodeError.__init__ -> RequestException.__init__`, and
   `PreparedRequest.copy -> CaseInsensitiveDict.copy`. Re-measured for #48 with
   the bench harness on the cold graph: the same 543 → 523, 18 edges, 20
-  matched, 0 conflicts, 241 ms in-process. A comment-only ten-file incremental
-  now reproduces the cold graph (543 pending, 1,031 edges); before #49 it added
-  five `urlparse` pending rows because a re-export chain through unchanged
-  `compat.py` was not loaded during incremental resolution. See
+  matched, 0 conflicts. A comment-only ten-file incremental now reproduces the
+  cold graph (543 pending, 1,031 edges); before #49 it added five `urlparse`
+  pending rows because a re-export chain through unchanged `compat.py` was not
+  loaded during incremental resolution. See
   [`docs/benchmarks.md`](benchmarks.md).
 
 - **Rust fixture** (`testdata/fixtures/rs-adapter`, `rust-analyzer` 1.97.0):
@@ -198,19 +276,46 @@ candidates.
   tree-sitter rule and is reported, never overwritten.
 - **`rayon-rs/rayon` @ `599425d4a4c64714632817f48496dbc53f656a90`** (191
   indexed files, 3,402 nodes, 2,048 pending): the production-heavy corpus added
-  for #48. Unresolved **2,048 → 1,214** (rate **48.66% → 29.44%**) with **749**
-  new edges (**640** `scip.rs.method`, **92** `scip.rs.call`, **17**
-  `scip.rs.new`), **834** matched pending references, **0** conflicts,
-  **55,898** skipped, **9,428** unmatched, and **1.26 s** adapter wall time on a
-  7.4 MiB SCIP file produced in 34.4 s by `rust-analyzer` 1.97.0. By the source
-  symbol's file the new edges split **637** library production (**85.0%**),
-  **32** inline `#[test]`, **27** `tests/`, and **53** `rayon-demo`
-  examples/benchmarks; 92.1% are non-test, which reverses the `serde_json`
-  test-dominated picture above. Representative edges are
+  for #48. Unresolved **2,048 → 1,214** (rate **48.66% → 29.44%**) with **766**
+  new edges (**640** `scip.rs.method`, **105** `scip.rs.call`, **17**
+  `scip.rs.new`, **4** `scip.rs.reference`), **834** matched pending
+  references, **17 replaced ambiguous groups** (**41** candidate rows
+  removed), **0** conflicts, **55,898** skipped, **9,411** unmatched, and
+  **1.43 s** median adapter wall time (1.40–1.44, three runs; peak RSS
+  **38.9 MiB**) on a 7.4 MiB SCIP file produced in 34.4 s by `rust-analyzer`
+  1.97.0. Ambiguous rows fall **75 → 34** (groups **34 → 17**), so the
+  remaining ambiguity is the genuine same-line/unknown-receiver residue, not a
+  silent collapse. By the source symbol's file the new edges split **739**
+  non-test (**96.5%**, including inline `#[test]` functions and the
+  `rayon-demo` crate) and **27** test-path sources. Representative edges are
   `Callback.callback -> Consumer.split_at`, `BytesProducer.fold_with ->
   Folder.consume_iter`, and `BlocksCallback.callback -> Producer.split_at`.
   The full table and the production/test definition are in
   [`docs/benchmarks.md`](benchmarks.md).
+
+- **`django/django` @ `f24f38c6b2825f15628c07bf2892f1664eed9361`** (3,051
+  indexed files, 44,426 nodes, 105,319 pending) with the production-package
+  SCIP index (909 documents, 30.3 MiB, `--target-only django`): unresolved
+  **105,319 → 103,306** with **1,684** new edges (**1,627** `scip.py.method`,
+  **47** `scip.py.call`, **10** `scip.py.reference`), **2,013** matched pending
+  refs, **15 replaced ambiguous groups** (**32** candidate rows removed),
+  **10** reported conflicts, and ambiguous rows **1,572 → 1,540** (groups
+  **487 → 472**). Adapter wall time **6.08 s** median (6.07–6.26, three runs;
+  peak RSS **128.7 MiB**); the wall includes the post-index refresh. By source
+  file the 1,684 edges split **1,603 production / 81 test-path**.
+- **Full-tree Django**: `scip-python` 0.6.8 with
+  `NODE_OPTIONS=--max-old-space-size=4096` indexes all **2,941 `.py`** files in
+  **2:08** (max RSS **3.74 GiB**, **100.3 MiB** SCIP, exit 0). Applying it to
+  the same cold graph takes **33.1 s** (347.6 MiB RSS) and yields **169,269**
+  definitions / **613,467** references: unresolved **105,319 → 82,510**,
+  **22,809** matched pending refs, **16,903** new edges (**15,218**
+  `scip.py.method`, **1,210** `scip.py.call`, **475** `scip.py.reference`),
+  **295 replaced ambiguous groups** (**914** rows removed), **33** conflicts,
+  ambiguous rows **1,572 → 658** (groups **487 → 192**), edges **45,834 →
+  61,823**. The full index covers the test suite, so **15,150** of the 16,903
+  edges have a test-path source and only **1,753** are production; the
+  production-only file above is the useful application-code number. This is the
+  documented large-tree mode; see [Producer scale](#producer-scale).
 
 The tree-sitter-only fixture gates in `internal/eval` are unchanged and were
 not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
@@ -225,9 +330,9 @@ not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
 - Rust documents are only those `rust-analyzer scip` emits from the
   crate/workspace root. It includes test targets, so test-helper calls resolve
   too; external crates and `std` symbols are not local definitions and stay
-  skipped. In the #48 `rayon` run, 59 of the 749 new edges come from test
-  sources and 53 from the demo/benchmark crate, so the production share is
-  reported rather than assumed. Producing the index needs a Rust toolchain and
+  skipped. In the #48 `rayon` run, 27 of the 766 new edges are under `tests/`,
+  32 are inline `#[test]`, and 53 are `rayon-demo`; the 17 replacement edges are
+  all non-test, so the production share is reported rather than assumed. Producing the index needs a Rust toolchain and
   the crate's dependencies available to `cargo metadata`, which is why the
   committed fixture is pinned and CI never runs the producer.
 - Rust SCIP symbol strings are parsed by `rustSymbolName`: crate/module
@@ -239,6 +344,12 @@ not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
 - SCIP must be produced externally. There is no embedded language server and no
   LSP transport yet.
 - Reference matching by file+line+name is weaker than a column-exact match.
+  Ambiguous replacement uses the same source-node + line mapping. Because the
+  schema stores no reference column, two same-named calls on one line cannot be
+  attributed; when two compiler occurrences map to one group the adapter leaves
+  the group alone and counts the references, so it never invents a merge. A
+  column-aware schedule would need a schema change and is not part of this
+  policy.
 - Dynamic Python (monkey patching, `getattr`, unannotated `Any`, runtime
   dispatch) remains invisible; the adapter lowers unresolved, it does not
   prove type correctness.
@@ -246,3 +357,20 @@ not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
   changes node identity, or rewrites a tree-sitter edge.
 - Producer output is pinned by the committed fixture, not by a Go dependency.
   Regenerate deliberately when the producer or fixture changes.
+
+## Producer scale
+
+`scip-python` 0.6.8 is the only measured producer that needs a bounded mode:
+
+| Mode | Command | Result |
+| --- | --- | --- |
+| full tree | `NODE_OPTIONS=--max-old-space-size=4096 scip-python index --project-name django --cwd <django> --output django-full.scip` | 2,941 `.py`, 2:08 wall, 3.74 GiB max RSS, 100.3 MiB index |
+| bounded fallback | `NODE_OPTIONS=--max-old-space-size=3072 scip-python index --project-name django --cwd <django> --target-only django --output django-prod.scip` | 909 production files, 30.3 MiB index, 42.9 s, 1.77 GiB max RSS |
+
+At Node's default heap the full tree aborts with `FATAL ERROR: Ineffective
+mark-compacts near heap limit - JavaScript heap out of memory` after parsing
+2,931 of 2,941 files. The bounded mode is the documented fallback for hosts
+without ~4 GiB to give the producer; the full mode is what the large-tree run
+above uses. `rust-analyzer` 1.97.0 finished both measured workspaces without
+tuning (34.4 s for `rayon`, 157.7 s / 7.1 MiB index for the 750-crate `hyusk`),
+and `scip-typescript` 0.6.2 needs no tuning on the measured repo.

@@ -276,13 +276,15 @@ tree-sitter graph; "after" is the same index after `repath adapter --scip`.
 | --- | --- | --- |
 | Definitions / references | 1,485 / 6,734 | 14,878 / 53,694 |
 | Matched pending refs | **20** | **834** |
-| New edges | **18** | **749** |
+| Replaced ambiguous groups / rows | **0 / 0** | **17 / 41** |
+| New edges | **18** | **766** |
 | Conflicts | 0 | 0 |
-| Skipped / unmatched | 6,305 / 945 | 55,898 / 9,428 |
+| Skipped / unmatched | 6,305 / 945 | 55,898 / 9,411 |
 | Unresolved | **543 → 523** | **2,048 → 1,214** |
 | Unresolved rate | **34.50% → 33.27%** | **48.66% → 29.44%** |
-| Edges | 1,031 → 1,049 | 2,161 → 2,910 |
-| Adapter wall | 241 ms (160–249) | 1.264 s (0.681–1.313) |
+| Edges | 1,031 → 1,049 | 2,161 → 2,886 |
+| Ambiguous rows (groups) | 25 (8) → 25 (8) | 75 (34) → 34 (17) |
+| Adapter wall | 302 ms (300–320) | 1.43 s (1.40–1.44) |
 
 Python's 18 new edges are all `scip.py.method` from `src/` (0 test): real
 inherited/mixin calls such as `HTTPDigestAuth.__call__ ->
@@ -292,8 +294,12 @@ CaseInsensitiveDict.copy`. `scip-python` indexed `src/` and not `tests/`, so
 this run cannot resolve references in test files; that is the producer's scope,
 not a filter (see [`docs/adapters.md`](adapters.md)).
 
-Rust's 749 new edges are **640** `scip.rs.method`, **92** `scip.rs.call`, and
-**17** `scip.rs.new`. By the source symbol's file:
+Rust's 766 new edges are **640** `scip.rs.method`, **105** `scip.rs.call`,
+**17** `scip.rs.new`, and **4** `scip.rs.reference`. The 17 extra edges over the
+749 pending-derived ones are the ambiguous-group replacements (17 groups, 41
+candidate rows); all 17 have a non-test source path, which is why the non-test
+split grows from 690 to 739. The #48 sub-split of the 749 pending edges by
+source symbol's file:
 
 | Source | Edges | Share |
 | --- | --- | --- |
@@ -302,8 +308,10 @@ Rust's 749 new edges are **640** `scip.rs.method`, **92** `scip.rs.call`, and
 | `tests/` integration files | **27** | 3.6% |
 | `rayon-demo` examples/benchmarks | **53** | 7.1% |
 
-So **85.0%** of the new edges are library production and **92.1%** are
-non-test. This is the production/test split #48 asked for, and it reverses the
+So **92.1%** of the 749 pending-derived edges are non-test and **85.0%** are
+library production; including the 17 replacements, the overall split is
+739 non-test / 27 test-path (96.5% / 3.5%). This is the production/test split
+#48 asked for, and it reverses the
 #44 `serde_json` picture where the test module dominated. Test classification
 is `internal/testpath.IsTest` plus a `#[test]` entrypoint (the harness logs
 `59 test (path 27, entrypoint 32)`); a test-support module such as
@@ -408,7 +416,7 @@ committed. The producers were pinned by version and output size.
 | Ambiguous | 1,572 (3.43%) | 23 (0.85%) |
 | Entrypoints | 18,443 (18,438 `py.test`, 5 `py.main`) | 549 (523 `rs.test`, 20 `py.test`, 4 `py.main`, 2 `rs.main`) |
 | Shape note | 906 production `.py` vs 2,009 test `.py` | 68 `.rs` / 49,126 Rust LOC / 345 `#[test]`; 750-crate workspace |
-| SCIP producer | `scip-python` 0.6.8, production-only 30.3 MiB | `rust-analyzer` 1.97.0, 7.1 MiB in 157.7 s |
+| SCIP producer | `scip-python` 0.6.8, production-only 30.3 MiB (full tree 100.3 MiB, see below) | `rust-analyzer` 1.97.0, 7.1 MiB in 157.7 s |
 
 `hyusk` is a production agent workspace with a large inline test surface; the
 14 JavaScript and 6 Python files are tooling/scripts, so the Rust surface is
@@ -421,12 +429,16 @@ incremental, and artifact rows cover the whole tree.
 
 ```sh
 # Python corpus. scip-python 0.6.8 OOMs on the full 2,941-file tree at Node's
-# default heap, so the adapter half indexes the production package only.
+# default heap. The production package works at a 3 GB heap and is the bounded
+# fallback; the full tree works at a 4 GB heap (#57):
 git clone --depth 1 https://github.com/django/django /tmp/django
 git -C /tmp/django checkout f24f38c6b2825f15628c07bf2892f1664eed9361
 NODE_OPTIONS=--max-old-space-size=3072 \
   scip-python index --project-name django --cwd /tmp/django \
   --target-only django --output /tmp/django-prod.scip
+NODE_OPTIONS=--max-old-space-size=4096 \
+  scip-python index --project-name django --cwd /tmp/django \
+  --output /tmp/django-full.scip
 
 # Rust corpus (rust-analyzer 1.97.0; a 750-crate workspace, ~158 s).
 git clone --depth 1 https://github.com/Goutam-11/hyusk /tmp/hyusk
@@ -443,9 +455,10 @@ make bench-real-langs \
   REPATH_BENCH_RS_SCIP=/tmp/hyusk.scip
 ```
 
-The producers are not part of repath or CI. The Python file is a
-production-package index (909 files), not the whole repository; the Rust file
-covers the workspace root.
+The producers are not part of repath or CI. The production-package Python file
+(909 documents) is the bounded mode; the full-tree file (2,941 `.py`, 100.3 MiB)
+is the large-tree mode measured for #57. The Rust file covers the workspace
+root.
 
 ### Results
 
@@ -483,33 +496,61 @@ index. "Before" is the cold tree-sitter graph.
 | --- | --- | --- |
 | Definitions / references | 52,884 / 157,794 | 10,819 / 65,165 |
 | Matched pending refs | **2,013** | **141** |
-| New edges | **1,669** | **88** |
+| Replaced ambiguous groups / rows | **15 / 32** | **0 / 0** |
+| New edges | **1,684** | **88** |
 | Conflicts | 10 | 2 |
-| Skipped / unmatched | 142,241 / 30,565 | 63,242 / 10,208 |
+| Skipped / unmatched | 142,241 / 30,550 | 63,242 / 10,208 |
 | Unresolved | **105,319 → 103,306** | **4,222 → 4,081** |
 | Unresolved rate | **69.68% → 68.50%** | **60.94% → 59.36%** |
-| Edges | 45,834 → 47,503 | 2,706 → 2,794 |
-| Adapter wall | 5.72 s | 0.62 s |
+| Edges | 45,834 → 47,486 | 2,706 → 2,794 |
+| Ambiguous rows (groups) | 1,572 (487) → 1,540 (472) | 23 (11) → 23 (11) |
+| Adapter wall | 6.08 s (6.07–6.26) | 0.62 s |
 
-Django's 1,669 new edges are **1,627** `scip.py.method`, **32**
+The ambiguous-pass overlap is small: the adapter reads 487 candidate groups
+(1,572 rows) on Django and replaces 15 of them; `hyusk`'s 23 ambiguous rows are
+not named by this producer's references and stay ambiguous. New edges are
+counted after the 32/41 candidate-row deletions, so `Edges` before → after is
+the exact reconciliation: `45,834 + 1,684 − 32 = 47,486`.
+
+Django's 1,684 new edges are **1,627** `scip.py.method`, **47**
 `scip.py.call`, and **10** `scip.py.reference`; all source files are under
-`django/`. The harness classifies **79** of them as test-path because Django's
+`django/`. The harness classifies **81** of them as test-path because Django's
 production `django/test/` package is the test client/framework and
 `testpath.IsTest` treats `*/test/*` as test code — those are not the test
 suite. `hyusk`'s 88 edges are 66 method and 22 call; **54** have a non-test
 source and **34** are `#[test]` entrypoints, all under `src/`.
 
-### Finding: producer scale limits
+### Finding: producer scale — full tree works with a documented heap (#57)
 
-`scip-python` 0.6.8 **crashes on the full Django tree**: after parsing 2,931
-of 2,941 files it aborts with `FATAL ERROR: Ineffective mark-compacts near heap
-limit - JavaScript heap out of memory` at Node's ~2 GB default heap. The
-production-only run (909 files) succeeds under
-`NODE_OPTIONS=--max-old-space-size=3072` and produces a 30.3 MiB index in about
-two minutes; that is the index used above. The adapter is therefore not
-usable on a full large Python repository with this producer version without
-raising Node's heap, and even then the whole tree was not measured. This is a
-producer limit, not a repath crash, and it is recorded rather than hidden.
+`scip-python` 0.6.8 **crashes on the full Django tree at Node's default heap**:
+after parsing 2,931 of 2,941 files it aborts with `FATAL ERROR: Ineffective
+mark-compacts near heap limit - JavaScript heap out of memory`. Issue #57
+re-ran the producer with an explicit heap and the full tree **succeeds**:
+
+| Producer mode | Node heap | Documents | Wall | Max RSS | Index |
+| --- | --- | --- | --- | --- | --- |
+| full tree | `--max-old-space-size=4096` | **2,941 `.py`** | **2:08** | **3.74 GiB** | **100.3 MiB** (105,191,043 B) |
+| production-only (bounded fallback) | `--max-old-space-size=3072` | 909 | 42.9 s | 1.77 GiB | 30.3 MiB |
+
+Both exit `0`; the full-tree command is recorded in the Command block above.
+Applying the full-tree index to the cold Django graph takes **33.1 s** and
+347.6 MiB RSS and yields **169,269** definitions / **613,467** references:
+
+| Full-tree adapter | Before | After |
+| --- | --- | --- |
+| Unresolved | 105,319 | **82,510** |
+| Edges | 45,834 | **61,823** |
+| Ambiguous rows (groups) | 1,572 (487) | **658 (192)** |
+| Matched pending / replaced groups / rows | — | **22,809 / 295 / 914** |
+| New edges by rule | — | **15,218** method, **1,210** call, **475** reference |
+| Conflicts | — | **33** |
+
+The reconciliation is exact: `45,834 + 16,903 − 914 = 61,823`. The full index
+also covers the test suite, so **15,150** of the 16,903 new edges have a
+test-path source and **1,753** are production; the production-only index above
+is the application-code number. The replacement path participates at scale:
+**295** ambiguous groups (914 candidate rows) are replaced, leaving **658**
+ambiguous rows that the compiler's occurrence set does not disambiguate.
 
 `rust-analyzer` 1.97.0 does finish `hyusk` (750 crates, 157.7 s, 7.1 MiB), but
 the adapter gain is modest: only 141 of 65,165 references match a pending
@@ -522,9 +563,10 @@ this is not a repeat of `rayon`'s generic-bound corpus.
 - Django is a Python framework with a huge test suite; a production-only
   application corpus (roughly 500–1,500 files) would separate "framework
   patterns" from "application code" in the unresolved rate.
-- The full-tree Python adapter is not measured because 0.6.8 OOMs; a producer
-  upgrade or a bounded heap run on a mid-size repo is needed before claiming
-  large-tree adapter coverage.
+- The full-tree Python run needs **~3.74 GiB** of producer RSS (documented 4 GB
+  Node heap); small CI or laptop hosts must use the bounded
+  `--target-only django` mode. That is a producer memory limit, not a repath
+  limit — the adapter itself peaked at 347.6 MiB on the 100.3 MiB index.
 - `hyusk` has 7 parse failures among its non-Rust files; they were not
   audited. The Rust-only matrix is the evidence, and the JS/Python scripts are
   tooling, not the corpus.
@@ -555,7 +597,7 @@ make bench-corpora
 
 | Corpus key | Language | Repository @ commit | SCIP producer | Accuracy |
 | --- | --- | --- | --- | --- |
-| `django` | Python | `django/django` @ `f24f38c6b2825f15628c07bf2892f1664eed9361` | `scip-python` 0.6.8, production-only (909 documents) | — |
+| `django` | Python | `django/django` @ `f24f38c6b2825f15628c07bf2892f1664eed9361` | `scip-python` 0.6.8, production-only (909 documents); full tree 100.3 MiB (#57) | — |
 | `hyusk` | Rust | `Goutam-11/hyusk` @ `06bdb2b15fcc0a0f7dc3f2b06e0003dc1731cb82` | `rust-analyzer` 1.97.0 (default features) | — |
 | `requests` | Python | `psf/requests` @ `3c7baaa05ab4aa49cc819ce3a819d260de19c157` | `scip-python` 0.6.8, `src/` only | ✅ |
 | `rayon` | Rust | `rayon-rs/rayon` @ `599425d4a4c64714632817f48496dbc53f656a90` | `rust-analyzer` 1.97.0 | ✅ |
@@ -618,7 +660,7 @@ half and accuracy for that corpus. The default output directory is
     "uncompressed_bytes": 1003520, "export_ms": 8.427, "pull_ms": 2.909,
     "zstd_bytes": 298553, "zstd_export_ms": 14.892, "zstd_pull_ms": 4.567,
     "ratio": 29.75, "schema_version": 5,
-    "file_count": 191, "node_count": 3402, "edge_count": 2910
+    "file_count": 191, "node_count": 3402, "edge_count": 2886
   },
   "structure": {
     "files": 191, "nodes": 3402,
@@ -632,12 +674,13 @@ half and accuracy for that corpus. The default output directory is
   },
   "adapter": {
     "name": "scip-rust", "definitions": 14878, "references": 53694,
-    "matched": 834, "edges": 749, "conflicts": 0, "skipped": 55898,
-    "unmatched": 9428, "wall_ms": 645.99,
+    "matched": 834, "replaced": 17, "replaced_edges": 41,
+    "edges": 766, "conflicts": 0, "skipped": 55898,
+    "unmatched": 9411, "wall_ms": 1426.0,
     "unresolved_before": 2048, "unresolved_after": 1214,
-    "edges_before": 2161, "edges_after": 2910,
-    "new_edges_by_source": {"production": 690, "test_path": 27, "test_entrypoint": 32},
-    "new_edges_by_rule": {"method": 640, "call": 92, "new": 17, "reference": 0}
+    "edges_before": 2161, "edges_after": 2886,
+    "new_edges_by_source": {"production": 739, "test_path": 27},
+    "new_edges_by_rule": {"method": 640, "call": 105, "new": 17, "reference": 4}
   }
 }
 ```
@@ -682,6 +725,13 @@ counts reconcile exactly.
 | Matched / new edges | **2,013 / 1,669** | **141 / 88** | **20 / 18** | **834 / 749** |
 | Unresolved before → after | **105,319 → 103,306** | **4,222 → 4,081** | **543 → 523** | **2,048 → 1,214** |
 | Edges before → after | **45,834 → 47,503** | **2,706 → 2,794** | **1,031 → 1,049** | **2,161 → 2,910** |
+
+Those adapter rows are the #61 baseline (before ambiguous replacement). With
+the #57 policy the same three-run corpus matrix measures Django **15**
+replaced groups / **32** rows, rayon **17 / 41**, requests **0 / 0**, and
+hyusk **0 / 0**; the per-corpus tables above and `summary.json` carry the
+current `replaced` / `replaced_edges` fields. Re-run with `--update-baseline`
+to refresh the checked-in history deliberately.
 
 Structure (tree-sitter cold graph, constant across the three runs):
 
@@ -735,15 +785,20 @@ chain, so there is no defensible ground truth for it.
 
 The uniform sample can miss every target the adapter repaired, so the test also
 reports the **adapter-repaired cohort** separately (targets with at least one
-`scip.py.*`/`scip.rs.*` edge; the "before" row filters those rules back out,
-which is exact because the merge never overwrites a tree-sitter edge):
+`scip.py.*`/`scip.rs.*` edge). Its "before" row is a **snapshot of the callers
+taken before `ApplySCIPAll`**, not a post-hoc rule filter: ambiguous-group
+replacement deletes 0.40 candidate rows, so filtering adapter rules after the
+run would no longer reconstruct the pre-adapter graph. The snapshot is why the
+rayon cohort grew from 177 targets / 1,432 expected callers (#48 measurement)
+to 183 / 1,447 — targets whose only pre-adapter edges were replaced ambiguous
+candidates are now in the cohort.
 
 | Adapter-repaired cohort | `requests` | `rayon` |
 | --- | --- | --- |
-| Targets | 14 | 177 |
-| Expected callers | 27 | 1,432 |
-| `callers` tree-sitter | P **100.0%**, R **33.3%** (9 TP) | P **95.7%**, R **9.3%** (133 TP) |
-| `callers` after adapter | P **100.0%**, R **100.0%** (27 TP) | P **98.1%**, R **60.1%** (861 TP, **+728**) |
+| Targets | 14 | 183 |
+| Expected callers | 27 | 1,447 |
+| `callers` tree-sitter | P **100.0%**, R **33.3%** (9 TP) | P **95.7%**, R **9.2%** (133 TP) |
+| `callers` after adapter | P **100.0%**, R **100.0%** (27 TP) | P **98.1%**, R **60.7%** (878 TP, **+745**) |
 
 Reading the numbers:
 
@@ -755,9 +810,12 @@ Reading the numbers:
   generic-bound/trait-dispatch and macro-generated calls. That is the documented
   resolution ceiling measured as a number instead of described.
 - **The adapter is provably additive.** It recovers +18 TP across 14 sampled
-  Python targets (R 33.3% → 100.0%) and +728 TP across the 177 Rust targets
-  (R 9.3% → 60.1%) with no precision loss on those cohorts. It cannot repair
-  what still has no pending row (the unchanged R on the uniform sample).
+  Python targets (R 33.3% → 100.0%) and +745 TP across the 183 Rust targets
+  (R 9.2% → 60.7%) with no precision loss on those cohorts. Of the 745, **17**
+  come from ambiguous-group replacements (one per replaced group) that the
+  #48 harness could not see, and the rest from pending repairs. It cannot
+  repair what still has no pending row or disambiguated group (the unchanged R
+  on the uniform sample).
 - **Some Rust false positives remain.** Before the adapter, 3 of 19 actual
   callers in the sample point at a different target than SCIP's definition
   (ambiguous inherent/trait `Type.method` attribution); the adapter's exact
@@ -848,10 +906,13 @@ The read-only case is skipped when the suite runs as root.
 - The clones already existed under `.cache/` from the earlier corpus-prep task.
   The clone/fetch path is implemented and fails loudly, but was not exercised
   end to end against the network in this run (`--no-clone` was not used either).
-- The SCIP files are the pinned artifacts from that prep task, not regenerated
-  here; producer versions/sizes are recorded in the matrix and
-  `docs/adapters.md`. `scip-python` still OOMs on the full Django tree, so its
-  accuracy was not measured; `hyusk` uses a default-feature Rust index.
+- The SCIP files are the pinned artifacts from that prep task, except the
+  full-tree Django index, which was regenerated for #57 with
+  `--max-old-space-size=4096` (recorded in
+  `docs/adapters.md` and the producer table above). Producer versions/sizes are
+  recorded in the matrix. Full-tree Django accuracy was not measured through
+  `TestSCIPAccuracy`; the adapter before/after counts above are. `hyusk` uses a
+  default-feature Rust index.
 - Accuracy is sampled (20 targets per language) and scope-matched, and the
   excluded-fact counts above are part of the result. It is a measurement of this
   graph against this compiler index, not a general correctness guarantee.

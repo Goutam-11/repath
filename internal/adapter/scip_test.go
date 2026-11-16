@@ -502,3 +502,239 @@ func TestRustSCIPAdapterGate(t *testing.T) {
 		t.Fatalf("saved stats = %+v", saved)
 	}
 }
+
+// openFixtureStore indexes one fixture into a fresh store. Adapter tests for
+// the ambiguity policy share it so the tree-sitter graph is the real resolver
+// output, not a hand-built edge list.
+func openFixtureStore(t *testing.T, name string) (context.Context, *store.Store) {
+	t.Helper()
+	root := copyFixture(t, name)
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.Run(ctx, st, root, index.Options{}); err != nil {
+		t.Fatal(err)
+	}
+	return ctx, st
+}
+
+// nodeID finds the symbol named name in path.
+func nodeID(t *testing.T, ctx context.Context, st *store.Store, path, name string) int64 {
+	t.Helper()
+	nodes, err := st.Nodes(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths, err := st.FilePaths(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, node := range nodes {
+		if paths[node.FileID] == path && node.Name == name {
+			return node.ID
+		}
+	}
+	t.Fatalf("node %s in %s not found", name, path)
+	return 0
+}
+
+const (
+	ambSymA = "scip-python python py-amb 0.0.0 models_a/total()."
+	ambSymB = "scip-python python py-amb 0.0.0 models_b/total()."
+	ambSymH = "scip-python python py-amb 0.0.0 models_a/helper()."
+)
+
+func ambiguousFixtureIndex(refs []SCIPOccurrence) SCIPIndex {
+	return SCIPIndex{Documents: []SCIPDocument{
+		{Path: "models_a.py", Language: "python", Occurrences: []SCIPOccurrence{
+			{Line: 0, Symbol: ambSymA, Roles: 1},
+			{Line: 3, Symbol: ambSymH, Roles: 1},
+		}},
+		{Path: "models_b.py", Language: "python", Occurrences: []SCIPOccurrence{
+			{Line: 0, Symbol: ambSymB, Roles: 1},
+		}},
+		{Path: "app.py", Language: "python", Occurrences: refs},
+	}}
+}
+
+func TestSCIPAmbiguousReplacement(t *testing.T) {
+	ctx, st := openFixtureStore(t, "py-adapter-ambiguous")
+
+	if ambiguous, err := st.AmbiguousEdges(ctx); err != nil || ambiguous != 4 {
+		t.Fatalf("ambiguous before = %d (%v), want 4", ambiguous, err)
+	}
+
+	// One compiler occurrence for one()'s total(), targeting model_a.total.
+	// two()'s same-line pair is left to the next test.
+	stats, err := ApplySCIP(ctx, st, ambiguousFixtureIndex([]SCIPOccurrence{
+		{Line: 1, Symbol: ambSymA},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Replaced != 1 || stats.ReplacedEdges != 2 || stats.Edges != 1 || stats.Conflicts != 0 {
+		t.Fatalf("stats = %+v, want 1 replaced group / 2 candidate rows / 1 edge / 0 conflicts", stats)
+	}
+
+	one := nodeID(t, ctx, st, "app.py", "one")
+	totalA := nodeID(t, ctx, st, "models_a.py", "total")
+	edges, err := st.Callers(ctx, totalA, 0.5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 1 || edges[0].SrcNode.ID != one {
+		t.Fatalf("exact callers of models_a.total = %+v, want only one()", edges)
+	}
+	if edges[0].Rule != "scip.py.call" || edges[0].Confidence != adapterConfidence || edges[0].Kind != "CALLS" {
+		t.Fatalf("replacement edge = %+v, want scip.py.call CALLS at %.2f", edges[0], adapterConfidence)
+	}
+
+	// The other reference's group survives: replacement is group-local.
+	ambiguous, err := st.AmbiguousEdges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ambiguous != 2 {
+		t.Fatalf("ambiguous after = %d, want the 2-row two() group untouched", ambiguous)
+	}
+	remaining, err := st.AmbiguousCandidateEdges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, edge := range remaining {
+		if edge.Src == one {
+			t.Fatalf("replaced group left a candidate row: %+v", edge)
+		}
+	}
+
+	saved, err := SavedStats(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved) != 1 || saved[0].Replaced != 1 || saved[0].ReplacedEdges != 2 {
+		t.Fatalf("saved stats = %+v, want replaced=1 replaced_edges=2", saved)
+	}
+}
+
+func TestSCIPAmbiguousNonCandidateLeftAlone(t *testing.T) {
+	ctx, st := openFixtureStore(t, "py-adapter-ambiguous")
+
+	// The compiler points at helper(), which is not one of total()'s
+	// candidates: the ambiguous group must not be collapsed by guessing.
+	stats, err := ApplySCIP(ctx, st, ambiguousFixtureIndex([]SCIPOccurrence{
+		{Line: 1, Symbol: ambSymH},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Replaced != 0 || stats.ReplacedEdges != 0 || stats.Edges != 0 {
+		t.Fatalf("stats = %+v, want no replacement for a non-candidate target", stats)
+	}
+	ambiguous, err := st.AmbiguousEdges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ambiguous != 4 {
+		t.Fatalf("ambiguous = %d, want the 4 candidate rows untouched", ambiguous)
+	}
+	edges, err := st.Edges(ctx, 0.5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(edges) != 0 {
+		t.Fatalf("high-confidence edges after a non-candidate = %+v, want none", edges)
+	}
+}
+
+func TestSCIPAmbiguousSameLineTwoCallsNotMerged(t *testing.T) {
+	ctx, st := openFixtureStore(t, "py-adapter-ambiguous")
+
+	// two() calls total() twice on line 6; the compiler resolves them to two
+	// different candidates. One candidate row set represents both references,
+	// so attributing either exact edge would silently merge them.
+	stats, err := ApplySCIP(ctx, st, ambiguousFixtureIndex([]SCIPOccurrence{
+		{Line: 5, Symbol: ambSymA},
+		{Line: 5, Symbol: ambSymB},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Replaced != 0 || stats.ReplacedEdges != 0 || stats.Edges != 0 {
+		t.Fatalf("stats = %+v, want same-line pair left alone", stats)
+	}
+	ambiguous, err := st.AmbiguousEdges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ambiguous != 4 {
+		t.Fatalf("ambiguous = %d, want all 4 candidate rows untouched", ambiguous)
+	}
+
+	two := nodeID(t, ctx, st, "app.py", "two")
+	rows, err := st.AmbiguousCandidateEdges(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair := 0
+	for _, row := range rows {
+		if row.Src != two || row.Line != 6 {
+			continue
+		}
+		pair++
+		if row.Confidence != 0.40 || row.Rule != "py.global.ambiguous" {
+			t.Fatalf("same-line candidate row = %+v, want the 0.40 py.global.ambiguous group", row)
+		}
+	}
+	if pair != 2 {
+		t.Fatalf("two() candidate rows = %d, want the 2-row group intact", pair)
+	}
+}
+
+func TestSCIPPendingConflictStillReported(t *testing.T) {
+	ctx, st := openFixtureStore(t, "py-adapter")
+
+	// Pre-own the exact key tree-sitter left pending: the adapter must report
+	// a conflict, keep the existing row unchanged, and still match the other
+	// pending reference.
+	run := nodeID(t, ctx, st, "app.py", "run")
+	base := nodeID(t, ctx, st, "models.py", "total")
+	if _, err := st.InsertEdges(ctx, []store.Edge{{
+		Src: run, Dst: base, Kind: "CALLS", Confidence: 0.70, Rule: "test.preexisting",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := LoadSCIP(filepath.Join("..", "..", "testdata", "fixtures", "py-adapter", "index.scip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := ApplySCIP(ctx, st, parsed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.Matched != 2 || stats.Edges != 1 || stats.Conflicts != 1 || stats.Replaced != 0 {
+		t.Fatalf("stats = %+v, want 2 matched, 1 edge, 1 conflict, 0 replaced", stats)
+	}
+	edges, err := st.Callers(ctx, base, 0.5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var preexisting bool
+	for _, edge := range edges {
+		if edge.Src == run && edge.Rule == "test.preexisting" {
+			preexisting = true
+			if edge.Confidence != 0.70 {
+				t.Fatalf("conflicting edge was overwritten: %+v", edge)
+			}
+		}
+	}
+	if !preexisting {
+		t.Fatalf("pre-existing edge was lost: %+v", edges)
+	}
+}

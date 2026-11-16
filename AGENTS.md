@@ -85,7 +85,7 @@ internal/mcp      hand-rolled stdio JSON-RPC adapter
 internal/serve    read-only HTTP handlers over query/output
 internal/artifact export/pull, manifest, schema gate
 internal/check    cycles, dead code, boundaries, hotspots, unresolved rate, SARIF
-internal/adapter  SCIP fact ingestion and non-overwriting edge merge
+internal/adapter  SCIP fact ingestion, group-guarded edge merge
 internal/testpath shared test-path classifier for check and tests
 internal/eval     fixture gate (test-only)
 ```
@@ -237,10 +237,11 @@ the database.
   `rayon-demo` edges. Large corpora: `django/django` @ `f24f38c` (3,051 indexed
   files, 906 production / 2,009 test `.py`) and `Goutam-11/hyusk` @ `06bdb2b`
   (88 indexed files, 49k Rust LOC, 750-crate workspace). `scip-python` 0.6.8
-  OOMs on the full Django tree at Node's default heap; the recorded adapter run
-  uses `--target-only django` (909 files) with a 3 GB heap, and the producer
-  limit is documented. `rust-analyzer` needs ~158 s / 7.1 MiB for `hyusk`.
-  Both targets stay opt-in; CI needs no producer.
+  OOMs on the full Django tree at Node's default heap; it succeeds with
+  `NODE_OPTIONS=--max-old-space-size=4096` (2,941 `.py`, **2:08** wall,
+  **3.74 GiB** max RSS, 100.3 MiB index), and the documented bounded fallback
+  is `--target-only django` (909 files) at a 3 GB heap. `rust-analyzer` needs
+  ~158 s / 7.1 MiB for `hyusk`. Both targets stay opt-in; CI needs no producer.
 - **`make bench-corpora` is reproducible evidence, not a gate.** Issue #61's
   `scripts/bench-corpora.sh` pins `django` @ `f24f38c`, `hyusk` @ `06bdb2b`,
   `requests` @ `3c7baaa`, and `rayon` @ `599425d` (repo + commit + optional
@@ -317,20 +318,32 @@ the database.
   advertises 2026-07-28, unsupported versions return `-32022`, and cacheable
   results carry `resultType`/`ttlMs`/`cacheScope`. Do not add a seventh tool,
   an SDK, or a schema generator.
-- **Adapter edges never overwrite tree-sitter edges.** `repath adapter --scip`
-  only consumes `pending` references and `store.MergeEdges` reports conflicts
-  instead of upserting. Rules are prefixed `scip.ts.*`, `scip.py.*`, or
-  `scip.rs.*` at confidence 0.99; stats live in `meta` and `status.adapters`
-  under `scip` / `scip-python` / `scip-rust`, with no schema change. The Python
-  and Rust adapters accept `scip-python` and `rust-analyzer scip` documents
-  through the same hand-rolled parser and share the merge policy. Rust symbol
-  strings have a narrow parser (`rustSymbolName`: crate/module and `local`
-  skipped; types, terms, enum variants, fields, and `impl#[T][Trait]method()`
-  reduced to display names); extend it with focused cases, not a general SCIP
-  resolver. The pinned `testdata/fixtures/rs-adapter` SCIP file is produced
-  externally by `rust-analyzer` 1.97.0 and CI must not need a Rust toolchain.
-  Do not turn the adapter into a silent replacement for the resolver, and do
-  not add a SCIP/Node/Python/Rust dependency to the build.
+- **Adapter edges never overwrite a resolved tree-sitter edge.** `repath
+  adapter --scip` consumes `pending` references and may replace exactly one
+  tree-sitter **ambiguous** candidate group (confidence 0.40, rule suffix
+  `.ambiguous`, 2-5 same-name candidates). The narrow exception: when a SCIP
+  reference occurrence maps to the group's source node and line and names one
+  of its candidate targets, `store.ReplaceAmbiguousGroup` deletes only that
+  group's candidate rows (re-checking source, line, kind, confidence < 0.5,
+  rule suffix, and candidate membership in one transaction) and inserts the
+  exact `scip.<lang>.*` edge at 0.99. Exactly one compiler occurrence must
+  disambiguate the group; two same-line occurrences leave it alone and are
+  counted, never merged. `store.MergeEdges` still reports conflicts instead of
+  upserting, no row at or above 0.5 is ever touched, and every replacement is
+  reported as `replaced` / `replaced_edges` in stats; there is no schema
+  change (stats live in `meta` and `status.adapters` under `scip` /
+  `scip-python` / `scip-rust`). A group the compiler cannot disambiguate stays
+  ambiguous and visible. Rules are prefixed `scip.ts.*`, `scip.py.*`, or
+  `scip.rs.*` at confidence 0.99. The Python and Rust adapters accept
+  `scip-python` and `rust-analyzer scip` documents through the same hand-rolled
+  parser and share the merge policy. Rust symbol strings have a narrow parser
+  (`rustSymbolName`: crate/module and `local` skipped; types, terms, enum
+  variants, fields, and `impl#[T][Trait]method()` reduced to display names);
+  extend it with focused cases, not a general SCIP resolver. The pinned
+  `testdata/fixtures/rs-adapter` SCIP file is produced externally by
+  `rust-analyzer` 1.97.0 and CI must not need a Rust toolchain. Do not turn the
+  adapter into a silent replacement for the resolver, and do not add a
+  SCIP/Node/Python/Rust dependency to the build.
 - **`check` is graph-native, not a compiler.** Dead code only considers private
   functions/methods; exported API, test paths, parse failures, and special
   entrypoint names are excluded. Boundary checks are objective heuristics

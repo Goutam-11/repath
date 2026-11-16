@@ -151,3 +151,112 @@ func TestAdapterCommandPython(t *testing.T) {
 		t.Fatalf("status adapters = %+v, want scip-python", status.Adapters)
 	}
 }
+
+// scipTestEncoder writes the minimal SCIP protobuf the adapter parses. The
+// ambiguity fixture is built here instead of committing another producer file,
+// so CI still needs no Node/Python toolchain.
+type scipTestEncoder struct{ buf []byte }
+
+func (e *scipTestEncoder) varint(v uint64) {
+	for v >= 0x80 {
+		e.buf = append(e.buf, byte(v)|0x80)
+		v >>= 7
+	}
+	e.buf = append(e.buf, byte(v))
+}
+
+func (e *scipTestEncoder) tag(number, wire int) { e.varint(uint64(number<<3 | wire)) }
+
+func (e *scipTestEncoder) bytesField(number int, data []byte) {
+	e.tag(number, 2)
+	e.varint(uint64(len(data)))
+	e.buf = append(e.buf, data...)
+}
+
+func (e *scipTestEncoder) varintField(number int, value uint64) {
+	e.tag(number, 0)
+	e.varint(value)
+}
+
+func encodeAmbiguousSCIP(docs []struct {
+	path        string
+	language    string
+	occurrences []struct {
+		line   int
+		symbol string
+		roles  uint64
+	}
+}) []byte {
+	var index scipTestEncoder
+	for _, doc := range docs {
+		var d scipTestEncoder
+		d.bytesField(1, []byte(doc.path))
+		d.bytesField(4, []byte(doc.language))
+		for _, occ := range doc.occurrences {
+			var o scipTestEncoder
+			o.varintField(1, uint64(occ.line))
+			o.bytesField(2, []byte(occ.symbol))
+			o.varintField(3, occ.roles)
+			d.bytesField(2, o.buf)
+		}
+		index.bytesField(2, d.buf)
+	}
+	return index.buf
+}
+
+func TestAdapterStatusSurfacesReplaced(t *testing.T) {
+	dir := copyAdapterFixtureNamed(t, "py-adapter-ambiguous")
+	scip := filepath.Join(dir, "ambiguous.scip")
+	type occ = struct {
+		line   int
+		symbol string
+		roles  uint64
+	}
+	type doc = struct {
+		path        string
+		language    string
+		occurrences []occ
+	}
+	const (
+		symA = "scip-python python py-amb 0.0.0 models_a/total()."
+		symB = "scip-python python py-amb 0.0.0 models_b/total()."
+	)
+	data := encodeAmbiguousSCIP([]doc{
+		{path: "models_a.py", language: "python", occurrences: []occ{{line: 0, symbol: symA, roles: 1}}},
+		{path: "models_b.py", language: "python", occurrences: []occ{{line: 0, symbol: symB, roles: 1}}},
+		{path: "app.py", language: "python", occurrences: []occ{{line: 1, symbol: symA}}},
+	})
+	if err := os.WriteFile(scip, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	code, out, errOut := run(t, "adapter", "--scip", scip, "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("adapter exit = %d: %s", code, errOut)
+	}
+	var stats adapter.Stats
+	if err := json.Unmarshal([]byte(out), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats.Replaced != 1 || stats.ReplacedEdges != 2 || stats.Edges != 1 {
+		t.Fatalf("stats = %+v, want replaced=1 replaced_edges=2 edges=1", stats)
+	}
+
+	code, out, errOut = run(t, "status", "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("status exit = %d: %s", code, errOut)
+	}
+	var status struct {
+		Ambiguous int             `json:"ambiguous"`
+		Adapters  []adapter.Stats `json:"adapters"`
+	}
+	if err := json.Unmarshal([]byte(out), &status); err != nil {
+		t.Fatal(err)
+	}
+	if len(status.Adapters) != 1 || status.Adapters[0].Replaced != 1 || status.Adapters[0].ReplacedEdges != 2 {
+		t.Fatalf("status adapters = %+v, want replaced=1 replaced_edges=2", status.Adapters)
+	}
+	if status.Ambiguous != 2 {
+		t.Fatalf("status ambiguous = %d, want the untouched same-line pair (2 rows)", status.Ambiguous)
+	}
+}

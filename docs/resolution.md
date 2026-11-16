@@ -69,6 +69,10 @@ associated function is `CALLS`.
 Zero candidates → the reference goes to the `pending` queue, where a later run
 retries it if the symbol appears. More than five candidates → dropped, because
 one ambiguous name (`map`, `get`) would otherwise create hundreds of edges.
+The optional SCIP adapter may later replace an entire ambiguous group with one
+exact `0.99` edge when the compiler names one of its candidates; that is an
+adapter-only pass with its own guardrails, never tree-sitter resolver behavior.
+See [`docs/adapters.md`](adapters.md#ambiguous-replacement).
 
 A Python call whose target is a class is stored as `REFERENCES`, the analogue of
 `new` in TypeScript; the rule still names how the class was found. Decorator

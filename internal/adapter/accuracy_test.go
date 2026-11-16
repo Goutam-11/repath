@@ -133,18 +133,23 @@ func TestSCIPAccuracy(t *testing.T) {
 		corpus, len(sampled), candidates, minConfidence)
 	t.Logf("accuracy %s: excluded %s", corpus, formatCounts(gt.exclusions))
 
-	before := measureAccuracy(t, ctx, st, gt, sampled, "tree-sitter", minConfidence, "")
+	before := measureAccuracy(t, ctx, st, gt, sampled, "tree-sitter", minConfidence, nil)
+	// Snapshot the tree-sitter callers before the adapter runs. Ambiguous-group
+	// replacement deletes 0.40 candidate rows, so filtering adapter rule ids
+	// afterwards no longer reconstructs the pre-adapter graph; the snapshot is
+	// the truthful "before" for the adapter-touched cohort.
+	snapshot := snapshotCallers(t, ctx, st, minConfidence)
 	statsList, err := ApplySCIPAll(ctx, st, scipIndex)
 	if err != nil {
 		t.Fatalf("apply scip: %v", err)
 	}
-	after := measureAccuracy(t, ctx, st, gt, sampled, "after-adapter", minConfidence, "")
+	after := measureAccuracy(t, ctx, st, gt, sampled, "after-adapter", minConfidence, nil)
 
 	// The uniform sample can miss every target the adapter repaired. Report
 	// that cohort separately instead of biasing the sample toward it.
 	touched := adapterTouchedTargets(t, ctx, st, gt, family)
-	touchedBefore := measureAccuracy(t, ctx, st, gt, touched, "adapter-targets tree-sitter", minConfidence, accuracyRulePrefix(family))
-	touchedAfter := measureAccuracy(t, ctx, st, gt, touched, "adapter-targets after-adapter", minConfidence, "")
+	touchedBefore := measureAccuracy(t, ctx, st, gt, touched, "adapter-targets tree-sitter", minConfidence, snapshot)
+	touchedAfter := measureAccuracy(t, ctx, st, gt, touched, "adapter-targets after-adapter", minConfidence, nil)
 
 	counts, err := st.Counts(ctx)
 	if err != nil {
@@ -522,13 +527,34 @@ type accuracyStore struct {
 	ParseFailures int `json:"parse_failures"`
 }
 
-// measureAccuracy compares a cohort against the compiler ground truth.
-// excludeRulePrefix reconstructs the tree-sitter-only graph after the adapter
-// ran: adapter edges carry their own rule ids and the merge never overwrites a
-// tree-sitter edge, so filtering them yields the exact pre-adapter answer.
-// Callers-only cohorts (non-empty prefix) skip the impact comparison because
-// graph.Blast has no rule filter.
-func measureAccuracy(t *testing.T, ctx context.Context, st *store.Store, gt *groundTruth, sampled []int64, phase string, minConfidence float64, excludeRulePrefix string) accuracyPhase {
+// callerRef is one incoming edge reduced to the fields accuracy compares:
+// source node and its file path (for SCIP scope).
+type callerRef struct {
+	src  int64
+	path string
+}
+
+// snapshotCallers reads every edge at the confidence floor before the adapter
+// runs, grouped by destination. It is the pre-adapter graph as data, so a
+// later adapter pass that deletes ambiguous candidate rows cannot rewrite it.
+func snapshotCallers(t *testing.T, ctx context.Context, st *store.Store, minConfidence float64) map[int64][]callerRef {
+	t.Helper()
+	edges, err := st.GraphEdges(ctx, minConfidence)
+	if err != nil {
+		t.Fatalf("snapshot callers: %v", err)
+	}
+	out := make(map[int64][]callerRef)
+	for _, edge := range edges {
+		out[edge.Dst] = append(out[edge.Dst], callerRef{src: edge.Src, path: edge.SrcPath})
+	}
+	return out
+}
+
+// measureAccuracy compares a cohort against the compiler ground truth. When
+// beforeCallers is non-nil it supplies the pre-adapter caller set (the touched
+// cohort measured honestly across ambiguous replacement) and the impact
+// comparison is skipped because the snapshot has no closure.
+func measureAccuracy(t *testing.T, ctx context.Context, st *store.Store, gt *groundTruth, sampled []int64, phase string, minConfidence float64, beforeCallers map[int64][]callerRef) accuracyPhase {
 	t.Helper()
 	out := accuracyPhase{Phase: phase, Samples: len(sampled)}
 	coveredPaths := map[string]bool{}
@@ -544,20 +570,26 @@ func measureAccuracy(t *testing.T, ctx context.Context, st *store.Store, gt *gro
 		targetNode := gt.nodes[target]
 		expected := gt.callers[target]
 
-		edges, err := st.Callers(ctx, target, minConfidence)
-		if err != nil {
-			t.Fatalf("callers %s: %v", targetNode.QName, err)
+		var callers []callerRef
+		if beforeCallers != nil {
+			callers = beforeCallers[target]
+		} else {
+			edges, err := st.Callers(ctx, target, minConfidence)
+			if err != nil {
+				t.Fatalf("callers %s: %v", targetNode.QName, err)
+			}
+			callers = make([]callerRef, 0, len(edges))
+			for _, edge := range edges {
+				callers = append(callers, callerRef{src: edge.SrcNode.ID, path: edge.SrcPath})
+			}
 		}
 		actual := map[int64]bool{}
-		for _, caller := range edges {
-			if excludeRulePrefix != "" && strings.HasPrefix(caller.Rule, excludeRulePrefix) {
-				continue
-			}
-			if !coveredPaths[caller.SrcPath] {
+		for _, caller := range callers {
+			if !coveredPaths[caller.path] {
 				out.OutOfScope++
 				continue
 			}
-			actual[caller.SrcNode.ID] = true
+			actual[caller.src] = true
 		}
 		tp := 0
 		for id := range expected {
@@ -585,7 +617,7 @@ func measureAccuracy(t *testing.T, ctx context.Context, st *store.Store, gt *gro
 				targetNode.QName, caller.QName, gt.files[caller.FileID], caller.StartLine, phase))
 		}
 
-		if excludeRulePrefix != "" {
+		if beforeCallers != nil {
 			continue
 		}
 		// impact depth 2, ground truth closure over the compiler graph.

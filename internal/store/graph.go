@@ -270,6 +270,119 @@ func placeholders(n int) string {
 	return strings.TrimSuffix(strings.Repeat("?,", n), ",")
 }
 
+// AmbiguousCandidateEdges returns every candidate edge of a tree-sitter
+// ambiguous reference: confidence below the query floor and a rule ending in
+// ".ambiguous". A reference with 2-5 same-name candidates emits one row per
+// candidate, all sharing source node, line, kind, and the `candidates` id list.
+// Adapter replacement reads this set read-only and never touches a resolved
+// edge. (AmbiguousEdges counts the same rows for status.)
+func (s *Store) AmbiguousCandidateEdges(ctx context.Context) ([]Edge, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT src, dst, kind, confidence, rule, line, candidates
+		FROM edges
+		WHERE confidence < 0.5 AND rule LIKE '%.ambiguous'`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Edge
+	for rows.Next() {
+		var e Edge
+		if err := rows.Scan(&e.Src, &e.Dst, &e.Kind, &e.Confidence, &e.Rule, &e.Line, &e.Candidates); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// ReplaceAmbiguousGroup deletes the candidate edges of one tree-sitter
+// ambiguous reference group and inserts the exact adapter edge, atomically.
+// Every deleted row is re-checked in the same transaction to be a
+// below-floor ambiguous candidate for the same source, line, and kind, so a
+// resolved edge can never be removed. It reports the number of candidate rows
+// deleted, whether the exact edge was inserted, and whether a resolved edge
+// already owned the (src, dst, kind) key (a conflict the caller must report,
+// never overwrite). A zero deleted count means the group was already gone; the
+// caller counts it as unmatched and changes nothing.
+func (s *Store) ReplaceAmbiguousGroup(ctx context.Context, src int64, line int, kind string, candidates []int64, exact Edge) (deleted int, inserted bool, conflict bool, err error) {
+	if len(candidates) == 0 {
+		return 0, false, false, nil
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, false, false, err
+	}
+
+	// A row at the exact key that is not a deletable candidate of this group is
+	// a resolved edge already owning the key: report a conflict, change nothing.
+	var confidence float64
+	var rule string
+	var existingLine int
+	probe := tx.QueryRowContext(ctx,
+		`SELECT confidence, rule, line FROM edges WHERE src = ? AND dst = ? AND kind = ?`,
+		exact.Src, exact.Dst, exact.Kind)
+	switch err := probe.Scan(&confidence, &rule, &existingLine); err {
+	case nil:
+		if existingLine != line || !isAmbiguousCandidate(confidence, rule) {
+			tx.Rollback()
+			return 0, false, true, nil
+		}
+	case sql.ErrNoRows:
+	default:
+		tx.Rollback()
+		return 0, false, false, err
+	}
+
+	placeholders := make([]string, len(candidates))
+	args := make([]any, 0, len(candidates)+3)
+	args = append(args, src, line, kind)
+	for i, id := range candidates {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	res, err := tx.ExecContext(ctx,
+		`DELETE FROM edges
+		 WHERE src = ? AND line = ? AND kind = ?
+		   AND confidence < 0.5 AND rule LIKE '%.ambiguous'
+		   AND dst IN (`+strings.Join(placeholders, ",")+`)`, args...)
+	if err != nil {
+		tx.Rollback()
+		return 0, false, false, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		tx.Rollback()
+		return 0, false, false, err
+	}
+	if affected == 0 {
+		tx.Rollback()
+		return 0, false, false, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO edges (src, dst, kind, confidence, rule, line, candidates)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		exact.Src, exact.Dst, exact.Kind, exact.Confidence, exact.Rule, exact.Line, exact.Candidates); err != nil {
+		// The key was free or its group row was just deleted, so any failure
+		// here is a real storage error, not a merge conflict.
+		tx.Rollback()
+		return 0, false, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, false, false, err
+	}
+	return int(affected), true, false, nil
+}
+
+// isAmbiguousCandidate reports whether a row may be removed as part of an
+// ambiguous group: below the default query floor and an ambiguous rule id.
+func isAmbiguousCandidate(confidence float64, rule string) bool {
+	return confidence < 0.5 && strings.HasSuffix(rule, ".ambiguous")
+}
+
 // MergeEdges writes edges that do not already exist and reports how many were
 // skipped because the (src, dst, kind) key was taken. Adapter ingestion uses
 // this instead of InsertEdges so an adapter fact can never silently overwrite a
