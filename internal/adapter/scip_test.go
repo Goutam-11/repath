@@ -702,7 +702,9 @@ func TestSCIPPendingConflictStillReported(t *testing.T) {
 	// Pre-own the exact key tree-sitter left pending: the adapter must report
 	// a conflict, keep the existing row unchanged, and still match the other
 	// pending reference.
-	run := nodeID(t, ctx, st, "app.py", "run")
+	// #54 rewrote the py-adapter fixture: the two pending total() calls now
+	// live in run_factory and run_child. Pre-own one key to prove the conflict.
+	run := nodeID(t, ctx, st, "app.py", "run_factory")
 	base := nodeID(t, ctx, st, "models.py", "total")
 	if _, err := st.InsertEdges(ctx, []store.Edge{{
 		Src: run, Dst: base, Kind: "CALLS", Confidence: 0.70, Rule: "test.preexisting",
