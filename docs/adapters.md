@@ -3,9 +3,11 @@
 repath's tree-sitter graph is the zero-setup default. Its documented ceiling is
 member calls without a typed receiver: `cart.total()` only resolves when the
 receiver type is known from an annotation, `new`, a constructor, or a parameter
-([`docs/resolution.md`](resolution.md)). Python has a second gap: inheritance is
-not walked, so a method inherited from a base stays unresolved. The adapter seam
-lets a compiler supply those facts without replacing the graph.
+([`docs/resolution.md`](resolution.md)). Python walks inheritance now, but only
+through locally resolvable, unambiguous bases: a base outside the repo, an
+ambiguous base, or a receiver typed in another module still leaves the call
+unresolved ([`docs/resolution.md`](resolution.md)). The adapter seam lets
+a compiler supply those facts without replacing the graph.
 
 Three adapters consume **SCIP**, the Sourcegraph Code Intelligence Protocol index:
 
@@ -233,27 +235,27 @@ index in-process (`SCIPIndex`) instead of committing another producer file.
   The new edges are typed member calls such as `URI.parse`, `Utils.joinPath`, and
   `URI.toString`.
 - **Python fixture** (`testdata/fixtures/py-adapter`, `scip-python` 0.6.8):
-  two pending inherited/factory member calls (`cart.total()` in `run` and
-  `run_factory`) become `scip.py.method` edges to `Base.total`; unresolved
-  **2 → 0**. The run sees 12 definitions, 17 references, 2 matched, 2 edges,
-  0 conflicts, 14 skipped, 5 unmatched.
+  two member calls tree-sitter still cannot resolve — an untyped local assigned
+  from a factory whose `-> Cart` annotation lives in another module
+  (`run_factory`), and a call through a class attribute annotated in another
+  module (`run_child`) — become `scip.py.method` edges to `Base.total`;
+  unresolved **2 → 0**. The run sees 14 definitions, 21 references, 2 matched,
+  2 edges, 0 conflicts, 15 skipped, 8 unmatched. Issue #54 closed the
+  inherited-call gap this fixture used to cover (`self.m()` now walks bases), so
+  the source and the SCIP file were regenerated with the same pinned producer.
 - **`psf/requests` @ `3c7baaa05ab4aa49cc819ce3a819d260de19c157`** (37 indexed
-  files, 787 nodes, 543 pending): unresolved **543 → 523** (unresolved rate
-  **34.50% → 33.27%**) with **18** adapter edges, **20** matched pending refs,
-  **0** replaced groups, **0** conflicts. The 25 ambiguous candidate rows
-  (8 groups, 3–4 candidates each) were not named by this producer's references
-  and stay ambiguous. The adapter wall time was **0.30 s** (0.30–0.32, three
-  runs) and peak RSS **18.6 MiB** (18.2–18.7) on an 798 KiB SCIP file. The new
-  edges are real inherited/mixin method calls such as
-  `HTTPDigestAuth.__call__ -> RequestHooksMixin.register_hook`,
-  `JSONDecodeError.__init__ -> RequestException.__init__`, and
-  `PreparedRequest.copy -> CaseInsensitiveDict.copy`. Re-measured for #48 with
-  the bench harness on the cold graph: the same 543 → 523, 18 edges, 20
-  matched, 0 conflicts. A comment-only ten-file incremental now reproduces the
-  cold graph (543 pending, 1,031 edges); before #49 it added five `urlparse`
-  pending rows because a re-export chain through unchanged `compat.py` was not
-  loaded during incremental resolution. See
-  [`docs/benchmarks.md`](benchmarks.md).
+  files, 787 nodes): the cold tree-sitter graph now resolves most inherited
+  calls itself (#54), so the adapter's share shrank to **510 → 502** pending
+  (unresolved rate **32.82% → 32.30%**) with **8** adapter edges, **8** matched
+  pending refs, **0 replaced groups**, **0** conflicts, and **0.32 s** wall
+  time. The 25 ambiguous candidate rows (8 groups, 3-4 candidates each) were
+  not named by this producer's references and stay ambiguous. Before #54 the
+  same tree left those inherited calls pending and the adapter merged **18**
+  edges from **20** matched refs (543 → 523); the #48 cold re-measurement gave
+  the same 543 → 523, 18 edges, 20 matched, 0 conflicts. The remaining misses
+  are untyped locals and cross-module receivers. A comment-only ten-file
+  incremental reproduces the cold graph (510 pending, 1,044 edges). See
+  [`docs/benchmarks.md`](benchmarks.md#python-inheritance-and-receiver-typing-2026-11-16-54).
 
 - **Rust fixture** (`testdata/fixtures/rs-adapter`, `rust-analyzer` 1.97.0):
   two generic-bound calls (`fn run_generic<T: Total>` and

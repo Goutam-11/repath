@@ -30,10 +30,15 @@ nothing better was available.
 | `py.import.reexport` | 0.95 | `from app import Service`, re-exported by `app/__init__.py` or a compat module |
 | `py.this.method` | 0.90 | `self.add()` inside `class Cart` → `Cart.add` |
 | `py.class.method` | 0.90 | `Service.create()` where `Service` is a class symbol |
+| `py.property.alias` | 0.90 | `@label.setter` / `.deleter` / `.getter` → the `label` property |
 | `py.module.relative` | 0.90 | `from . import util` then `util.clamp()` |
-| `py.import.star` | 0.80 | `from .util import *`, then a bare resolvable name |
-| `py.typed.method` | 0.85 | `service.total()` where `service: Service` or `service = Service(...)` |
+| `py.self.inherited` | 0.85 | `self.m()` / `cls.m()` where `m` is defined on a base class in the MRO |
+| `py.self.super` | 0.85 | `super().m()`: the first class after the enclosing one in the MRO |
+| `py.class.inherited` | 0.85 | `Service.m()` where `m` is inherited from a base |
+| `py.typed.method` | 0.85 | `service.total()` where `service: Service`, `service = Service(...)`, or a same-file factory returns `Service` |
 | `py.local` | 0.85 | a symbol in the same file, unique |
+| `py.typed.inherited` | 0.80 | a typed receiver whose method lives on a base class |
+| `py.import.star` | 0.80 | `from .util import *`, then a bare resolvable name |
 | `py.typed.method.global` | 0.70 | the receiver type is known and exactly one `Type.method` exists |
 | `py.global.unique` | 0.60 | exactly one symbol with that name in the repo |
 | `py.global.ambiguous` | 0.40 | 2–5 candidates; one edge per candidate, filtered by default |
@@ -80,6 +85,33 @@ applications are reference edges once, attached to the decorated function,
 method, or class — the decorator expression is not also counted as a call.
 Class bases are `EXTENDS` edges; `metaclass=` keyword arguments are skipped.
 
+Python inheritance is walked for `self`, `cls`, `super()`, class receivers, and
+typed receivers. The lookup order is the class's C3 linearization, capped at
+eight classes, with a visited set so a cyclic hierarchy terminates and a
+deterministic depth-first fallback when the hierarchy is inconsistent (Python
+itself would reject it). A base resolved in the current run comes from the fresh
+`extends` facts; a base in a file the run did not re-resolve comes from its
+persisted `EXTENDS` edge, which is what keeps an incremental graph identical to
+a cold one. Ambiguous base names are not followed, a compiler (`scip.*`) base
+link never changes the MRO, and a base outside the repo (for example
+`unittest.TestCase`) ends the chain: the inherited reference stays unresolved by
+design instead of being guessed. Only the zero-argument `super().m()` form is
+followed.
+
+Receiver types come from an annotation, a constructor call, a same-file function
+or method return annotation (`x = make()` where `def make() -> Service`), a class
+attribute declared in this file (including on a same-file base), and
+`Optional`/`Union`/`X | None` or quoted forward references that name exactly one
+type. A generic element type is not unwrapped (`items: list[Service]` types
+`items` as a list, a builtin), and a union of two project types stays untyped
+rather than picking one.
+
+A `@property` getter is an ordinary method symbol. `@value.setter` (and
+`.deleter`/`.getter`) is one decorator reference to that property at 0.90
+(`py.property.alias`), not a pending call to a method named `setter`. A
+`@staticmethod`'s first parameter is a real argument and counts toward the
+symbol's arity; a `@classmethod`'s `cls` does not.
+
 ## Import requests
 
 ### TypeScript / JavaScript
@@ -117,8 +149,6 @@ impl methods are still indexed as `Type.method`, but there is no same-file
 source node for the type edge.
 
 ### Python
-
-The leading dots of a relative import are counted exactly as Python counts them:### Python
 
 The leading dots of a relative import are counted exactly as Python counts them:
 `.` is the current package (the file's directory), `..` the parent, and
@@ -193,15 +223,19 @@ imports define the same name the last one wins, matching Python execution.
 
 ### Python
 
-- **Inheritance is not walked for `self`.**### Python
-
-- **Inheritance is not walked for `self`.** `self.method()` resolves when the
-  method is on the enclosing class; a method inherited from a base class (for
-  example `Session.should_strip_auth` from `SessionRedirectMixin`) stays
-  unresolved. Class bases are still edges, so `impact` sees the inheritance.
-- **Untyped locals and attributes.** `session.get()` is unresolved unless
-  `session` has a known type. Calls through callback parameters
-  (`fn(1)`) are unresolved by design.
+- **External and ambiguous bases end the inheritance walk.** A base outside the
+  repo (`unittest.TestCase`, a third-party class) is external, so inherited
+  calls such as `self.assertEqual()` stay unresolved by design; an ambiguous
+  base name is not followed either. Metaclass-generated, monkey-patched, and
+  `getattr`-dispatched methods stay invisible to the static model.
+- **Bounded `super()`.** Only the zero-argument `super().m()` form is followed;
+  `super(Child, self).m()` stays unresolved because the reference does not
+  carry its starting class.
+- **Receiver types are file-local.** `self.cache.read()` is typed when `cache`
+  is annotated in this file or on a same-file base; a class attribute declared
+  in another module, a factory whose return annotation lives in another module,
+  and an untyped local or attribute stay unresolved. Calls through callback
+  parameters (`fn(1)`) are unresolved by design.
 - **Module aliases re-exported as modules.** `from .compat import cookielib` is
   followed when `cookielib` is a local module, but not when the compat module
   aliases an external module (`import http.cookiejar as cookielib`).

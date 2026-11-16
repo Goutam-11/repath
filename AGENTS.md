@@ -152,9 +152,17 @@ the database.
 - **Python imports resolve at the repo root, `src/`, and `lib/` only.** There is
   no `sys.path`/`PYTHONPATH` reading and namespace packages without `__init__.py`
   are not resolved. That is a documented v1 gap, not a bug to paper over.
-- **Python inheritance is not walked for `self`.** `self.m()` resolves against
-  the enclosing class only; a method inherited from a base stays unresolved
-  (bases are still `EXTENDS` edges). Untyped locals stay unresolved too.
+- **Python inheritance is walked in bounded MRO order.** `self.m()`/`cls.m()`,
+  zero-argument `super().m()`, class receivers, and typed receivers follow the
+  class's C3 linearization (cap 8, visited set, deterministic fallback for an
+  inconsistent hierarchy) through same-file and imported bases. An external base
+  (`unittest.TestCase`), an ambiguous base name, or the explicit
+  `super(Child, self)` form ends the chain, so the call stays unresolved by
+  design. A re-resolved file's base links replace its persisted ones
+  (`AddInheritance`), and compiler (`scip.*`) base links never enter the MRO,
+  which is what keeps cold/incremental/full graphs identical (#49). Receiver
+  types are file-local: an attribute or factory return annotation declared in
+  another module, and generic element types (`list[Service]`), stay untyped.
 - **Python re-exports are followed through the imports table.** `py.import.reexport`
   covers `__init__.py` and ordinary modules such as `requests.compat`; a chain
   ending at the standard library is external, not pending.

@@ -577,6 +577,151 @@ this is not a repeat of `rayon`'s generic-bound corpus.
   accuracy](#reproducible-corpora-and-compiler-accuracy-2026-11-15-61)); the
   large Django/hyusk numbers above were not accuracy-checked.
 
+## Python inheritance and receiver typing (2026-11-16, #54)
+
+Issue #54 closes the largest static Python gap. `self.m()`/`cls.m()` now follow
+the class's MRO, zero-argument `super().m()` is followed, and receivers are typed
+from annotations, constructors, same-file factory/method return annotations, and
+class attributes (including attributes declared on a same-file base). The rule
+ids are `py.self.inherited` (0.85), `py.self.super` (0.85), `py.class.inherited`
+(0.85), `py.typed.inherited` (0.80), and `py.property.alias` (0.90); the ladder
+and every remaining gap are in [`docs/resolution.md`](resolution.md).
+
+Pinned corpora and the exact commands:
+
+```sh
+# django/django @ f24f38c6b2825f15628c07bf2892f1664eed9361 (3,051 indexed .py)
+# psf/requests   @ 3c7baaa05ab4aa49cc819ce3a819d260de19c157 (37 indexed .py)
+rm -rf <corpus>/.repath <corpus>/.git/repath
+./bin/repath index --full --json --root <corpus>
+./bin/repath status --json --no-refresh --root <corpus>
+```
+
+### Results
+
+Same binary before and after the change, three clean cold runs each (`.repath`
+and `.git/repath` removed every time) on the shared 12-core host. Load average
+was 3.5–5.3 during the runs; medians with the range in parentheses.
+
+| Metric | django (3,051 files) | requests (37 files) |
+| --- | --- | --- |
+| Cold index before | **4.95 s** (4.95–7.36) | **186 ms** (185–189) |
+| Cold index after | **5.28 s** (5.14–5.79) | **202 ms** (195–206) |
+| 10-file incremental after | **413 ms** (410–419) | **100 ms** (single run) |
+| second `index --full` after | **5.05 s** (5.04–5.41) | **245 ms** (single run) |
+
+The MRO work costs about **6–10%** on this corpus (cold +6.6%, incremental
++6.4%, full +9.6% versus the baseline measured with the same protocol); it is
+well inside every PLAN §10 ceiling, and the synthetic `make perf` budgets were
+re-run green (see below).
+
+| | django | requests |
+| --- | --- | --- |
+| Edges | **45,834 → 56,806** | **1,031 → 1,044** |
+| Pending | **105,319 → 92,618** | **543 → 510** |
+| Unresolved rate | **69.68% → 61.98%** | **34.50% → 32.82%** |
+| Parse failures | 3 → 3 | 0 → 0 |
+
+Pending by reason (the buckets are the read-time heuristic from `status`; they
+sum to `unresolved`):
+
+| Reason | django before → after | requests before → after |
+| --- | --- | --- |
+| `parse-failure` | 0 → 0 | 0 → 0 |
+| `member-scope` | 50,052 → **48,086** | 224 → **210** |
+| `missing-definition` | 40,489 → 40,489 | 308 → **288** |
+| `scope-gap` | 14,778 → **4,043** | 11 → 12 |
+
+The scope-gap drop is the `self`/`cls` bucket: those rows were classed as
+scope-gap because the method name exists somewhere in the tree. The
+missing-definition drop on `requests` is receiver typing turning member calls
+into edges. Two small increases are deliberate and honest: `scope-gap` +1 on
+`requests` and **516** new pending rows on django are zero-argument `super()`
+calls whose base is external; previously the member call was silently dropped,
+now it is a pending row with `form = 'super'` (the retry never guesses a member).
+
+New edges by rule (confidence in the ladder):
+
+| Rule | Confidence | django | requests |
+| --- | --- | --- | --- |
+| `py.self.inherited` | 0.85 | **8,171** | **6** |
+| `py.self.super` | 0.85 | **1,236** | **2** |
+| `py.typed.inherited` | 0.80 | **743** | **2** |
+| `py.class.inherited` | 0.85 | **311** | **1** |
+| `py.property.alias` | 0.90 | **37** | 0 |
+| `py.typed.method` (delta) | 0.85 | **+501** | **+2** |
+
+The `py.typed.method` delta and the `py.typed.method.global` delta (−27 on
+django) come from the new receiver sources: a local class attribute or a
+same-file factory return annotation now names the receiver instead of falling
+through to the weaker global lookup.
+
+### By-design residual
+
+django keeps **31,512 of 34,683** pending `self`/`cls` calls as
+`assert*` methods (`assertEqual` alone is 19,032): their base is
+`unittest.TestCase`, which is outside the repo, so the chain ends and the call
+stays unresolved instead of being guessed. External bases, explicit
+`super(Child, self)` (2-argument form), and receivers typed in another module
+are documented gaps, not measurement failures.
+
+### Parity (#49)
+
+Cold, ten-file-incremental, and second `index --full` runs produce **identical
+pending and edge row sets** on both corpora:
+
+| | pending rows | edge rows | identical sets | edge+pending pairs |
+| --- | --- | --- | --- | --- |
+| `requests` | 510 | 1,044 | yes (both) | 0 |
+| `django` | 92,618 | 56,806 | yes (both) | 19 |
+
+django's 19 pairs are the same-line heuristic matching two different
+references with one name (`self.encode(...)` resolved while `data.encode()` on
+the same line is untyped); the baseline graph has 18 such pairs, and no
+reference is both resolved and pending. The base links of a re-resolved file
+replace the persisted ones (`AddInheritance`), which is the property that keeps
+the warm graph equal to the cold one; compiler (`scip.*`) `EXTENDS` links are
+not used for the MRO.
+
+### Adapter re-measure
+
+The pinned `scip-python` 0.6.8 files still merge into what tree-sitter leaves
+unresolved, but the tree-sitter side closed most of the inherited calls it used
+to supply:
+
+| | pending before → after adapter | edges | matched | conflicts | wall |
+| --- | --- | --- | --- | --- | --- |
+| `requests` | **510 → 502** (32.82% → 32.30%) | 8 | 8 | 0 | 0.32 s |
+| `django` (production SCIP, 909 files) | **92,618 → 91,356** (61.98% → 61.24%) | 1,010 | 1,262 | 13 | 7.0 s |
+
+Before #54 the `requests` run merged 18 edges from 20 matched pending rows; the
+remaining 8 are the misses this new ladder still leaves (untyped locals,
+cross-module receivers).
+
+### Guards
+
+`make check` is clean, `go test ./internal/eval -v` stays at precision 1.00 /
+recall 1.00 with the Python fixture extended from 31 to **65** hand-labelled
+edges (unresolved 1, the callback parameter) and the TS/Rust fixtures untouched
+at 9/9 and 27/27. `make perf` was run three times: 10k cold **2.56 s**
+(2.36–4.49), 10k 10-file incremental **160 ms** (137–250), 50k cold **12.62 s**
+(12.33–12.67), 50k incremental **715 ms** (679–742), peak RSS **290 MiB**,
+`map` p95 204 ms (50k) — every budget green. The synthetic trees are
+TypeScript, so they do not exercise the MRO path; the corpus table above is the
+Python evidence.
+
+### Not verified
+
+- Metaclasses, monkey patching, `getattr`, and runtime dispatch stay outside
+  the static model by design; the by-design residual above is not evidence
+  they are absent from the graph.
+- Inherited class attributes and factory return annotations are typed only when
+  declared in the same file; the cross-module variants (`run_factory`,
+  `run_child` in the adapter fixture) are still pending.
+- One shared host, three runs, warm page cache after the first read; no CPU
+  pinning or multi-machine replication. The 10k/50k synthetic numbers remain
+  machine-dependent evidence, not a CI gate.
+
 ## Reproducible corpora and compiler accuracy (2026-11-15, #61)
 
 The tables above were assembled from one-off runs. Issue #61 makes the same
