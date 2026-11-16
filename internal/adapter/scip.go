@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,11 +34,16 @@ type Stats struct {
 	Definitions int    `json:"definitions"`
 	References  int    `json:"references"`
 	Matched     int    `json:"matched"`
-	Edges       int    `json:"edges"`
-	Conflicts   int    `json:"conflicts"`
-	Skipped     int    `json:"skipped"`
-	Unmatched   int    `json:"unmatched"`
-	LastRun     string `json:"last_run"`
+	Replaced    int    `json:"replaced"`
+	// ReplacedEdges is the number of tree-sitter ambiguous candidate rows
+	// removed by those replacements; the exact adapter edges are counted in
+	// Edges.
+	ReplacedEdges int    `json:"replaced_edges"`
+	Edges         int    `json:"edges"`
+	Conflicts     int    `json:"conflicts"`
+	Skipped       int    `json:"skipped"`
+	Unmatched     int    `json:"unmatched"`
+	LastRun       string `json:"last_run"`
 }
 
 // SCIPIndex is the subset of a SCIP index repath consumes: per-document
@@ -358,18 +364,20 @@ type pendingKey struct {
 }
 
 // scipFamily is one language adapter over the shared SCIP parser. The parser
-// stays language-neutral; only the document filter and the rule ids differ.
+// stays language-neutral; only the document filter, the rule ids, and the
+// tree-sitter rule prefix differ.
 type scipFamily struct {
 	adapter string
+	prefix  string
 	matches func(SCIPDocument) bool
 	rule    func(store.PendingRef) string
 	name    func(string) string
 }
 
 var (
-	tsSCIPFamily = scipFamily{adapter: "scip", matches: isTypeScriptDocument, rule: tsAdapterRule, name: symbolName}
-	pySCIPFamily = scipFamily{adapter: "scip-python", matches: isPythonDocument, rule: pyAdapterRule, name: symbolName}
-	rsSCIPFamily = scipFamily{adapter: "scip-rust", matches: isRustDocument, rule: rsAdapterRule, name: rustSymbolName}
+	tsSCIPFamily = scipFamily{adapter: "scip", prefix: "ts.", matches: isTypeScriptDocument, rule: tsAdapterRule, name: symbolName}
+	pySCIPFamily = scipFamily{adapter: "scip-python", prefix: "py.", matches: isPythonDocument, rule: pyAdapterRule, name: symbolName}
+	rsSCIPFamily = scipFamily{adapter: "scip-rust", prefix: "rs.", matches: isRustDocument, rule: rsAdapterRule, name: rustSymbolName}
 )
 
 // ApplySCIP merges one parsed SCIP index and returns the first language
@@ -436,10 +444,19 @@ func familiesFor(index SCIPIndex) []scipFamily {
 }
 
 // applySCIPFamily merges one parsed SCIP index into the graph for one language.
-// It only consumes references that tree-sitter left in `pending`, so it cannot
-// overwrite an existing tree-sitter edge; a same-key edge is counted as a
-// conflict and left alone. Matched pending rows are removed and the run's stats
-// are persisted.
+// Two narrow paths exist:
+//
+//   - pending references: matched by file + line + name, deleted from pending,
+//     and inserted as adapter edges;
+//   - tree-sitter ambiguous references: a 2-5 candidate group at confidence
+//     0.40 and rule `%.ambiguous` is replaced by the exact SCIP target only
+//     when the compiler's occurrence maps to the same source node and line and
+//     its target is one of that group's candidates. Exactly one occurrence must
+//     map to the group; two distinct same-line references leave it alone.
+//
+// A same-key edge is a conflict and is never overwritten. Every replacement is
+// counted in stats (`replaced` groups, `replaced_edges` candidate rows) and the
+// run's stats are persisted.
 func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, family scipFamily) (Stats, error) {
 	stats := Stats{Adapter: family.adapter, LastRun: time.Now().UTC().Format(time.RFC3339)}
 
@@ -481,6 +498,10 @@ func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, fami
 		key := pendingKey{fileID: p.FileID, line: p.Line, name: p.Name}
 		pendingByKey[key] = append(pendingByKey[key], p)
 	}
+	ambiguousByLine, err := loadAmbiguousGroups(ctx, st, family)
+	if err != nil {
+		return stats, err
+	}
 
 	definitions := make(map[string]int64)
 	for _, doc := range index.Documents {
@@ -516,6 +537,7 @@ func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, fami
 	}
 
 	var edges []store.Edge
+	var unresolved []scipUnmatchedRef
 	matched := make(map[pendingKey]bool)
 	seenEdges := make(map[string]bool)
 	for _, doc := range index.Documents {
@@ -553,7 +575,9 @@ func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, fami
 			key := pendingKey{fileID: fileID, line: occ.Line + 1, name: name}
 			refs := pendingByKey[key]
 			if len(refs) == 0 || matched[key] {
-				stats.Unmatched++
+				unresolved = append(unresolved, scipUnmatchedRef{
+					src: src, line: occ.Line + 1, target: target, name: name,
+				})
 				continue
 			}
 			matched[key] = true
@@ -575,16 +599,187 @@ func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, fami
 		}
 	}
 
+	// Replace ambiguous groups before the pending merge so an exact adapter
+	// edge owns its key first; a later pending edge at the same key is still
+	// reported as a conflict, never overwritten.
+	unmatched, err := replaceAmbiguousGroups(ctx, st, &stats, family, ambiguousByLine, unresolved)
+	if err != nil {
+		return stats, err
+	}
+	stats.Unmatched += unmatched
+
 	inserted, conflicts, err := st.MergeEdges(ctx, edges)
 	if err != nil {
 		return stats, err
 	}
-	stats.Edges = inserted
-	stats.Conflicts = conflicts
+	stats.Edges += inserted
+	stats.Conflicts += conflicts
 	if err := saveStats(ctx, st, stats); err != nil {
 		return stats, err
 	}
 	return stats, nil
+}
+
+// scipUnmatchedRef is a compiler reference that no pending row matched. It is
+// retained to attempt an ambiguous-group replacement.
+type scipUnmatchedRef struct {
+	src    int64
+	line   int
+	target int64
+	name   string
+}
+
+type ambiguousLineKey struct {
+	src  int64
+	line int
+}
+
+// ambiguousGroup is one tree-sitter ambiguous reference: every candidate edge
+// shares source node, line, kind, rule, and the `candidates` id list.
+type ambiguousGroup struct {
+	src  int64
+	line int
+	kind string
+	rule string
+	ids  []int64
+	set  map[int64]bool
+	dsts []int64
+}
+
+// loadAmbiguousGroups reads the tree-sitter ambiguous candidate rows for this
+// language family, read-only, and indexes them by source node + line. A row
+// that fails to parse is skipped rather than guessed: without the candidate id
+// list the group cannot be checked safely.
+func loadAmbiguousGroups(ctx context.Context, st *store.Store, family scipFamily) (map[ambiguousLineKey][]*ambiguousGroup, error) {
+	rows, err := st.AmbiguousCandidateEdges(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byKey := make(map[string]*ambiguousGroup)
+	byLine := make(map[ambiguousLineKey][]*ambiguousGroup)
+	for _, row := range rows {
+		if !strings.HasPrefix(row.Rule, family.prefix) || !strings.HasSuffix(row.Rule, ".ambiguous") {
+			continue
+		}
+		key := fmt.Sprintf("%d/%d/%s/%s/%s", row.Src, row.Line, row.Kind, row.Rule, row.Candidates)
+		group := byKey[key]
+		if group == nil {
+			ids, ok := parseCandidateIDs(row.Candidates)
+			if !ok {
+				continue
+			}
+			group = &ambiguousGroup{
+				src: row.Src, line: row.Line, kind: row.Kind, rule: row.Rule,
+				ids: ids, set: make(map[int64]bool, len(ids)),
+			}
+			for _, id := range ids {
+				group.set[id] = true
+			}
+			byKey[key] = group
+			lineKey := ambiguousLineKey{src: row.Src, line: row.Line}
+			byLine[lineKey] = append(byLine[lineKey], group)
+		}
+		if row.Dst != row.Src {
+			group.dsts = append(group.dsts, row.Dst)
+		}
+	}
+	return byLine, nil
+}
+
+func parseCandidateIDs(raw string) ([]int64, bool) {
+	if raw == "" {
+		return nil, false
+	}
+	parts := strings.Split(raw, ",")
+	ids := make([]int64, 0, len(parts))
+	for _, part := range parts {
+		id, err := strconv.ParseInt(strings.TrimSpace(part), 10, 64)
+		if err != nil {
+			return nil, false
+		}
+		ids = append(ids, id)
+	}
+	return ids, len(ids) > 0
+}
+
+// replaceAmbiguousGroups replaces only groups that exactly one compiler
+// reference occurrence disambiguates. It returns the number of compiler
+// references left unmatched (no candidate group, a non-candidate target, or a
+// group two references could share).
+func replaceAmbiguousGroups(ctx context.Context, st *store.Store, stats *Stats, family scipFamily, byLine map[ambiguousLineKey][]*ambiguousGroup, refs []scipUnmatchedRef) (int, error) {
+	mapped := make(map[*ambiguousGroup][]scipUnmatchedRef)
+	unmatched := 0
+	for _, ref := range refs {
+		var hit *ambiguousGroup
+		hits := 0
+		for _, group := range byLine[ambiguousLineKey{src: ref.src, line: ref.line}] {
+			if group.set[ref.target] {
+				hit = group
+				hits++
+			}
+		}
+		if hits != 1 {
+			unmatched++
+			continue
+		}
+		mapped[hit] = append(mapped[hit], ref)
+	}
+	for group, refs := range mapped {
+		// Two same-named calls on one line collapse into a single candidate
+		// row set, and the index stores no reference column, so one compiler
+		// occurrence cannot be attributed to one of them. Leave the group and
+		// count the references instead of silently merging them.
+		if len(refs) != 1 {
+			unmatched += len(refs)
+			continue
+		}
+		ref := refs[0]
+		exact := store.Edge{
+			Src: group.src, Dst: ref.target, Kind: group.kind,
+			Confidence: adapterConfidence,
+			Rule:       family.rule(store.PendingRef{Kind: refKind(group.kind), Form: ambiguousForm(group.rule)}),
+			Line:       group.line,
+		}
+		deleted, inserted, conflict, err := st.ReplaceAmbiguousGroup(ctx, group.src, group.line, group.kind, group.dsts, exact)
+		if err != nil {
+			return unmatched, err
+		}
+		switch {
+		case conflict:
+			stats.Conflicts++
+			unmatched++
+		case !inserted:
+			unmatched++
+		default:
+			stats.Replaced++
+			stats.ReplacedEdges += deleted
+			stats.Edges++
+		}
+	}
+	return unmatched, nil
+}
+
+// ambiguousForm mirrors the pending-ref form for a replaced ambiguous edge:
+// an ambiguous method rule means the reference was a member call.
+func ambiguousForm(ambiguousRule string) string {
+	if strings.Contains(ambiguousRule, ".method") {
+		return "member"
+	}
+	return ""
+}
+
+// refKind maps an edge kind back to the reference kind the rule selectors use.
+func refKind(kind string) string {
+	switch kind {
+	case "CALLS":
+		return "call"
+	case "EXTENDS":
+		return "extends"
+	case "IMPLEMENTS":
+		return "implements"
+	default:
+		return "reference"
+	}
 }
 
 func isTypeScriptDocument(doc SCIPDocument) bool {

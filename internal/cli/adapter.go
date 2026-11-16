@@ -66,8 +66,8 @@ func adapterCmd(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	for _, stats := range statsList {
-		fmt.Fprintf(stdout, "%s adapter: %d definitions · %d references · %d matched · %d edges · %d conflicts · %d skipped · %d unmatched\n",
-			stats.Adapter, stats.Definitions, stats.References, stats.Matched, stats.Edges, stats.Conflicts, stats.Skipped, stats.Unmatched)
+		fmt.Fprintf(stdout, "%s adapter: %d definitions · %d references · %d matched · %d replaced · %d edges · %d conflicts · %d skipped · %d unmatched\n",
+			stats.Adapter, stats.Definitions, stats.References, stats.Matched, stats.Replaced, stats.Edges, stats.Conflicts, stats.Skipped, stats.Unmatched)
 	}
 	return 0
 }

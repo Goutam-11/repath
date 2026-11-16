@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -733,5 +734,123 @@ func TestUnresolvedSummaryEmptyGraph(t *testing.T) {
 	}
 	if len(summary.ByLang) != 0 || len(summary.TopNames) != 0 || len(summary.TopModules) != 0 {
 		t.Fatalf("empty graph summary is not empty: %+v", summary)
+	}
+}
+
+func TestReplaceAmbiguousGroupGuards(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	tx, err := st.Begin(ctx)
+	if err != nil {
+		t.Fatalf("begin: %v", err)
+	}
+	fileID, err := tx.UpsertFile(ctx, File{
+		Path: "src/a.ts", Lang: "typescript", Size: 10, MTime: 100, Hash: "abc", ParseOK: true,
+	})
+	if err != nil {
+		t.Fatalf("upsert file: %v", err)
+	}
+	if _, err := tx.ReplaceNodes(ctx, fileID, "typescript", []Node{
+		{Kind: "function", Name: "a", QName: "a", StartLine: 1, EndLine: 2, Exported: true},
+		{Kind: "function", Name: "b", QName: "b", StartLine: 4, EndLine: 5, Exported: true},
+		{Kind: "function", Name: "c", QName: "c", StartLine: 7, EndLine: 8, Exported: true},
+		{Kind: "function", Name: "d", QName: "d", StartLine: 10, EndLine: 11, Exported: true},
+	}); err != nil {
+		t.Fatalf("replace nodes: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	ids, err := st.NodeIDsByFile(ctx, fileID)
+	if err != nil {
+		t.Fatalf("node ids: %v", err)
+	}
+	a, b, c, d := ids["a"], ids["b"], ids["c"], ids["d"]
+	// joinIDs writes the numeric candidate ids in order.
+	candidates := strconv.FormatInt(b, 10) + "," + strconv.FormatInt(c, 10)
+	if _, err := st.InsertEdges(ctx, []Edge{
+		{Src: a, Dst: b, Kind: "CALLS", Confidence: 0.40, Rule: "ts.global.ambiguous", Line: 2, Candidates: candidates},
+		{Src: a, Dst: c, Kind: "CALLS", Confidence: 0.40, Rule: "ts.global.ambiguous", Line: 2, Candidates: candidates},
+		{Src: a, Dst: d, Kind: "REFERENCES", Confidence: 0.90, Rule: "ts.typed.method", Line: 2},
+	}); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+
+	// The exact target already owns the key with a resolved edge: conflict,
+	// and the ambiguous group keeps both candidate rows.
+	deleted, inserted, conflict, err := st.ReplaceAmbiguousGroup(ctx, a, 2, "CALLS", []int64{b, c}, Edge{
+		Src: a, Dst: d, Kind: "REFERENCES", Confidence: 0.99, Rule: "scip.ts.reference", Line: 2,
+	})
+	if err != nil {
+		t.Fatalf("conflict replace: %v", err)
+	}
+	if deleted != 0 || inserted || !conflict {
+		t.Fatalf("conflict replace = deleted %d inserted %v conflict %v, want 0/false/true", deleted, inserted, conflict)
+	}
+	if rows, err := st.AmbiguousCandidateEdges(ctx); err != nil || len(rows) != 2 {
+		t.Fatalf("ambiguous rows after conflict = %d (%v), want 2", len(rows), err)
+	}
+
+	// A stale line still finds the group's row at the exact key but cannot
+	// delete it: nothing changes and the mismatch is reported as a conflict.
+	deleted, inserted, conflict, err = st.ReplaceAmbiguousGroup(ctx, a, 99, "CALLS", []int64{b, c}, Edge{
+		Src: a, Dst: b, Kind: "CALLS", Confidence: 0.99, Rule: "scip.ts.call", Line: 99,
+	})
+	if err != nil {
+		t.Fatalf("stale replace: %v", err)
+	}
+	if deleted != 0 || inserted || !conflict {
+		t.Fatalf("stale replace = deleted %d inserted %v conflict %v, want 0/false/true", deleted, inserted, conflict)
+	}
+	if rows, err := st.AmbiguousCandidateEdges(ctx); err != nil || len(rows) != 2 {
+		t.Fatalf("ambiguous rows after stale replace = %d (%v), want 2", len(rows), err)
+	}
+
+	// The real replacement deletes exactly the group's two rows and preserves
+	// the resolved edge.
+	deleted, inserted, conflict, err = st.ReplaceAmbiguousGroup(ctx, a, 2, "CALLS", []int64{b, c}, Edge{
+		Src: a, Dst: b, Kind: "CALLS", Confidence: 0.99, Rule: "scip.ts.call", Line: 2,
+	})
+	if err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	if deleted != 2 || !inserted || conflict {
+		t.Fatalf("replace = deleted %d inserted %v conflict %v, want 2/true/false", deleted, inserted, conflict)
+	}
+	edges, err := st.Edges(ctx, 0)
+	if err != nil {
+		t.Fatalf("edges: %v", err)
+	}
+	var ambiguousRows, exactRows, resolvedRows int
+	for _, edge := range edges {
+		switch {
+		case edge.Rule == "ts.global.ambiguous":
+			ambiguousRows++
+		case edge.Rule == "scip.ts.call" && edge.DstQName == "b":
+			exactRows++
+			if edge.Confidence != 0.99 || edge.Kind != "CALLS" {
+				t.Fatalf("replacement edge = %+v", edge)
+			}
+		case edge.Rule == "ts.typed.method" && edge.DstQName == "d":
+			resolvedRows++
+			if edge.Confidence != 0.90 {
+				t.Fatalf("resolved edge changed: %+v", edge)
+			}
+		}
+	}
+	if ambiguousRows != 0 || exactRows != 1 || resolvedRows != 1 {
+		t.Fatalf("rows = ambiguous %d exact %d resolved %d, want 0/1/1", ambiguousRows, exactRows, resolvedRows)
+	}
+
+	// Replaying the same replacement finds no group and changes nothing.
+	deleted, inserted, conflict, err = st.ReplaceAmbiguousGroup(ctx, a, 2, "CALLS", []int64{b, c}, Edge{
+		Src: a, Dst: c, Kind: "CALLS", Confidence: 0.99, Rule: "scip.ts.call", Line: 2,
+	})
+	if err != nil {
+		t.Fatalf("replay replace: %v", err)
+	}
+	if deleted != 0 || inserted || conflict {
+		t.Fatalf("replay = deleted %d inserted %v conflict %v, want 0/false/false", deleted, inserted, conflict)
 	}
 }
