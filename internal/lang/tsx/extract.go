@@ -112,6 +112,7 @@ func (w *walker) node(n sitter.Node, enclosing string, exported bool) {
 		if decl := n.ChildByFieldName("declaration"); !decl.IsNull() {
 			w.node(decl, enclosing, true)
 		}
+		w.reExports(n)
 		return
 
 	case "function_declaration", "generator_function_declaration":
@@ -202,6 +203,12 @@ func (w *walker) variables(n sitter.Node, enclosing string, exported bool) {
 		}
 		name := nameOf(decl, w.src)
 		w.declaredType(decl, enclosing)
+		// A static `require("./x")` / `await import("./x")` binds a module the
+		// same way an import statement does. A computed specifier cannot name a
+		// file, so it stays external (no binding, no edge).
+		if spec, ok := staticModuleSpecifier(value, w.src); ok {
+			w.moduleBindings(decl, spec)
+		}
 		switch value.Type() {
 		case "arrow_function", "function_expression", "function":
 			qname := join(enclosing, name)
@@ -213,6 +220,159 @@ func (w *walker) variables(n sitter.Node, enclosing string, exported bool) {
 			// A plain assignment can still hold references ("const x = helper()").
 			w.node(value, enclosing, false)
 		}
+	}
+}
+
+// staticModuleSpecifier reports the specifier of a `require("x")`,
+// `import("x")`, or `await import("x")` expression whose argument is a plain
+// string literal. Template literals with substitutions are not static.
+func staticModuleSpecifier(value sitter.Node, src []byte) (string, bool) {
+	for value.Type() == "await_expression" {
+		if value.NamedChildCount() == 0 {
+			return "", false
+		}
+		value = value.NamedChild(0)
+	}
+	if value.Type() != "call_expression" {
+		return "", false
+	}
+	fn := value.ChildByFieldName("function")
+	args := value.ChildByFieldName("arguments")
+	if fn.IsNull() || args.IsNull() {
+		return "", false
+	}
+	switch fn.Type() {
+	case "import":
+	case "identifier":
+		if fn.Content(src) != "require" {
+			return "", false
+		}
+	default:
+		return "", false
+	}
+	// A bundler magic comment (`import(/* webpackChunkName: "x" */ "./x")`) is
+	// a named node inside the argument list, so count real arguments instead of
+	// named children.
+	var arg sitter.Node
+	count := 0
+	for i := uint32(0); i < args.NamedChildCount(); i++ {
+		child := args.NamedChild(i)
+		if child.Type() == "comment" {
+			continue
+		}
+		count++
+		if count > 1 {
+			return "", false
+		}
+		arg = child
+	}
+	if count != 1 || arg.Type() != "string" {
+		return "", false
+	}
+	return unquote(arg.Content(src)), true
+}
+
+// moduleBindings turns the left-hand side of a dynamic require/import into
+// import bindings: `const m = require("./x")` binds the module namespace, and
+// `const { a, b: c } = require("./x")` binds two names.
+func (w *walker) moduleBindings(decl sitter.Node, spec string) {
+	name := decl.ChildByFieldName("name")
+	if name.IsNull() || spec == "" {
+		return
+	}
+	line := int(decl.StartPoint().Row) + 1
+	switch name.Type() {
+	case "identifier":
+		w.res.Imports = append(w.res.Imports, Import{
+			Local: name.Content(w.src), Imported: "*", Source: spec, Line: line,
+		})
+	case "object_pattern":
+		for i := uint32(0); i < name.NamedChildCount(); i++ {
+			item := name.NamedChild(i)
+			switch item.Type() {
+			case "shorthand_property_identifier_pattern":
+				local := item.Content(w.src)
+				w.res.Imports = append(w.res.Imports, Import{
+					Local: local, Imported: local, Source: spec, Line: line,
+				})
+			case "pair_pattern":
+				key := item.ChildByFieldName("key")
+				if key.IsNull() {
+					continue
+				}
+				local := key.Content(w.src)
+				if value := item.ChildByFieldName("value"); !value.IsNull() && value.Type() == "identifier" {
+					local = value.Content(w.src)
+				}
+				w.res.Imports = append(w.res.Imports, Import{
+					Local: local, Imported: key.Content(w.src), Source: spec, Line: line,
+				})
+			case "object_assignment_pattern":
+				// `{ a = 1 }` binds a with a default value.
+				left := item.ChildByFieldName("left")
+				if left.IsNull() {
+					continue
+				}
+				local := left.Content(w.src)
+				if left.Type() == "shorthand_property_identifier_pattern" {
+					w.res.Imports = append(w.res.Imports, Import{
+						Local: local, Imported: local, Source: spec, Line: line,
+					})
+				}
+			}
+		}
+	}
+}
+
+// reExports records `export * from "./x"`, `export { a } from "./x"`, and
+// `export { a as b } from "./x"` as public import bindings. They are the
+// barrel hop the resolver follows; `export * as ns` is not followed and stays a
+// documented gap.
+func (w *walker) reExports(n sitter.Node) {
+	source := n.ChildByFieldName("source")
+	if source.IsNull() {
+		// `export { local }` re-exports a symbol declared in this file, which
+		// the declaration already recorded as exported.
+		return
+	}
+	spec := unquote(source.Content(w.src))
+	line := int(n.StartPoint().Row) + 1
+
+	hasClause := false
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		switch child.Type() {
+		case "export_clause":
+			hasClause = true
+			for j := uint32(0); j < child.NamedChildCount(); j++ {
+				specifier := child.NamedChild(j)
+				if specifier.Type() != "export_specifier" {
+					continue
+				}
+				name := specifier.ChildByFieldName("name")
+				if name.IsNull() {
+					continue
+				}
+				local := name.Content(w.src)
+				if alias := specifier.ChildByFieldName("alias"); !alias.IsNull() {
+					local = alias.Content(w.src)
+				}
+				w.res.Imports = append(w.res.Imports, Import{
+					Local: local, Imported: name.Content(w.src), Source: spec,
+					Line: line, Public: true,
+				})
+			}
+		case "namespace_export":
+			hasClause = true
+		}
+	}
+	if !hasClause {
+		// `export * from "./x"`: one public binding per source. Several of
+		// them are legal and common in a barrel, so the resolver keeps the full
+		// list instead of a last-wins map.
+		w.res.Imports = append(w.res.Imports, Import{
+			Local: "*", Imported: "*", Source: spec, Line: line, Public: true,
+		})
 	}
 }
 
@@ -455,11 +615,40 @@ func typeName(node sitter.Node, src []byte) string {
 func (w *walker) importStatement(n sitter.Node) {
 	source := n.ChildByFieldName("source")
 	line := int(n.StartPoint().Row) + 1
-	spec := unquote(source.Content(w.src))
+	spec := ""
+	if !source.IsNull() {
+		spec = unquote(source.Content(w.src))
+	}
+
+	// `import x = require("./x")` is a namespace binding written as an import
+	// statement. The parser rejects some of these forms (see AGENTS.md), so a
+	// missing clause simply produces no binding.
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		clause := n.NamedChild(i)
+		if clause.Type() != "import_require_clause" {
+			continue
+		}
+		id := clause.ChildByFieldName("name")
+		if id.IsNull() && clause.NamedChildCount() > 0 {
+			id = clause.NamedChild(0)
+		}
+		if id.Type() == "identifier" {
+			clauseSpec := spec
+			if s := clause.ChildByFieldName("source"); !s.IsNull() {
+				clauseSpec = unquote(s.Content(w.src))
+			}
+			if clauseSpec == "" {
+				continue
+			}
+			w.res.Imports = append(w.res.Imports, Import{
+				Local: id.Content(w.src), Imported: "*", Source: clauseSpec, Line: line,
+			})
+		}
+	}
 
 	for i := uint32(0); i < n.NamedChildCount(); i++ {
 		clause := n.NamedChild(i)
-		if clause.Type() != "import_clause" {
+		if clause.Type() != "import_clause" || spec == "" {
 			continue
 		}
 		for j := uint32(0); j < clause.NamedChildCount(); j++ {
