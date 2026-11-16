@@ -380,6 +380,30 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		ix.AddInheritance(fileIDs, links)
 	}
 
+	// Rust trait impls are resolved before other references for the same reason:
+	// a typed call may follow the trait's default method, and the link must be
+	// complete before any reference in this run uses it.
+	if ix.UsesRustImpls() {
+		links := make([]resolve.ImplLink, 0, len(fileIDs))
+		for _, o := range written {
+			ids := idsByFile[o.fileID]
+			for _, ref := range o.refs {
+				if ref.Kind != "implements" {
+					continue
+				}
+				src, ok := ids[ref.Enclosing]
+				if !ok {
+					continue
+				}
+				r := ix.Resolve(o.fileID, o.src.Path, ref)
+				if r.Found && len(r.Candidates) == 0 && r.Dst != 0 {
+					links = append(links, resolve.ImplLink{Src: src, Dst: r.Dst})
+				}
+			}
+		}
+		ix.AddRustImpls(fileIDs, links)
+	}
+
 	var edges []store.Edge
 	var pending []store.PendingRef
 	for _, o := range written {

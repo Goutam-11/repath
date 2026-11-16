@@ -1,9 +1,14 @@
 # Rust SCIP adapter fixture
 
-A minimal Rust crate where tree-sitter leaves two member calls pending: a
-generic bound (`T: Total`) and a trait object (`dyn Total`). repath models
-neither bound, so `value.total()` stays unresolved in both functions. The
-ordinary typed receiver in `run_cart` already resolves as `rs.typed.method`.
+A minimal Rust crate with one generic bound (`T: Total`), one trait object
+(`dyn Total`), and one ordinary typed receiver (`cart: &Cart`).
+
+Before issue #55 the two generic-bound `value.total()` calls were pending, which
+is what this pinned SCIP file resolves. #55 makes the tree-sitter ladder follow
+`T: Total` to the trait's local method, so those calls now resolve as
+`rs.generic.bound` and `TestRustSCIPAdapterGate` seeds the pre-#55 pending rows
+before applying SCIP. The SCIP file itself is still produced externally and is
+not edited; it keeps the adapter gate independent of a Rust toolchain.
 
 `index.scip` was produced by `rust-analyzer` 1.97.0 (commit `2d8144b`,
 2026-07-07, matching rustc 1.97.0) from this directory:

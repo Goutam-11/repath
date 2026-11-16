@@ -202,20 +202,48 @@ the database.
   declared outside package.json legitimately land in
   `member-scope`/`scope-gap`. TypeScript barrels, package.json workspaces, and
   static dynamic imports no longer do (#56, see `docs/resolution.md`).
-- **Rust module resolution is convention-based.** Crate roots come from
-  Cargo packages (`src/lib.rs` or `src/main.rs`); `src/foo.rs` is `crate::foo`.
-  `#[path]`, inline `mod` blocks as import targets, and workspace cross-crate
-  imports are not resolved. Do not add a "best guess" fallback for them.
+- **Rust module resolution is convention-based, with two explicit layout
+  features.** Crate roots come from Cargo packages (`src/lib.rs` or
+  `src/main.rs`), and a member's crate name comes from its Cargo.toml
+  (`[lib].name`, else `[package].name`, hyphens → underscores). An unqualified
+  path is read like a Rust 2018 uniform path: current module, then crate root
+  (2015 style), then a local workspace member crate; an unindexed first segment
+  is external. `#[path = "..."]` and inline `mod` blocks are persisted as
+  reserved `@mod:<module path>` import bindings (inline has an empty source;
+  `#[path]` resolves relative to the declaring file's directory plus the inline
+  module path), while plain `mod x;` stays convention-based from the parent
+  module's directory. Supertraits are reserved `@trait:<Trait>#N` bindings. Do
+  not add a "best guess" fallback for any other layout; a missing local module
+  file is a lookaside miss, not external.
 - **Rust macro bodies are blind.** `macro_rules!` token trees and macro
   invocations create no symbols or edges. Typed receiver methods with no local
   definition are classified external (dependency or macro-generated trait impl)
   rather than guessed; keep that trade-off visible in docs.
-- **Rust generic bounds are not modelled.** `T: Trait` calls stay unresolved,
-  and `IMPLEMENTS` is emitted only when the implementing type is defined in the
-  same file. These are fixture-gated gaps, not bugs to paper over.
+- **Rust generic bounds are modelled but not inferred.** `T: Trait`,
+  `T: A + B`, and `where T: Trait` are recorded per function/impl/trait scope; a
+  member call on a type parameter follows each bound to a local trait's method
+  declaration (`rs.generic.bound` 0.85), and same-repo supertraits are followed
+  through reserved `@trait:` bindings (cap 4, cycle-safe). Multiple bound traits
+  declaring the method stay a 0.40 group. A non-local bound is external and an
+  unbounded type parameter is external (it can only call dependency or
+  macro-generated methods). Generic containers, `impl Trait` parameters, and
+  projections through an unknown impl stay unresolved. `IMPLEMENTS` is emitted
+  only when the implementing type is defined in the same file; its links are
+  resolved in a pre-pass and persisted so a typed call can follow a trait's
+  default method (`rs.trait.method` 0.80), and a warm run loads the links of
+  unchanged types so cold/incremental/full graphs agree (#49). Return typing is
+  same-file only (`rs.typed.method.return` 0.80), and `Self::Assoc` resolves only
+  through the same file's impl binding. No inference engine: do not guess.
 - **Rust ambiguity is real.** Inherent and trait impls share `Type.method`;
-  2–5 candidates become 0.40 edges, and `status` exposes `ambiguous` and
-  `ambiguity_rate`. Never collapse them by picking one.
+  cross-file candidates and two implemented traits with the same default method
+  become 0.40 edges with every candidate visible (`rs.typed.method.ambiguous`,
+  `rs.generic.bound.ambiguous`, `rs.trait.method.ambiguous`, `rs.assoc.*.ambiguous`),
+  `status` exposes `ambiguous` and `ambiguity_rate`, and the SCIP adapter may
+  replace a group only with one compiler-named target. Never collapse them by
+  picking one. One residual: node identity is `(qname, file, arity)`, so an
+  inherent method and a trait-impl method of the same name in the *same* file
+  are one node before resolution — that same-file case has no ambiguity row.
+  Do not "fix" it by changing node identity in a resolver PR.
 - **Rust enum variants are a heuristic.** A CamelCase associated call on a known
   enum becomes REFERENCES at 0.90; an associated constant with the same shape
   can be misclassified.

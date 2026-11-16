@@ -42,9 +42,12 @@ make build
 Requires Go 1.27+ and a C toolchain: tree-sitter runs through cgo. Python
 (`.py`) resolves absolute and relative imports, package re-exports, class bases,
 decorators, and `self`/`classmethod`/typed-receiver calls. Rust (`.rs`) resolves
-Cargo module trees, use trees and `pub use` re-exports, impl/trait methods,
-associated functions, and typed receivers; macro bodies are a documented blind
-spot. `status` reports `ambiguous` edges and their rate.
+Cargo module trees and local workspace members, uniform paths, use trees and
+`pub use` re-exports, `#[path]` and inline `mod` import targets, generic bounds
+(`T: Trait`) to local trait methods, trait default methods, impl/trait methods,
+associated functions, and typed receivers (including same-file return and
+associated-type bindings); macro bodies are a documented blind spot. `status`
+reports `ambiguous` edges and their rate.
 
 ```sh
 make build
@@ -102,10 +105,11 @@ artifact **65.6 MiB → 17.2 MiB** (26.2%). Every measured target is met; the
 synthetic budgets above remain the gate.
 
 A Python corpus (`psf/requests`, 37 files) and a Rust corpus (`rayon`, 191
-files) run with `make bench-real-langs`: the `scip-python` and `scip-rust`
-adapters take unresolved **543 → 523** and **2,048 → 1,214**, and 85% of the
-749 new Rust edges are library production. The full tables, producer versions,
-and the warm/cold caveat are in [`docs/benchmarks.md`](docs/benchmarks.md).
+files) run with `make bench-real-langs`: the `scip-python` adapter takes
+requests unresolved **543 → 523**; on rayon the static ladder leaves **1,394**
+unresolved after #55 (2,048 before it) and the pinned `rust-analyzer` file takes
+that to **1,156**. The full tables, producer versions, and the warm/cold caveat
+are in [`docs/benchmarks.md`](docs/benchmarks.md).
 
 Add `.repath/` to your own `.gitignore`. Languages today:
 TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`), Python

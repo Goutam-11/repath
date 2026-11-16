@@ -40,9 +40,13 @@ type Index struct {
 	files   map[string]int64
 	paths   map[int64]string
 	imports map[int64]map[string]facts.Import
-	crates  []string
-	aliases *Aliases
-	root    string
+	crates  []rustCrate
+	// crateByName maps a workspace member's crate name (underscored, as `use`
+	// paths spell it) to its source root. Only local members are listed; a
+	// registry dependency has no source here and stays external.
+	crateByName map[string]string
+	aliases     *Aliases
+	root        string
 
 	// Python inheritance. bases holds the resolved superclass links per class
 	// node id: fresh links for the files this run re-resolved, persisted
@@ -52,6 +56,13 @@ type Index struct {
 	bases     map[int64][]int64
 	classByID map[int64]store.NodeRow
 	mroCache  map[int64][]int64
+
+	// Rust trait impls. rustImpls holds the IMPLEMENTS links per type node id:
+	// fresh links for the files this run re-resolved, persisted edges for every
+	// other type. rustTypeByID maps an id back to its symbol. Both stay nil
+	// unless this run resolves Rust, so the other ladders never pay for them.
+	rustImpls    map[int64][]int64
+	rustTypeByID map[int64]store.NodeRow
 
 	// A targeted run loads imports only for the files it re-resolves. Python,
 	// Rust, and TypeScript re-export chains continue through unchanged modules,
@@ -116,6 +127,7 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 		return nil, err
 	}
 
+	crates := loadRustCrates(root, paths)
 	ix := &Index{
 		byFile:        make(map[int64]map[string][]store.NodeRow),
 		global:        make(map[string][]store.NodeRow),
@@ -126,7 +138,8 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 		imports:       make(map[int64]map[string]facts.Import),
 		reexports:     make(map[int64]map[string]facts.Import),
 		starReexports: make(map[int64][]facts.Import),
-		crates:        loadRustCrates(root, paths),
+		crates:        crates,
+		crateByName:   rustCratesByName(crates),
 		aliases:       LoadAliases(root),
 		root:          root,
 		ctx:           ctx,
@@ -175,6 +188,12 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 	ix.initInheritance(nodes, importsFor)
 	if ix.bases != nil && !allFresh {
 		if err := ix.loadPersistedBases(ctx, st); err != nil {
+			return nil, err
+		}
+	}
+	ix.initRustImpls(nodes, importsFor)
+	if ix.rustImpls != nil && !allFresh {
+		if err := ix.loadPersistedRustImpls(ctx, st); err != nil {
 			return nil, err
 		}
 	}
@@ -537,6 +556,104 @@ func (ix *Index) AddInheritance(written []int64, links []ClassLink) {
 		ix.bases[link.Src] = append(ix.bases[link.Src], link.Dst)
 	}
 	ix.mroCache = nil
+}
+
+// UsesRustImpls reports whether this run built the Rust IMPLEMENTS inputs. The
+// indexer resolves implements references first when it did.
+func (ix *Index) UsesRustImpls() bool { return ix.rustImpls != nil }
+
+// ImplLink is one Type -> Trait link resolved in the current run. It is
+// resolved before other references so a typed call can follow a trait's default
+// method without depending on edge-write order.
+type ImplLink struct {
+	Src int64 // implementing type node
+	Dst int64 // trait node
+}
+
+// initRustImpls prepares the Rust trait lookup inputs, and only for a run that
+// will resolve a Rust file: loading persisted links is an edges read.
+func (ix *Index) initRustImpls(nodes []store.NodeRow, importsFor map[int64]bool) {
+	rustRun := false
+	if importsFor == nil {
+		for _, p := range ix.paths {
+			if strings.HasSuffix(p, ".rs") {
+				rustRun = true
+				break
+			}
+		}
+	} else {
+		for id := range importsFor {
+			if strings.HasSuffix(ix.paths[id], ".rs") {
+				rustRun = true
+				break
+			}
+		}
+	}
+	if !rustRun {
+		return
+	}
+	ix.rustImpls = make(map[int64][]int64)
+	ix.rustTypeByID = make(map[int64]store.NodeRow)
+	for _, n := range nodes {
+		if !strings.HasSuffix(ix.paths[n.FileID], ".rs") {
+			continue
+		}
+		switch n.Kind {
+		case "struct", "enum", "trait", "type":
+			ix.rustTypeByID[n.ID] = n
+		}
+	}
+}
+
+// loadPersistedRustImpls fills in the trait links of types this run will not
+// re-resolve, so a warm run can follow a trait default method defined with the
+// unchanged type. Compiler facts are skipped: the tree-sitter answer stays
+// comparable with a clean rebuild.
+func (ix *Index) loadPersistedRustImpls(ctx context.Context, st *store.Store) error {
+	pairs, err := st.UnambiguousEdgePairs(ctx, "IMPLEMENTS")
+	if err != nil {
+		return err
+	}
+	for _, p := range pairs {
+		if strings.HasPrefix(p.Rule, "scip.") {
+			continue
+		}
+		if _, ok := ix.rustTypeByID[p.Src]; !ok {
+			continue
+		}
+		if _, ok := ix.rustTypeByID[p.Dst]; !ok {
+			continue
+		}
+		ix.rustImpls[p.Src] = append(ix.rustImpls[p.Src], p.Dst)
+	}
+	return nil
+}
+
+// AddRustImpls replaces the persisted trait links of the types in the files
+// this run re-resolved with the links it just resolved. Replacing, not
+// merging, keeps an incremental graph identical to a cold one (#49).
+func (ix *Index) AddRustImpls(written []int64, links []ImplLink) {
+	if ix.rustImpls == nil {
+		return
+	}
+	fresh := make(map[int64]bool, len(written))
+	for _, id := range written {
+		fresh[id] = true
+	}
+	for id, node := range ix.rustTypeByID {
+		if fresh[node.FileID] {
+			ix.rustImpls[id] = nil
+		}
+	}
+	for _, link := range links {
+		if _, ok := ix.rustTypeByID[link.Src]; !ok {
+			continue
+		}
+		if _, ok := ix.rustTypeByID[link.Dst]; !ok {
+			continue
+		}
+		ix.rustImpls[link.Src] = append(ix.rustImpls[link.Src], link.Dst)
+	}
 }
 
 // mro returns the class linearization used for self/cls/super and typed

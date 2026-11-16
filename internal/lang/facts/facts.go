@@ -27,9 +27,20 @@ type Ref struct {
 	// ReceiverType is the locally inferred type of Receiver ("Cart"), from a
 	// variable annotation, a constructor, or a parameter annotation.
 	ReceiverType string
-	Arity        int
-	Line         int
-	Enclosing    string // qname of the symbol the reference sits inside
+	// ReceiverBound carries the trait bounds of a Rust type-parameter receiver
+	// ("Describe", "crate::traits::Describe"), joined by "|" for several bounds.
+	// It is empty for a concrete receiver type. Resolution follows a bound only
+	// to a trait definition indexed in the same repo; there is no inference.
+	ReceiverBound string
+	// ReceiverFrom records how ReceiverType was inferred. "return" means a
+	// same-file function return type rather than an annotation or constructor.
+	ReceiverFrom string
+	// ReceiverParam marks ReceiverType as a generic type parameter rather than a
+	// concrete type, so resolution never mistakes it for a repo-local symbol.
+	ReceiverParam bool
+	Arity         int
+	Line          int
+	Enclosing     string // qname of the symbol the reference sits inside
 }
 
 // Import is one local binding created by an import statement.

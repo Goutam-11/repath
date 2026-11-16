@@ -167,11 +167,11 @@ func TestFixturePrecisionAndRecall(t *testing.T) {
 func TestAmbiguousEdgesAreLowConfidence(t *testing.T) {
 	specs := []struct {
 		fixture string
-		rule    string
+		rules   []string
 	}{
-		{fixture: "ts", rule: "ts.global.ambiguous"},
-		{fixture: "py", rule: "py.global.ambiguous"},
-		{fixture: "rs", rule: "rs.typed.method.ambiguous"},
+		{fixture: "ts", rules: []string{"ts.global.ambiguous"}},
+		{fixture: "py", rules: []string{"py.global.ambiguous"}},
+		{fixture: "rs", rules: []string{"rs.typed.method.ambiguous", "rs.generic.bound.ambiguous", "rs.trait.method.ambiguous"}},
 	}
 
 	for _, spec := range specs {
@@ -183,22 +183,31 @@ func TestAmbiguousEdgesAreLowConfidence(t *testing.T) {
 				t.Fatalf("read edges: %v", err)
 			}
 
-			ambiguous := 0
-			highConfidence := 0
-			for _, e := range edges {
-				if e.Rule != spec.rule {
-					continue
+			for _, rule := range spec.rules {
+				ambiguous := 0
+				highConfidence := 0
+				for _, e := range edges {
+					if e.Rule != rule {
+						continue
+					}
+					ambiguous++
+					if e.Confidence >= 0.5 {
+						highConfidence++
+					}
+					// The candidates column is what keeps an ambiguous group
+					// visible to `status` and to the SCIP adapter; never pick one.
+					candidates := strings.Split(e.Candidates, ",")
+					if len(candidates) < 2 {
+						t.Errorf("%s edge %s -> %s has candidates=%q, want at least two",
+							rule, e.SrcQName, e.DstQName, e.Candidates)
+					}
 				}
-				ambiguous++
-				if e.Confidence >= 0.5 {
-					highConfidence++
+				if ambiguous == 0 {
+					t.Fatalf("expected %s edges for duplicated symbols", rule)
 				}
-			}
-			if ambiguous == 0 {
-				t.Fatalf("expected %s edges for duplicated run() symbols", spec.rule)
-			}
-			if highConfidence != 0 {
-				t.Fatalf("%d ambiguous edges are above the default threshold", highConfidence)
+				if highConfidence != 0 {
+					t.Fatalf("%d %s edges are above the default threshold", highConfidence, rule)
+				}
 			}
 		})
 	}
@@ -287,6 +296,26 @@ func TestRustRuleIDs(t *testing.T) {
 		"src/reexport_use.rs:literal -> src/models.rs:User REFERENCES":            "rs.use.reexport",
 		"src/assoc.rs:build -> src/store.rs:Store.new CALLS":                      "rs.assoc.fn",
 		"src/global_use.rs:call_global -> src/util.rs:helper CALLS":               "rs.global.unique",
+
+		// #55: generic bounds, trait defaults, workspace members, and module layout.
+		"src/generic.rs:bounded -> src/generic.rs:Describe.describe CALLS":           "rs.generic.bound",
+		"src/generic.rs:where_clause -> src/generic.rs:Describe.describe CALLS":      "rs.generic.bound",
+		"src/generic.rs:supertrait_call -> src/generic.rs:Describe.describe CALLS":   "rs.generic.bound",
+		"src/generic_use.rs:show -> src/service.rs:Describe.describe CALLS":          "rs.generic.bound",
+		"src/generic.rs:greet_counter -> src/generic.rs:Greet.greet CALLS":           "rs.trait.method",
+		"src/generic.rs:use_return -> src/generic.rs:Counter.bump CALLS":             "rs.typed.method.return",
+		"src/generic.rs:use_chained -> src/generic.rs:Counter.bump CALLS":            "rs.typed.method.return",
+		"src/generic.rs:via_assoc -> src/generic.rs:Service2.make CALLS":             "rs.typed.method",
+		"src/generic.rs:via_assoc -> src/generic.rs:Counter.bump CALLS":              "rs.typed.method.return",
+		"src/generic.rs:Counter -> src/generic.rs:Greet IMPLEMENTS":                  "rs.local",
+		"src/inline_use.rs:call_inline -> src/lib.rs:inline.inner CALLS":             "rs.use.named",
+		"src/inline_use.rs:direct_inline -> src/lib.rs:inline.inner CALLS":           "rs.module.inline",
+		"src/path_use.rs:via_use -> src/alt/impl_file.rs:alt_helper CALLS":           "rs.use.named",
+		"src/path_use.rs:via_attr -> src/alt/impl_file.rs:alt_helper CALLS":          "rs.module.path.attr",
+		"src/workspace_use.rs:measure -> crates/extra/src/lib.rs:extra_helper CALLS": "rs.use.workspace",
+		"src/workspace_use.rs:direct -> crates/extra/src/lib.rs:model.clamp2 CALLS":  "rs.module.workspace",
+		"src/cross_use.rs:run -> src/cross.rs:Cross.cross CALLS":                     "rs.typed.method.crate",
+		"src/cross_use.rs:build -> src/cross.rs:Cross.make CALLS":                    "rs.assoc.fn.crate",
 	}
 	for key, rule := range want {
 		if got[key] != rule {

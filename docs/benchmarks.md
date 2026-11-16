@@ -1202,3 +1202,149 @@ The read-only case is skipped when the suite runs as root.
   compiler-graph approximation with truncation counted, not a proof.
 - The failure-mode corrupt-SCIP exit code is **1**, not the issue's suggested
   `2`; that discrepancy is documented above rather than silently changed.
+
+## Rust generic bounds, workspace imports, and module layout (2026-11-17, #55)
+
+Closes the static Rust gaps the ladder stopped at: generic bounds, local
+workspace cross-crate `use` paths, `#[path]` and inline `mod` import targets,
+trait default methods through persisted `IMPLEMENTS` links, same-file return and
+associated-type receiver typing, and Rust 2018 uniform paths. Macro expansion,
+proc macros, generic containers, and unknown projections remain out of scope.
+
+### Corpora and method
+
+Private copies of the pinned #48/#61 clones, with `.repath/` and
+`.git/repath` removed before every cold run:
+
+| Corpus | Commit | Files | Bytes of Rust | Baseline index |
+| --- | --- | --- | --- | --- |
+| `rayon-rs/rayon` | `599425d` | 191 | 34,227 production + 2,102 test lines | 3,402 nodes, 2,161 edges, 2,048 pending, 0 parse failures |
+| `Goutam-11/hyusk` | `06bdb2b` | 88 | 49,126 LOC, 750-crate workspace | 2,428 nodes, 2,706 edges, 4,222 pending, 7 parse-failed files |
+
+"Before" is `main` = `2659149` (`#66`); "after" is the #55 branch. Each number is
+one cold `index --full` row set, cross-checked against the ten-file comment edit
+and a second `--full` (below). Host was shared: load average **2.5–4.8** during
+the runs (`uptime` sampled before and after each group), so timings are
+process-noise dominated but well inside the synthetic budgets.
+
+### Results
+
+| Metric | rayon before | rayon after | hyusk before | hyusk after |
+| --- | --- | --- | --- | --- |
+| edges | 2,161 | **2,524** (+363, +16.8%) | 2,706 | **2,992** (+286, +10.6%) |
+| pending | 2,048 (48.66%) | **1,394 (35.58%)** | 4,222 (60.94%) | **4,126 (57.97%)** |
+| `member-scope` | 1,357 | 786 | 911 | 901 |
+| `missing-definition` | 510 | 479 | 2,332 | 2,286 |
+| `scope-gap` | 181 | 129 | 244 | 237 |
+| `parse-failure` | 0 | 0 | 735 | 702 |
+| `ambiguous` rows (`ambiguity_rate`) | 75 (3.47%) | 74 (2.93%) | 23 (0.85%) | 23 (0.77%) |
+| new edges from #55 rules | — | 239 | — | 83 |
+
+Rayon's 239 new-rule edges: `rs.generic.bound` **224**, `rs.trait.method` **7**,
+`rs.typed.method.return` **7**, `rs.typed.method.crate` **1**. Hyusk's 83:
+`rs.typed.method.return` **81**, `rs.module.path.attr` **3**, `rs.generic.bound`
+**2** (it is a `#[path]`-heavy, generic-light tree). The rest of the edge growth
+is reclassification through the improved module path: on hyusk `rs.local`
+1,337 → 1,520, `rs.assoc.fn` 208 → 388, `rs.use.reexport` 0 → 21,
+`rs.module.path.attr` 0 → 3, with `rs.global.unique` 210 → 28 — the same
+references answered by scope instead of a repo-wide unique-name guess. Rayon
+moves 171 → 205 `rs.use.glob`, 44 → 100 `rs.use.reexport`, 49 → 65
+`rs.module.path`, and 7 → 7 `rs.typed.method.global`.
+
+Edges by rule, after (rayon / hyusk): `rs.local` 851/1,520,
+`rs.assoc.fn` 343/388, `rs.global.unique` 233/28, `rs.generic.bound` 224/2,
+`rs.use.glob` 205/1, `rs.self.method` 194/175, `rs.typed.method` 126/114,
+`rs.use.reexport` 100/21, `rs.module.path` 65/199, `rs.global.ambiguous` 53/2,
+`rs.use.named` 45/48, `rs.typed.method.return` 7/81, `rs.trait.method` 7/0,
+`rs.typed.method.crate` 1/0, `rs.module.path.attr` 0/3,
+`rs.typed.method.ambiguous` 17/0, `rs.assoc.global.ambiguous` 4/0,
+`rs.enum.variant` 3/56.
+
+Ambiguity stays visible and is never collapsed: `status.ambiguous` counts the
+0.40 rows and `ambiguity_rate` is emitted on both corpora (rayon 74 rows: 53
+`rs.global.ambiguous`, 17 `rs.typed.method.ambiguous`, 4
+`rs.assoc.global.ambiguous`; hyusk 23: 21 `py.global.ambiguous`, 2
+`rs.global.ambiguous`). No first-candidate pick was introduced; the rate fell
+only because resolved groups replaced ambiguous ones.
+
+### Residual share (macro / external)
+
+The graph does not persist external references, so "external" cannot be counted
+directly; the residual is the pending buckets plus the ambiguity rows. On
+rayon the 1,394 pending are 56% `member-scope`, 34%
+`missing-definition`, 9% `scope-gap`; the top missing names (`add`, `install`,
+`spawn`, `len`, `iter`, `complete`, `into_par_iter`) are macro-generated
+internals and dependency collection/thread methods. On hyusk the 4,126 are 55%
+`missing-definition`, 22% `member-scope`, 17% `parse-failure` (the same seven
+files as before; the pinned hyusk tree includes files the grammar rejects), 6%
+`scope-gap`. Macro bodies, proc macros, and `impl Trait`/generic-container
+method calls remain the dominant honest ceiling.
+
+### Parity (#49)
+
+Cold, a ten-file comment edit, and a second `index --full` produce **identical
+edge and pending row sets** on both corpora — comparing file path, qname, kind,
+confidence, rule, line, and the ambiguous candidate id list. The Rust
+`IMPLEMENTS` links used for trait default methods are resolved in a pre-pass and
+persisted like an edge; a warm run loads the links for unchanged types, exactly
+like Python's base-class links, so a partial re-index cannot stop at the first
+unchanged type. An incremental run whose changed file is re-resolved also
+corrects a pre-existing parity hole: a name imported inside an inline test
+module used to shadow a same-file definition, leaving a pending row in the warm
+graph while the cold run's retry produced a 0.60 edge. Resolution now falls
+through to the local ladder when a binding names a module but not the symbol.
+
+### Timing (shared host, load 2.5–4.8)
+
+| Corpus | Cold (3 runs) | 10-file incremental | second `--full` | Cold RSS |
+| --- | --- | --- | --- | --- |
+| rayon | 0.36 / 0.38 / 0.38 s | **0.06 s** | 0.36 s | 46–48 MB |
+| hyusk | 0.41 / 0.42 / 0.43 s | **0.14 s** | 0.38 s | 68–72 MB |
+
+No regression against the baseline (rayon 0.39 s cold, hyusk 0.47 s cold in the
+same window); the new crate-manifest read is per local crate (4 on rayon, 1
+indexed crate on hyusk), and the extra `IMPLEMENTS` read only happens on a
+warm Rust run.
+
+### Adapter gap (unchanged adapter, #57 scope)
+
+Applying the pinned `rust-analyzer` 1.97.0 files to the after graph:
+
+| Corpus | resolver pending | after SCIP | SCIP edges | ambiguous groups replaced |
+| --- | --- | --- | --- | --- |
+| rayon | 1,394 (35.58%) | **1,156 (29.98%)** | 215 | 16 (39 candidate rows) |
+| hyusk | 4,126 (57.97%) | **3,998 (56.62%)** | 71 | 0 |
+
+The adapter still answers what the static ladder cannot (macro-expanded
+methods, projections, third-party trait impls) and still never overwrites a
+resolved edge. #55 reduces the adapter's *remaining* gap on rayon because the
+generic-bound and trait-default calls it used to fill now have tree-sitter
+answers; no adapter code changed in this PR.
+
+### Guards
+
+`make check` clean, `go test ./internal/eval -v` at Rust **55/55** edges,
+precision 1.00 / recall 1.00, 0 unresolved and 3 ambiguous groups (TS 9/9,
+Python 65/65 unchanged), the Rust gate stays 0.85/0.70 with `maxUnresolved` 2,
+`make perf` green, and `repath check --fail-on none` exits 0. No schema,
+node-kind, exit-code, rule-rename, fixture-loosening, TS/Python-resolver, or Go
+dependency change.
+
+### Not verified
+
+- One host window; cold timings vary with load. The corpora are private copies
+  under `.cache/`, not committed.
+- The same-file inherent-vs-trait-impl case cannot show an ambiguity row because
+  node identity is `(qname, file, arity)`; that is a documented schema-level
+  residual, not a resolver pick. Cross-file and two-trait default-method
+  ambiguity are fixture-gated.
+- `#[path]` modules are resolved through the declaring file's directory and
+  inline prefix exactly as rustc does in the two tested shapes; directory-valued
+  `#[path]` targets and `include!` are not modelled.
+- Workspace member names come from local Cargo.toml files only; dependency
+  renames (`package = "..."`), `pnpm`-style metadata, and registries are not read.
+- External references are not persisted, so the "external share" is reported as
+  the pending buckets plus ambiguity, not as a separate counter.
+- The `IMPLEMENTS` pre-pass adds one `IMPLEMENTS` edge read on warm Rust runs,
+  but its effect on very large Rust workspaces (thousands of crates) was not
+  measured; hyusk indexes only the root crate.

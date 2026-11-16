@@ -19,3 +19,7 @@ impl User {
 pub trait Identified {
     fn identify(&self) -> u32;
 }
+
+pub struct Cross {
+    pub n: u32,
+}
