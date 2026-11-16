@@ -153,5 +153,175 @@
     "src": "app/module_use.py:measure_plain",
     "dst": "app/util.py:clamp",
     "kind": "CALLS"
+  },
+  {
+    "src": "app/attrs.py:MemoryRepo",
+    "dst": "app/attrs.py:BaseRepo",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/attrs.py:MemoryRepo.load",
+    "dst": "app/attrs.py:Cache.read",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/attrs.py:read_cache",
+    "dst": "app/attrs.py:MemoryRepo.load",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/decorators_use.py:make_cached",
+    "dst": "app/decorators_use.py:Cached.create",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/decorators_use.py:make_cached",
+    "dst": "app/decorators_use.py:Cached.helper",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/decorators_use.py:use_cached",
+    "dst": "app/decorators_use.py:Cached.helper",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/decorators_use.py:Cached.value",
+    "dst": "app/decorators_use.py:Cached.value",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/decorators_use.py:Cached",
+    "dst": "app/mro.py:Root",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/inherit_use.py:make_admin",
+    "dst": "app/inherit_use.py:Admin",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/inherit_use.py:Admin.shout",
+    "dst": "app/models.py:Base.identify",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/inherit_use.py:describe_optional",
+    "dst": "app/models.py:Base.identify",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/inherit_use.py:Admin",
+    "dst": "app/models.py:User",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/inherit_use.py:Staff",
+    "dst": "app/models.py:User",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/inherit_use.py:Admin.shout",
+    "dst": "app/models.py:User.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/inherit_use.py:describe_admin",
+    "dst": "app/models.py:User.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/inherit_use.py:describe_forward",
+    "dst": "app/models.py:User.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/inherit_use.py:via_factory",
+    "dst": "app/models.py:User.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/inherit_use.py:via_factory",
+    "dst": "app/inherit_use.py:make_admin",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/mro.py:Middle",
+    "dst": "app/mro.py:Base",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/mro.py:Diamond",
+    "dst": "app/mro.py:Left",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/mro.py:Diamond.go",
+    "dst": "app/mro.py:Left.left_only",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/mro.py:Leaf",
+    "dst": "app/mro.py:Middle",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/mro.py:Leaf.step",
+    "dst": "app/mro.py:Middle.step",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/mro.py:Diamond",
+    "dst": "app/mro.py:Right",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/mro.py:Diamond.go",
+    "dst": "app/mro.py:Right.right_only",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/mro.py:Left",
+    "dst": "app/mro.py:Root",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/mro.py:Right",
+    "dst": "app/mro.py:Root",
+    "kind": "EXTENDS"
+  },
+  {
+    "src": "app/mro.py:Diamond.go",
+    "dst": "app/mro.py:Root.ping",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:build_service",
+    "dst": "app/service.py:Service",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "app/service.py:build_from_classmethod",
+    "dst": "app/service.py:Service.create",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:build_from_classmethod",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:build_from_factory",
+    "dst": "app/service.py:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/service.py:build_from_factory",
+    "dst": "app/service.py:build_service",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/mro.py:Diamond.go",
+    "dst": "app/mro.py:Left.shared",
+    "kind": "CALLS"
   }
 ]

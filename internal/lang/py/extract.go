@@ -66,7 +66,12 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 		}
 	}
 
-	w := &walker{src: src, res: &res, seen: make(map[string]bool), types: make(map[string]string)}
+	w := &walker{
+		src: src, res: &res, seen: make(map[string]bool), types: make(map[string]string),
+		classes: make(map[string]bool), returns: make(map[string]string),
+		baseNames: make(map[string][]string), params: make(map[string]bool),
+	}
+	w.prewalk(root, "")
 	for i := uint32(0); i < root.NamedChildCount(); i++ {
 		w.node(root.NamedChild(i), "", true, false, nil)
 	}
@@ -80,9 +85,17 @@ type walker struct {
 	src       []byte
 	res       *Result
 	seen      map[string]bool
-	types     map[string]string // "enclosing:name" → type name
+	types     map[string]string   // "enclosing:name" → type name
+	classes   map[string]bool     // class qnames defined in this file
+	returns   map[string]string   // def qname → return annotation type, same file
+	baseNames map[string][]string // class qname → plain identifier bases, same file
+	params    map[string]bool     // "enclosing:name" → declared parameter
 	mainGuard bool
 }
+
+// maxAttrInheritanceDepth bounds the same-file walk that types `self.attr` from
+// a base class's class attribute. It mirrors the resolver's MRO cap.
+const maxAttrInheritanceDepth = 8
 
 // node visits one statement or definition. enclosing is the qname of the symbol
 // whose body contains it; inClass marks direct children of a class body so a
@@ -134,6 +147,94 @@ func (w *walker) node(n sitter.Node, enclosing string, exported, inClass bool, d
 	w.children(n, enclosing, inClass)
 }
 
+// prewalk records the file-local facts the single-pass walk needs before it
+// reaches the references that use them: class qnames, return annotations of
+// local factories, and the plain identifier bases of every class. A call can
+// appear textually before the class or def it names, so collecting these during
+// the main walk would miss them.
+func (w *walker) prewalk(n sitter.Node, enclosing string) {
+	if n.IsNull() {
+		return
+	}
+	switch n.Type() {
+	case "decorated_definition":
+		w.prewalk(n.ChildByFieldName("definition"), enclosing)
+		return
+	case "class_definition":
+		name := nameOf(n, w.src)
+		if name == "" {
+			return
+		}
+		qname := join(enclosing, name)
+		w.classes[qname] = true
+		w.baseNames[qname] = plainBaseNames(n, w.src)
+		body := n.ChildByFieldName("body")
+		w.prewalkClassAttrs(body, qname)
+		w.prewalk(body, qname)
+		return
+	case "function_definition":
+		name := nameOf(n, w.src)
+		if name == "" {
+			return
+		}
+		qname := join(enclosing, name)
+		if rt := n.ChildByFieldName("return_type"); !rt.IsNull() {
+			if typ := typeName(rt, w.src); typ != "" {
+				w.returns[qname] = typ
+			}
+		}
+		w.prewalk(n.ChildByFieldName("body"), qname)
+		return
+	}
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		w.prewalk(n.NamedChild(i), enclosing)
+	}
+}
+
+// baseNames returns the plain identifier superclasses of a class. Keyword
+// arguments (metaclass=...) are not bases and a subscripted or dotted base
+// (Generic[T], pkg.Base) cannot be mapped to a same-file class.
+func plainBaseNames(class sitter.Node, src []byte) []string {
+	superclasses := class.ChildByFieldName("superclasses")
+	if superclasses.IsNull() {
+		return nil
+	}
+	var out []string
+	for i := uint32(0); i < superclasses.NamedChildCount(); i++ {
+		child := superclasses.NamedChild(i)
+		if child.Type() == "identifier" {
+			out = append(out, child.Content(src))
+		}
+	}
+	return out
+}
+
+// prewalkClassAttrs records the annotations of class-body assignments before
+// any method body is walked, so a method that uses `self.cache` is typed even
+// when the annotation is written after it.
+func (w *walker) prewalkClassAttrs(body sitter.Node, classQName string) {
+	if body.IsNull() {
+		return
+	}
+	for i := uint32(0); i < body.NamedChildCount(); i++ {
+		statement := body.NamedChild(i)
+		if statement.Type() == "expression_statement" && statement.NamedChildCount() == 1 {
+			statement = statement.NamedChild(0)
+		}
+		if statement.Type() != "assignment" {
+			continue
+		}
+		left := statement.ChildByFieldName("left")
+		annotation := statement.ChildByFieldName("type")
+		if left.IsNull() || left.Type() != "identifier" || annotation.IsNull() {
+			continue
+		}
+		if typ := typeName(annotation, w.src); typ != "" {
+			w.types[scopeKey(classQName, "attr."+left.Content(w.src))] = typ
+		}
+	}
+}
+
 func (w *walker) children(n sitter.Node, enclosing string, inClass bool) {
 	if n.IsNull() {
 		return
@@ -163,7 +264,9 @@ func (w *walker) function(n sitter.Node, enclosing string, exported, inClass boo
 	qname := join(enclosing, name)
 
 	params := n.ChildByFieldName("parameters")
-	arity := w.parameters(params, qname, inClass)
+	// self/cls is not part of a bound method's call arity, but a staticmethod
+	// has no binding parameter: its first argument is a real one.
+	arity := w.parameters(params, qname, inClass && !hasDecorator(decorators, "staticmethod", w.src))
 
 	kind := "function"
 	if inClass {
@@ -401,8 +504,16 @@ func (w *walker) call(n sitter.Node, enclosing string) {
 			receiver := trim(object.Content(w.src))
 			ref.Receiver = receiver
 			if field := selfField(receiver); field != "" {
-				ref.ReceiverType = w.types[scopeKey(classOf(enclosing), "attr."+field)]
+				ref.ReceiverType = w.attrType(classOf(enclosing), field, make(map[string]bool), 0)
 			}
+		case "call":
+			// super().m() is bounded to the zero-argument form. An explicit
+			// super(Child, self) names its starting class, which the reference
+			// shape does not carry, so it stays unresolved rather than guessed.
+			if !isZeroArgCall(object, "super", w.src) {
+				return
+			}
+			ref.Form = "super"
 		default:
 			return
 		}
@@ -425,12 +536,21 @@ func (w *walker) assignment(n sitter.Node, enclosing string) {
 		typ = callType(right, w.src)
 	}
 	if typ == "" {
+		typ = w.returnType(right, enclosing)
+	}
+	if typ == "" {
 		return
 	}
 
 	switch left.Type() {
 	case "identifier":
-		w.types[scopeKey(enclosing, left.Content(w.src))] = typ
+		name := left.Content(w.src)
+		w.types[scopeKey(enclosing, name)] = typ
+		if w.classes[enclosing] {
+			// A class-body binding is also an attribute: `cache: Cache` or
+			// `cache = Cache()` types `self.cache` in every method.
+			w.types[scopeKey(enclosing, "attr."+name)] = typ
+		}
 	case "attribute":
 		object := left.ChildByFieldName("object")
 		attr := left.ChildByFieldName("attribute")
@@ -446,7 +566,7 @@ func (w *walker) assignment(n sitter.Node, enclosing string) {
 // parameters records parameter annotations and returns the declared arity.
 // self/cls is not part of a bound method's call arity; *args/**kwargs do not
 // add a positional parameter.
-func (w *walker) parameters(params sitter.Node, enclosing string, method bool) int {
+func (w *walker) parameters(params sitter.Node, enclosing string, skipFirst bool) int {
 	if params.IsNull() {
 		return 0
 	}
@@ -476,8 +596,9 @@ func (w *walker) parameters(params sitter.Node, enclosing string, method bool) i
 		if name == "" {
 			continue
 		}
+		w.params[scopeKey(enclosing, name)] = true
 
-		if method && count == 0 && (name == "self" || name == "cls") {
+		if skipFirst && count == 0 && (name == "self" || name == "cls") {
 			continue
 		}
 		if !typNode.IsNull() {
@@ -640,8 +761,11 @@ func startsUpper(name string) bool {
 	return c >= 'A' && c <= 'Z'
 }
 
-// typeName reduces a type expression to its base name; unions and literals are
-// ignored because they cannot identify one receiver type.
+// typeName reduces a type expression to the one receiver type it names.
+// A subscripted type keeps its outer name (`list[Service]` is a list, and list
+// is a builtin, not a local class), while Optional/Union and PEP 604 `X | None`
+// unwrap to their single non-None member. Two distinct local members stay
+// untyped: picking one would be a guess.
 func typeName(node sitter.Node, src []byte) string {
 	switch node.Type() {
 	case "type":
@@ -651,16 +775,214 @@ func typeName(node sitter.Node, src []byte) string {
 		return typeName(node.NamedChild(0), src)
 	case "identifier":
 		return node.Content(src)
-	case "subscript":
-		if value := node.ChildByFieldName("value"); !value.IsNull() {
-			return typeName(value, src)
+	case "string":
+		// A forward reference: "Service", 'pkg.Service', or "Service | None".
+		// The union is split textually because the quoted form is not a type
+		// expression the grammar can hand back.
+		text := strings.Trim(node.Content(src), `"'`)
+		if strings.Contains(text, "|") {
+			var members []string
+			for _, part := range strings.Split(text, "|") {
+				members = append(members, scalarName(strings.TrimSpace(part)))
+			}
+			return singleMember(members)
 		}
+		return scalarName(text)
+	case "generic_type", "subscript":
+		value := node.ChildByFieldName("value")
+		if value.IsNull() && node.NamedChildCount() > 0 {
+			value = node.NamedChild(0)
+		}
+		if value.IsNull() {
+			return ""
+		}
+		name := typeName(value, src)
+		switch name {
+		case "Optional", "Union":
+			return singleUnionMember(node, src)
+		}
+		return name
+	case "binary_operator":
+		return singleBinaryUnionMember(node, src)
 	case "attribute":
 		if attr := node.ChildByFieldName("attribute"); !attr.IsNull() {
 			return attr.Content(src)
 		}
 	}
 	return ""
+}
+
+// typeArguments collects the type expressions nested in a subscripted type.
+func typeArguments(n sitter.Node, src []byte, out *[]string) {
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		switch child.Type() {
+		case "type":
+			if typ := typeName(child, src); typ != "" {
+				*out = append(*out, typ)
+			}
+		case "type_parameter", "generic_type":
+			typeArguments(child, src, out)
+		}
+	}
+}
+
+// singleUnionMember returns the one type an Optional/Union argument list names,
+// ignoring None/NoneType. Zero or several distinct members stay untyped.
+func singleUnionMember(n sitter.Node, src []byte) string {
+	var members []string
+	typeArguments(n, src, &members)
+	return singleMember(members)
+}
+
+// singleBinaryUnionMember handles PEP 604 unions (`Service | None`).
+func singleBinaryUnionMember(n sitter.Node, src []byte) string {
+	var members []string
+	var walk func(sitter.Node)
+	walk = func(node sitter.Node) {
+		switch node.Type() {
+		case "binary_operator":
+			for i := uint32(0); i < node.NamedChildCount(); i++ {
+				walk(node.NamedChild(i))
+			}
+		case "none":
+			return
+		default:
+			if typ := typeName(node, src); typ != "" {
+				members = append(members, typ)
+			}
+		}
+	}
+	walk(n)
+	return singleMember(members)
+}
+
+// scalarName keeps the last dotted segment of a type name.
+func scalarName(text string) string {
+	if i := strings.LastIndex(text, "."); i >= 0 {
+		text = text[i+1:]
+	}
+	return text
+}
+
+func singleMember(members []string) string {
+	only := ""
+	for _, member := range members {
+		if member == "None" || member == "NoneType" {
+			continue
+		}
+		if only != "" && only != member {
+			return ""
+		}
+		only = member
+	}
+	return only
+}
+
+// returnType infers the type a local factory call produces: `x = make()` where
+// `def make() -> Service`. Only functions defined in this file with a return
+// annotation are consulted, so a lowercase call into another module is never
+// guessed.
+func (w *walker) returnType(call sitter.Node, enclosing string) string {
+	if call.IsNull() || call.Type() != "call" {
+		return ""
+	}
+	fn := call.ChildByFieldName("function")
+	switch fn.Type() {
+	case "identifier":
+		name := fn.Content(w.src)
+		for scope := enclosing; ; scope = scopeOf(scope) {
+			if w.params[scopeKey(scope, name)] {
+				// A parameter (or a local binding named like the def) shadows
+				// the factory; the call is not the local def.
+				return ""
+			}
+			if typ, ok := w.returns[join(scope, name)]; ok {
+				return typ
+			}
+			if scope == "" {
+				return ""
+			}
+		}
+	case "attribute":
+		object := fn.ChildByFieldName("object")
+		attr := fn.ChildByFieldName("attribute")
+		if object.IsNull() || attr.IsNull() || object.Type() != "identifier" {
+			return ""
+		}
+		name := attr.Content(w.src)
+		switch object.Content(w.src) {
+		case "self", "cls":
+			// self.create() / cls.create(): the factory lives on the class.
+			for scope := enclosing; scope != ""; scope = scopeOf(scope) {
+				if w.classes[scope] {
+					return w.returns[join(scope, name)]
+				}
+			}
+			return ""
+		default:
+			// Class.create(): the callee names the class explicitly.
+			return w.returns[join(object.Content(w.src), name)]
+		}
+	}
+	return ""
+}
+
+// attrType looks up the type recorded for a class attribute, following the
+// plain identifier bases declared in this file. A base from another module is
+// not followed: its annotation lives in a file this extractor never sees.
+func (w *walker) attrType(classQName, field string, seen map[string]bool, depth int) string {
+	if classQName == "" || depth > maxAttrInheritanceDepth || seen[classQName] {
+		return ""
+	}
+	seen[classQName] = true
+	if typ, ok := w.types[scopeKey(classQName, "attr."+field)]; ok {
+		return typ
+	}
+	parent := scopeOf(classQName)
+	for _, base := range w.baseNames[classQName] {
+		baseQName := ""
+		if candidate := join(parent, base); w.classes[candidate] {
+			baseQName = candidate
+		} else if w.classes[base] {
+			baseQName = base
+		}
+		if baseQName == "" {
+			continue
+		}
+		if typ := w.attrType(baseQName, field, seen, depth+1); typ != "" {
+			return typ
+		}
+	}
+	return ""
+}
+
+func isZeroArgCall(n sitter.Node, name string, src []byte) bool {
+	if n.IsNull() || n.Type() != "call" {
+		return false
+	}
+	fn := n.ChildByFieldName("function")
+	if fn.IsNull() || fn.Type() != "identifier" || fn.Content(src) != name {
+		return false
+	}
+	return positionalArgs(n.ChildByFieldName("arguments")) == 0
+}
+
+// hasDecorator reports whether one of the decorators is the bare name given.
+func hasDecorator(decorators []sitter.Node, name string, src []byte) bool {
+	for _, decorator := range decorators {
+		if decorator.IsNull() || decorator.NamedChildCount() == 0 {
+			continue
+		}
+		expr := decorator.NamedChild(0)
+		if expr.Type() == "call" {
+			expr = expr.ChildByFieldName("function")
+		}
+		if expr.Type() == "identifier" && expr.Content(src) == name {
+			return true
+		}
+	}
+	return false
 }
 
 func nameOf(n sitter.Node, src []byte) string {
@@ -722,6 +1044,15 @@ func classOf(qname string) string {
 		return qname[:i]
 	}
 	return qname
+}
+
+// scopeOf is the enclosing scope of a qname; unlike classOf it is empty for a
+// module-level symbol instead of repeating the name.
+func scopeOf(qname string) string {
+	if i := strings.LastIndex(qname, "."); i >= 0 {
+		return qname[:i]
+	}
+	return ""
 }
 
 func scopeKey(enclosing, name string) string {

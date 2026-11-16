@@ -31,3 +31,17 @@ def build(user: User) -> int:
 def make() -> int:
     service: Service = Service.create(1)
     return service.total()
+
+
+def build_service(amount: int) -> Service:
+    return Service(amount)
+
+
+def build_from_factory() -> int:
+    service = build_service(1)
+    return service.total()
+
+
+def build_from_classmethod(amount: int) -> int:
+    service = Service.create(amount)
+    return service.total()
