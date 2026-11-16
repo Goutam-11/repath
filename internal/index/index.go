@@ -346,13 +346,44 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		return err
 	}
 
-	var edges []store.Edge
-	var pending []store.PendingRef
+	idsByFile := make(map[int64]map[string]int64, len(written))
 	for _, o := range written {
 		ids, err := st.NodeIDsByFile(ctx, o.fileID)
 		if err != nil {
 			return err
 		}
+		idsByFile[o.fileID] = ids
+	}
+
+	// Resolve superclass links before any other reference: a self/cls call in a
+	// re-resolved file may resolve through a base class this run did not
+	// re-resolve, so the inheritance chain has to be complete first. The second
+	// pass below still writes the EXTENDS edge itself, once.
+	if ix.UsesInheritance() {
+		links := make([]resolve.ClassLink, 0, len(fileIDs))
+		for _, o := range written {
+			ids := idsByFile[o.fileID]
+			for _, ref := range o.refs {
+				if ref.Kind != "extends" {
+					continue
+				}
+				src, ok := ids[ref.Enclosing]
+				if !ok {
+					continue
+				}
+				r := ix.Resolve(o.fileID, o.src.Path, ref)
+				if r.Found && len(r.Candidates) == 0 && r.Dst != 0 {
+					links = append(links, resolve.ClassLink{Src: src, Dst: r.Dst})
+				}
+			}
+		}
+		ix.AddInheritance(fileIDs, links)
+	}
+
+	var edges []store.Edge
+	var pending []store.PendingRef
+	for _, o := range written {
+		ids := idsByFile[o.fileID]
 		for _, ref := range o.refs {
 			src, ok := ids[ref.Enclosing]
 			if !ok {

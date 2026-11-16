@@ -378,6 +378,37 @@ func (s *Store) DeletePendingBatch(ctx context.Context, refs []PendingRef) error
 // pendingDeleteBatch keeps the five-column row values under the variable limit.
 const pendingDeleteBatch = 100
 
+// EdgePair is one edge's endpoints plus its rule, without the endpoint symbols
+// joined in. It is the shape a resolution input needs.
+type EdgePair struct {
+	Src, Dst int64
+	Rule     string
+}
+
+// UnambiguousEdgePairs returns the endpoints of every edge of one kind whose
+// resolution was not ambiguous (its candidates column is empty). Resolution
+// uses this as a persisted input: the Python inheritance walk needs the
+// superclass links of the files the current run did not re-resolve. It never
+// changes the graph, so it is not a query answer.
+func (s *Store) UnambiguousEdgePairs(ctx context.Context, kind string) ([]EdgePair, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT src, dst, rule FROM edges WHERE kind = ? AND candidates = ''`, kind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []EdgePair
+	for rows.Next() {
+		var p EdgePair
+		if err := rows.Scan(&p.Src, &p.Dst, &p.Rule); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // ImportRow is one local binding created by an import statement. Imports are
 // resolution inputs, never graph edges.
 type ImportRow struct {

@@ -233,6 +233,18 @@ func TestPythonRuleIDs(t *testing.T) {
 		"app/service.py:build -> app/service.py:Service.total CALLS":         "py.typed.method",
 		"app/service.py:make -> app/service.py:Service.create CALLS":         "py.class.method",
 		"app/unique_use.py:call_global -> app/util.py:parse CALLS":           "py.global.unique",
+
+		// #54: inheritance, super(), typed receivers, and decorators.
+		"app/mro.py:Diamond.go -> app/mro.py:Root.ping CALLS":                                 "py.self.inherited",
+		"app/mro.py:Leaf.step -> app/mro.py:Middle.step CALLS":                                "py.self.super",
+		"app/inherit_use.py:Admin.shout -> app/models.py:User.greet CALLS":                    "py.self.inherited",
+		"app/inherit_use.py:Admin.shout -> app/models.py:Base.identify CALLS":                 "py.self.inherited",
+		"app/inherit_use.py:describe_admin -> app/models.py:User.greet CALLS":                 "py.typed.inherited",
+		"app/inherit_use.py:via_factory -> app/models.py:User.greet CALLS":                    "py.typed.inherited",
+		"app/attrs.py:MemoryRepo.load -> app/attrs.py:Cache.read CALLS":                       "py.typed.method",
+		"app/service.py:build_from_factory -> app/service.py:Service.total CALLS":             "py.typed.method",
+		"app/service.py:build_from_classmethod -> app/service.py:Service.create CALLS":        "py.class.method",
+		"app/decorators_use.py:Cached.value -> app/decorators_use.py:Cached.value REFERENCES": "py.property.alias",
 	}
 	for key, rule := range want {
 		if got[key] != rule {

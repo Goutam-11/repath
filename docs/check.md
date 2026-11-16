@@ -102,27 +102,28 @@ tie-break by name.
 
 ```text
 $ repath status --no-refresh
-edges CALLS 17281 · EXTENDS 8688 · REFERENCES 19865 · ambiguous 1572 (3.4%) · unresolved 105319 (69.7%)
-unresolved reasons: parse-failure 0 · member-scope 50052 · missing-definition 40489 · scope-gap 14778
-unresolved top names: assertEqual (19032) · create (5330) · get (4027) · filter (2589) · assertRaisesMessage (2511) · CharField (2162) · assertIs (1862) · assertIn (1710) · assertSequenceEqual (1485) · all (1340)
+edges CALLS 28214 · EXTENDS 8690 · REFERENCES 19902 · ambiguous 1572 (2.8%) · unresolved 92618 (62.0%)
+unresolved reasons: parse-failure 0 · member-scope 48086 · missing-definition 40489 · scope-gap 4043
+unresolved top names: assertEqual (19032) · create (5326) · get (3558) · filter (2590) · CharField (2162) · assertIs (1862) · assertIn (1710) · assertSequenceEqual (1485) · all (1330) · append (1310)
 ```
 
 That is verbatim output from one real run on `django/django` @ `f24f38c`
-(3,051 files, 105,319 pending), not a template; it is an excerpt of the
-unresolved lines, and text percentages are rounded to one decimal. Top modules
+(3,051 files, 92,618 pending after the #54 inheritance work), not a template; it
+is an excerpt of the unresolved lines, and text percentages are rounded to one
+decimal. Top modules
 are not rendered in the text form by design (the two new lines are the whole
 text addition); they are available in JSON only.
 
 ```json
 {
-  "unresolved": 105319,
+  "unresolved": 92618,
   "unresolved_by_reason": {
     "parse-failure": 0,
-    "member-scope": 50052,
+    "member-scope": 48086,
     "missing-definition": 40489,
-    "scope-gap": 14778
+    "scope-gap": 4043
   },
-  "unresolved_by_lang": {"python": 104104, "javascript": 1215},
+  "unresolved_by_lang": {"python": 91403, "javascript": 1215},
   "unresolved_top_names": [{"name": "assertEqual", "count": 19032}],
   "unresolved_top_modules": [{"name": "tests", "count": 90761}]
 }

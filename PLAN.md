@@ -846,6 +846,25 @@ producer run. No code, schema, rule, gate, or dependency change;
 `make check` and `make perf` are unchanged. The producer limits and corpus
 caveats are in `docs/benchmarks.md` §“Large corpora”.
 
+**Python inheritance and receiver typing landed** (issue #54): `self.m()` and
+`cls.m()` now walk the class's C3 linearization (cap 8, cycle-safe, deterministic
+fallback), zero-argument `super().m()` is followed, and typed receivers come from
+annotations, constructors, same-file factory/method return annotations, and
+class attributes (including same-file bases). New ladder rows:
+`py.self.inherited` 0.85, `py.self.super` 0.85, `py.class.inherited` 0.85,
+`py.typed.inherited` 0.80, `py.property.alias` 0.90. On `django/django` @
+`f24f38c`: pending **105,319 → 92,618** (69.68% → 61.98%), edges **45,834 →
+56,806**, with 10,498 of the new edges from the five new rules; on `psf/requests`
+@ `3c7baaa`: **543 → 510** pending (34.50% → 32.82%), edges **1,031 → 1,044**.
+The fixture gate is 65/65 Python edges at precision 1.00 / recall 1.00 (TS 9/9,
+Rust 27/27 unchanged); cold/incremental/second `--full` row sets are identical
+on both corpora, and `make perf` stays green. External bases
+(`unittest.TestCase`), ambiguous bases, cross-module receiver types, generic
+element types, and explicit `super(Child, self)` remain documented gaps, not
+guesses. No schema, node-kind, exit-code, rule-rename, or Go-dependency change.
+See `docs/resolution.md`, `docs/benchmarks.md` §“Python inheritance and receiver
+typing”, and `AGENTS.md`.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,

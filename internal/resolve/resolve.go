@@ -43,6 +43,15 @@ type Index struct {
 	crates  []string
 	aliases *Aliases
 
+	// Python inheritance. bases holds the resolved superclass links per class
+	// node id: fresh links for the files this run re-resolved, persisted
+	// EXTENDS edges for every other class. classByID maps a class node back to
+	// its symbol, and mroCache memoizes one linearization per class. All three
+	// stay nil unless this run resolves Python.
+	bases     map[int64][]int64
+	classByID map[int64]store.NodeRow
+	mroCache  map[int64][]int64
+
 	// A targeted run loads imports only for the files it re-resolves. Python
 	// and Rust resolution follows re-export chains through unchanged modules,
 	// so the remaining bindings are loaded lazily, at most once per file, from
@@ -139,6 +148,17 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 	}
 	for _, imp := range imports {
 		ix.addImport(imp)
+	}
+
+	// A cold or full run re-resolves every file, so its own extends refs are the
+	// complete answer; anything else needs the persisted links for classes it
+	// did not touch.
+	allFresh := importsFor != nil && len(importsFor) >= len(paths)
+	ix.initInheritance(nodes, importsFor)
+	if ix.bases != nil && !allFresh {
+		if err := ix.loadPersistedBases(ctx, st); err != nil {
+			return nil, err
+		}
 	}
 	return ix, nil
 }
@@ -300,15 +320,11 @@ func (ix *Index) resolvePython(fromFile int64, fromPath string, ref facts.Ref) R
 
 	imports := ix.importsOf(fromFile)
 
-	// 1. self.method() inside a class body.
-	if ref.Form == "this" {
-		qname := classOf(ref.Enclosing) + "." + ref.Name
-		for _, n := range ix.byFile[fromFile][ref.Name] {
-			if n.QName == qname {
-				return pyTarget(ref, n, 0.90, "py.this.method")
-			}
-		}
-		return Resolution{}
+	// 1. self.method(), cls.method(), and bounded super().method() inside a
+	// class body. The direct method wins; otherwise the base classes are walked
+	// in MRO order, which is what Python's attribute lookup does.
+	if ref.Form == "this" || ref.Form == "super" {
+		return ix.pyByThis(fromFile, ref)
 	}
 
 	// 2. A binding created by an import statement.
@@ -324,6 +340,9 @@ func (ix *Index) resolvePython(fromFile int64, fromPath string, ref facts.Ref) R
 	// 3. Module receivers (pkg.f(), util.f(), from . import util) and typed
 	// receivers (service.f() where service is "Service(...)" or typed).
 	if ref.Form == "member" {
+		if r, ok := ix.pyPropertyAlias(fromFile, ref); ok {
+			return r
+		}
 		if r, ok := ix.pyByModuleMember(fromFile, fromPath, ref, imports); ok {
 			return r
 		}
@@ -347,6 +366,273 @@ func (ix *Index) resolvePython(fromFile int64, fromPath string, ref facts.Ref) R
 	}
 
 	return ix.byUniquePython(ref, ix.global[ref.Name])
+}
+
+// maxMRODepth bounds the Python inheritance walk. Real hierarchies are shallow,
+// and a cycle or a pathological chain must not make resolution unbounded.
+const maxMRODepth = 8
+
+// ClassLink is one superclass link resolved in the current run. The indexer
+// resolves every extends reference first and hands the links over before any
+// other reference is resolved, because a self/cls call may need a base class
+// defined in a file this run did not re-resolve.
+type ClassLink struct {
+	Src int64 // class node
+	Dst int64 // base class node
+}
+
+// UsesInheritance reports whether this run built the Python MRO inputs. The
+// indexer skips its extends pre-pass when it did not.
+func (ix *Index) UsesInheritance() bool { return ix.bases != nil }
+
+// initInheritance prepares the Python MRO inputs, and only for a run that will
+// resolve a Python file: loading the persisted base links is an edges read, so
+// a TypeScript-only incremental run must not pay for it.
+func (ix *Index) initInheritance(nodes []store.NodeRow, importsFor map[int64]bool) {
+	pythonRun := false
+	if importsFor == nil {
+		for _, path := range ix.paths {
+			if strings.HasSuffix(path, ".py") {
+				pythonRun = true
+				break
+			}
+		}
+	} else {
+		for id := range importsFor {
+			if strings.HasSuffix(ix.paths[id], ".py") {
+				pythonRun = true
+				break
+			}
+		}
+	}
+	if !pythonRun {
+		return
+	}
+	ix.bases = make(map[int64][]int64)
+	ix.classByID = make(map[int64]store.NodeRow)
+	for _, n := range nodes {
+		if n.Kind != "class" || !strings.HasSuffix(ix.paths[n.FileID], ".py") {
+			continue
+		}
+		ix.classByID[n.ID] = n
+	}
+}
+
+// loadPersistedBases fills in the superclass links of every class this run will
+// not re-resolve. Without them an incremental run stops at the first base
+// defined in an unchanged file and the warm graph disagrees with a cold one.
+// Compiler facts are skipped on purpose: the MRO is the tree-sitter answer, so
+// an adapter-augmented index stays comparable with a clean rebuild.
+func (ix *Index) loadPersistedBases(ctx context.Context, st *store.Store) error {
+	pairs, err := st.UnambiguousEdgePairs(ctx, "EXTENDS")
+	if err != nil {
+		return err
+	}
+	for _, p := range pairs {
+		if strings.HasPrefix(p.Rule, "scip.") {
+			continue
+		}
+		if _, ok := ix.classByID[p.Src]; !ok {
+			continue
+		}
+		if _, ok := ix.classByID[p.Dst]; !ok {
+			continue
+		}
+		ix.bases[p.Src] = append(ix.bases[p.Src], p.Dst)
+	}
+	return nil
+}
+
+// AddInheritance replaces the persisted superclass links of the classes in the
+// files this run re-resolved with the links it just resolved. Replacing, not
+// merging, is what keeps an incremental graph identical to a cold one: the
+// fresh resolution is the answer a full index would produce (#49).
+func (ix *Index) AddInheritance(written []int64, links []ClassLink) {
+	if ix.bases == nil {
+		return
+	}
+	fresh := make(map[int64]bool, len(written))
+	for _, id := range written {
+		fresh[id] = true
+	}
+	for classID, cls := range ix.classByID {
+		if fresh[cls.FileID] {
+			ix.bases[classID] = nil
+		}
+	}
+	for _, link := range links {
+		if _, ok := ix.classByID[link.Src]; !ok {
+			continue
+		}
+		if _, ok := ix.classByID[link.Dst]; !ok {
+			continue
+		}
+		ix.bases[link.Src] = append(ix.bases[link.Src], link.Dst)
+	}
+	ix.mroCache = nil
+}
+
+// mro returns the class linearization used for self/cls/super and typed
+// lookups: the class itself first, then its ancestors in C3 order where the
+// hierarchy permits it, with a deterministic depth-first fallback for an
+// inconsistent or cyclic hierarchy. The result is capped at maxMRODepth.
+func (ix *Index) mro(classID int64) []int64 {
+	if ix.bases == nil {
+		return nil
+	}
+	if order, ok := ix.mroCache[classID]; ok {
+		return order
+	}
+	order := ix.linearize(classID, make(map[int64]bool))
+	if len(order) > maxMRODepth {
+		order = order[:maxMRODepth]
+	}
+	if ix.mroCache == nil {
+		ix.mroCache = make(map[int64][]int64, 8)
+	}
+	ix.mroCache[classID] = order
+	return order
+}
+
+func (ix *Index) linearize(id int64, active map[int64]bool) []int64 {
+	if id == 0 || active[id] {
+		return nil
+	}
+	if order, ok := ix.mroCache[id]; ok {
+		return order
+	}
+	active[id] = true
+	direct := make([]int64, 0, len(ix.bases[id]))
+	seqs := make([][]int64, 0, len(ix.bases[id])+1)
+	for _, base := range ix.bases[id] {
+		if base == id || base == 0 {
+			continue
+		}
+		direct = append(direct, base)
+		if order := ix.linearize(base, active); len(order) > 0 {
+			seqs = append(seqs, order)
+		}
+	}
+	delete(active, id)
+	order := make([]int64, 0, len(direct)+1)
+	order = append(order, id)
+	if len(direct) > 0 {
+		seqs = append(seqs, direct)
+	}
+	order = append(order, c3Merge(seqs)...)
+	order = dedupeIDs(order)
+	if ix.mroCache == nil {
+		ix.mroCache = make(map[int64][]int64, 8)
+	}
+	ix.mroCache[id] = order
+	return order
+}
+
+// c3Merge performs the C3 merge. A hierarchy Python itself would reject
+// (inconsistent order) falls back to the next declared head, which keeps the
+// answer deterministic instead of choosing a base by guesswork.
+func c3Merge(seqs [][]int64) []int64 {
+	var out []int64
+	for {
+		empty := true
+		for _, seq := range seqs {
+			if len(seq) > 0 {
+				empty = false
+				break
+			}
+		}
+		if empty {
+			return out
+		}
+		var chosen int64
+		for _, seq := range seqs {
+			if len(seq) == 0 {
+				continue
+			}
+			if !inTails(seq[0], seqs) {
+				chosen = seq[0]
+				break
+			}
+		}
+		if chosen == 0 {
+			for _, seq := range seqs {
+				if len(seq) > 0 {
+					chosen = seq[0]
+					break
+				}
+			}
+		}
+		out = append(out, chosen)
+		for i := range seqs {
+			if len(seqs[i]) > 0 && seqs[i][0] == chosen {
+				seqs[i] = seqs[i][1:]
+			}
+		}
+	}
+}
+
+// dedupeIDs keeps the first occurrence of each class. A cyclic or inconsistent
+// hierarchy can make the merge emit one twice; the linearization must not.
+func dedupeIDs(ids []int64) []int64 {
+	out := ids[:0]
+	seen := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func inTails(id int64, seqs [][]int64) bool {
+	for _, seq := range seqs {
+		if len(seq) < 2 {
+			continue
+		}
+		for _, member := range seq[1:] {
+			if member == id {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// methodInMRO returns the first class in the linearization that defines name,
+// with its position: 0 is the class itself, a later position is an inherited
+// method. Python attribute lookup has the same order, so this is a deterministic
+// lookup rather than a candidate guess. skipFirst starts the walk after the
+// class itself, which is what super() means.
+func (ix *Index) methodInMRO(classID int64, name string, skipFirst bool) (store.NodeRow, int, bool) {
+	for position, id := range ix.mro(classID) {
+		if skipFirst && position == 0 {
+			continue
+		}
+		classNode, ok := ix.classByID[id]
+		if !ok {
+			continue
+		}
+		for _, n := range ix.byQName[classNode.QName+"."+name] {
+			if n.FileID == classNode.FileID {
+				return n, position, true
+			}
+		}
+	}
+	return store.NodeRow{}, 0, false
+}
+
+// classInFile finds the class symbol with this qname in one file. A method body
+// always belongs to a class that is indexed, so a miss means the qname could
+// not be reconstructed and resolution must not guess.
+func (ix *Index) classInFile(fileID int64, qname string) (store.NodeRow, bool) {
+	for _, n := range ix.byQName[qname] {
+		if n.FileID == fileID && n.Kind == "class" {
+			return n, true
+		}
+	}
+	return store.NodeRow{}, false
 }
 
 func (ix *Index) byImport(fromPath string, binding facts.Import, ref facts.Ref) Resolution {
@@ -481,10 +767,8 @@ func (ix *Index) pyByClassMember(fromFile int64, fromPath string, ref facts.Ref,
 		if n.Kind != "class" {
 			continue
 		}
-		for _, method := range ix.byQName[n.QName+"."+ref.Name] {
-			if method.FileID == fromFile {
-				return pyTarget(ref, method, 0.90, "py.class.method"), true
-			}
+		if r, ok := ix.pyMethodOn(n, ref); ok {
+			return r, true
 		}
 	}
 
@@ -508,10 +792,8 @@ func (ix *Index) pyByClassMember(fromFile int64, fromPath string, ref facts.Ref,
 	if classNode.Kind != "class" {
 		return Resolution{}, false
 	}
-	for _, method := range ix.byQName[classNode.QName+"."+ref.Name] {
-		if method.FileID == classNode.FileID {
-			return pyTarget(ref, method, 0.90, "py.class.method"), true
-		}
+	if r, ok := ix.pyMethodOn(classNode, ref); ok {
+		return r, true
 	}
 	return Resolution{}, false
 }
@@ -568,9 +850,11 @@ func (ix *Index) bindingModuleSpec(fromPath string, binding facts.Import) (strin
 func (ix *Index) pyByTypedMethod(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) Resolution {
 	qname := ref.ReceiverType + "." + ref.Name
 
-	for _, n := range ix.byQName[qname] {
-		if n.FileID == fromFile {
-			return pyTarget(ref, n, 0.85, "py.typed.method")
+	// The receiver type is a class in this file: look the method up directly,
+	// then through the class's bases.
+	if classNode, ok := ix.classInFile(fromFile, ref.ReceiverType); ok {
+		if r, ok := ix.pyTypedOn(classNode, ref); ok {
+			return r
 		}
 	}
 
@@ -582,9 +866,9 @@ func (ix *Index) pyByTypedMethod(fromFile int64, fromPath string, ref facts.Ref,
 				}
 			}
 			if classNode, lookup := ix.pyExport(target, ref.ReceiverType, map[int64]bool{}); lookup == exportFound || lookup == exportFoundReexport {
-				for _, n := range ix.byQName[qname] {
-					if n.FileID == classNode.FileID {
-						return pyTarget(ref, n, 0.85, "py.typed.method")
+				if classNode.Kind == "class" {
+					if r, ok := ix.pyTypedOn(classNode, ref); ok {
+						return r
 					}
 				}
 			}
@@ -595,6 +879,100 @@ func (ix *Index) pyByTypedMethod(fromFile int64, fromPath string, ref facts.Ref,
 		return pyTarget(ref, nodes[0], 0.70, "py.typed.method.global")
 	}
 	return Resolution{}
+}
+
+// pyByThis resolves self/cls/super member calls. py.self.inherited and
+// py.self.super name the base-class walk explicitly, so a reader can tell a
+// direct hit from an inherited one.
+func (ix *Index) pyByThis(fromFile int64, ref facts.Ref) Resolution {
+	classNode, ok := ix.classInFile(fromFile, classOf(ref.Enclosing))
+	if !ok {
+		return Resolution{}
+	}
+	method, position, found := ix.methodInMRO(classNode.ID, ref.Name, ref.Form == "super")
+	if !found {
+		return Resolution{}
+	}
+	if ref.Form == "super" {
+		if position == 0 {
+			// super() starts after the enclosing class; a same-class hit is
+			// not what super() calls.
+			return Resolution{}
+		}
+		return pyTarget(ref, method, 0.85, "py.self.super")
+	}
+	if position == 0 {
+		return pyTarget(ref, method, 0.90, "py.this.method")
+	}
+	return pyTarget(ref, method, 0.85, "py.self.inherited")
+}
+
+// pyMethodOn resolves Class.method() on a class symbol, direct or inherited.
+func (ix *Index) pyMethodOn(classNode store.NodeRow, ref facts.Ref) (Resolution, bool) {
+	method, position, found := ix.methodInMRO(classNode.ID, ref.Name, false)
+	if !found {
+		return Resolution{}, false
+	}
+	if position == 0 {
+		return pyTarget(ref, method, 0.90, "py.class.method"), true
+	}
+	return pyTarget(ref, method, 0.85, "py.class.inherited"), true
+}
+
+// pyTypedOn resolves a typed receiver's method on a known class symbol, direct
+// or inherited. An inherited method is one step weaker than an own method
+// because it depends on the base chain being complete.
+func (ix *Index) pyTypedOn(classNode store.NodeRow, ref facts.Ref) (Resolution, bool) {
+	method, position, found := ix.methodInMRO(classNode.ID, ref.Name, false)
+	if !found {
+		return Resolution{}, false
+	}
+	if position == 0 {
+		return pyTarget(ref, method, 0.85, "py.typed.method"), true
+	}
+	return pyTarget(ref, method, 0.80, "py.typed.inherited"), true
+}
+
+// pyPropertyAlias resolves @name.setter / @name.deleter / @name.getter to the
+// property on the enclosing class. The decorator names `setter`, not the
+// property, so the ordinary member ladder would leave a bogus pending row. The
+// arity-zero definition is the property getter that created the property object.
+func (ix *Index) pyPropertyAlias(fromFile int64, ref facts.Ref) (Resolution, bool) {
+	if ref.Kind != "decorator" || ref.Receiver == "" {
+		return Resolution{}, false
+	}
+	switch ref.Name {
+	case "setter", "deleter", "getter":
+	default:
+		return Resolution{}, false
+	}
+	qname := classOf(ref.Enclosing) + "." + ref.Receiver
+	var best store.NodeRow
+	found := false
+	for _, n := range ix.byQName[qname] {
+		if n.FileID != fromFile {
+			continue
+		}
+		if !found || betterProperty(n, best) {
+			best, found = n, true
+		}
+	}
+	if !found {
+		// Not a property of this class: fall through to the ordinary member
+		// ladder, which leaves an honest pending row instead of hiding it.
+		return Resolution{}, false
+	}
+	return pyTarget(ref, best, 0.90, "py.property.alias"), true
+}
+
+func betterProperty(candidate, best store.NodeRow) bool {
+	if candidate.Arity == 0 && best.Arity != 0 {
+		return true
+	}
+	if candidate.Arity != 0 && best.Arity == 0 {
+		return false
+	}
+	return candidate.ID < best.ID
 }
 
 // exportLookup is the outcome of looking a name up in a module. Python modules
