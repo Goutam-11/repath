@@ -42,6 +42,7 @@ type Index struct {
 	imports map[int64]map[string]facts.Import
 	crates  []string
 	aliases *Aliases
+	root    string
 
 	// Python inheritance. bases holds the resolved superclass links per class
 	// node id: fresh links for the files this run re-resolved, persisted
@@ -52,16 +53,30 @@ type Index struct {
 	classByID map[int64]store.NodeRow
 	mroCache  map[int64][]int64
 
-	// A targeted run loads imports only for the files it re-resolves. Python
-	// and Rust resolution follows re-export chains through unchanged modules,
+	// A targeted run loads imports only for the files it re-resolves. Python,
+	// Rust, and TypeScript re-export chains continue through unchanged modules,
 	// so the remaining bindings are loaded lazily, at most once per file, from
-	// the imports_file index. TypeScript never reads another file's bindings,
-	// so its incremental path stays targeted for the Kibana budget.
+	// the imports_file index. The TypeScript barrel walk is bounded and only
+	// touches the modules a reference actually reaches, which is what keeps the
+	// Kibana incremental path proportional to the ten changed files.
 	ctx      context.Context
 	store    *store.Store
 	loads    int
 	allLoads bool
 	loadErr  error
+
+	// TypeScript barrel re-exports. A named re-export is a public binding keyed
+	// by its exported local name; `export *` bindings are kept as an ordered
+	// list because one barrel may export-star several modules and the
+	// last-wins imports map would silently drop all but the last.
+	reexports     map[int64]map[string]facts.Import
+	starReexports map[int64][]facts.Import
+
+	// Workspace packages from package.json `workspaces` (local manifests only).
+	// The map is built on the first non-relative specifier a TypeScript file
+	// resolves, so a run whose imports are all relative pays nothing.
+	workspaces       map[string]workspacePackage
+	workspacesLoaded bool
 }
 
 // lazyImportBulkThreshold bounds the per-file reads a warm run does before one
@@ -102,16 +117,19 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 	}
 
 	ix := &Index{
-		byFile:  make(map[int64]map[string][]store.NodeRow),
-		global:  make(map[string][]store.NodeRow),
-		byQName: make(map[string][]store.NodeRow),
-		exports: make(map[int64][]store.NodeRow),
-		files:   make(map[string]int64, len(paths)),
-		paths:   paths,
-		imports: make(map[int64]map[string]facts.Import),
-		crates:  loadRustCrates(root, paths),
-		aliases: LoadAliases(root),
-		ctx:     ctx,
+		byFile:        make(map[int64]map[string][]store.NodeRow),
+		global:        make(map[string][]store.NodeRow),
+		byQName:       make(map[string][]store.NodeRow),
+		exports:       make(map[int64][]store.NodeRow),
+		files:         make(map[string]int64, len(paths)),
+		paths:         paths,
+		imports:       make(map[int64]map[string]facts.Import),
+		reexports:     make(map[int64]map[string]facts.Import),
+		starReexports: make(map[int64][]facts.Import),
+		crates:        loadRustCrates(root, paths),
+		aliases:       LoadAliases(root),
+		root:          root,
+		ctx:           ctx,
 	}
 	// Only a targeted import read leaves files unloaded; when every binding is
 	// already in memory the lazy loader has nothing to do.
@@ -163,15 +181,48 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 	return ix, nil
 }
 
-// addImport stores one binding in the local-name map.
+// addImport stores one binding. A plain import creates a local name, so it
+// goes in the imports map. A public binding is a re-export: Python and Rust
+// `from x import y` / `pub use` also create a local name, but a TypeScript
+// `export { y } from "./x"` does not, so its row feeds only the barrel tables.
 func (ix *Index) addImport(imp store.ImportRow) {
-	if ix.imports[imp.FileID] == nil {
-		ix.imports[imp.FileID] = make(map[string]facts.Import)
-	}
-	ix.imports[imp.FileID][imp.Local] = facts.Import{
+	binding := facts.Import{
 		Local: imp.Local, Imported: imp.Imported, Source: imp.Source,
 		Line: imp.Line, Public: imp.Public,
 	}
+	if !imp.Public {
+		if ix.imports[imp.FileID] == nil {
+			ix.imports[imp.FileID] = make(map[string]facts.Import)
+		}
+		ix.imports[imp.FileID][imp.Local] = binding
+		return
+	}
+	if !strings.HasSuffix(ix.paths[imp.FileID], ".py") && !strings.HasSuffix(ix.paths[imp.FileID], ".rs") {
+		// TypeScript re-export: resolution input for the barrel walk only.
+		if imp.Imported == "*" && imp.Local == "*" {
+			// `export * from "./x"`: keep every one, in declaration order.
+			ix.starReexports[imp.FileID] = append(ix.starReexports[imp.FileID], binding)
+			return
+		}
+		if ix.reexports[imp.FileID] == nil {
+			ix.reexports[imp.FileID] = make(map[string]facts.Import)
+		}
+		ix.reexports[imp.FileID][imp.Local] = binding
+		return
+	}
+	// Python and Rust re-exports are ordinary bindings too.
+	if ix.imports[imp.FileID] == nil {
+		ix.imports[imp.FileID] = make(map[string]facts.Import)
+	}
+	ix.imports[imp.FileID][imp.Local] = binding
+	if imp.Imported == "*" && imp.Local == "*" {
+		ix.starReexports[imp.FileID] = append(ix.starReexports[imp.FileID], binding)
+		return
+	}
+	if ix.reexports[imp.FileID] == nil {
+		ix.reexports[imp.FileID] = make(map[string]facts.Import)
+	}
+	ix.reexports[imp.FileID][imp.Local] = binding
 }
 
 // importsOf returns a file's bindings, loading them on first use. A warm run
@@ -225,6 +276,11 @@ func (ix *Index) loadAllImports() {
 		return
 	}
 	for _, imp := range rows {
+		// A file already loaded lazily already has its bindings; adding them
+		// twice would duplicate the ordered `export *` list.
+		if _, loaded := ix.imports[imp.FileID]; loaded {
+			continue
+		}
 		ix.addImport(imp)
 	}
 	ix.allLoads = true
@@ -275,14 +331,25 @@ func (ix *Index) resolveTS(fromFile int64, fromPath string, ref facts.Ref, impor
 		}
 	}
 
-	// 3. ns.member() where ns is a namespace import.
+	// 3. ns.member() where ns is a namespace import, including a static
+	// `const ns = require("./x")` binding. The member may itself be a barrel
+	// re-export, so the hop rule applies instead of the direct namespace rule.
 	if ref.Form == "member" && ref.Receiver != "" {
 		if binding, ok := imports[ref.Receiver]; ok && binding.Imported == "*" {
-			if target := ix.resolveSpecifier(fromPath, binding.Source); target != 0 {
-				if n, ok := ix.exportedByName(target, ref.Name); ok {
-					return Resolution{Dst: n.ID, Confidence: 0.95, Rule: "ts.import.namespace", Found: true}
+			target, workspace := ix.specifierTarget(fromPath, binding.Source)
+			if target == 0 {
+				return Resolution{External: true}
+			}
+			n, hop := ix.tsExport(target, ref.Name, nil, 0)
+			switch hop {
+			case tsExportDirect:
+				if workspace {
+					return Resolution{Dst: n.ID, Confidence: 0.95, Rule: "ts.import.workspace", Found: true}
 				}
-			} else {
+				return Resolution{Dst: n.ID, Confidence: 0.95, Rule: "ts.import.namespace", Found: true}
+			case tsExportReexport, tsExportStar:
+				return Resolution{Dst: n.ID, Confidence: tsHopConfidence(hop), Rule: tsReexportRule(workspace, hop == tsExportStar), Found: true}
+			case tsExportExternal:
 				return Resolution{External: true}
 			}
 		}
@@ -635,24 +702,181 @@ func (ix *Index) classInFile(fileID int64, qname string) (store.NodeRow, bool) {
 	return store.NodeRow{}, false
 }
 
+// byImport resolves a name bound by an import statement, following barrel
+// re-exports in the target module. A workspace package specifier resolves to
+// the package's source entry instead of staying external.
 func (ix *Index) byImport(fromPath string, binding facts.Import, ref facts.Ref) Resolution {
-	target := ix.resolveSpecifier(fromPath, binding.Source)
+	target, workspace := ix.specifierTarget(fromPath, binding.Source)
 	if target == 0 {
 		return Resolution{External: true}
 	}
 
 	if binding.Imported == "default" {
-		exports := ix.exports[target]
-		if len(exports) == 1 {
-			return Resolution{Dst: exports[0].ID, Confidence: 0.95, Rule: "ts.import.default", Found: true}
+		n, hop := ix.tsExport(target, "default", nil, 0)
+		switch hop {
+		case tsExportDirect:
+			if workspace {
+				return Resolution{Dst: n.ID, Confidence: 0.95, Rule: "ts.import.workspace", Found: true}
+			}
+			return Resolution{Dst: n.ID, Confidence: 0.95, Rule: "ts.import.default", Found: true}
+		case tsExportReexport:
+			return Resolution{Dst: n.ID, Confidence: 0.95, Rule: tsReexportRule(workspace, false), Found: true}
+		case tsExportExternal:
+			return Resolution{External: true}
 		}
 		return Resolution{}
 	}
 
-	if n, ok := ix.exportedByName(target, binding.Imported); ok {
+	n, hop := ix.tsExport(target, binding.Imported, nil, 0)
+	switch hop {
+	case tsExportDirect:
+		if workspace {
+			return Resolution{Dst: n.ID, Confidence: 0.95, Rule: "ts.import.workspace", Found: true}
+		}
 		return Resolution{Dst: n.ID, Confidence: 1.0, Rule: "ts.import.named", Found: true}
+	case tsExportReexport, tsExportStar:
+		return Resolution{Dst: n.ID, Confidence: tsHopConfidence(hop), Rule: tsReexportRule(workspace, hop == tsExportStar), Found: true}
+	case tsExportExternal:
+		return Resolution{External: true}
 	}
 	return Resolution{}
+}
+
+// tsExport is the barrel walk. It returns the symbol one module exports under
+// name, following `export { a } from "./x"` and `export * from "./x"` chains,
+// and reports how it got there so the caller can pick an honest rule id. The
+// walk is bounded by maxBarrelDepth, cycle-safe through seen, and deterministic:
+// a declaration wins over a named re-export, a named re-export over a star, and
+// several stars are tried in declaration order.
+func (ix *Index) tsExport(fileID int64, name string, seen []int64, depth int) (store.NodeRow, tsExportHop) {
+	if fileID == 0 || depth > maxBarrelDepth || containsFile(seen, fileID) {
+		return store.NodeRow{}, tsExportMissing
+	}
+	seen = append(seen, fileID)
+	// A warm run loaded only the files it re-resolved. The barrel's own
+	// bindings are the hop we are about to take, so load them on first use;
+	// importsOf caches per file and the error is checked before any write.
+	ix.importsOf(fileID)
+
+	if name == "default" {
+		// `export *` never re-exports a default, so only an explicit
+		// `export { X as default } from` (or a `export { default } from`)
+		// carries one through a barrel.
+		if binding, ok := ix.reexports[fileID]["default"]; ok {
+			return ix.followTSExport(fileID, binding, seen, depth, tsExportReexport)
+		}
+		if exports := ix.exports[fileID]; len(exports) == 1 {
+			return exports[0], tsExportDirect
+		}
+		return store.NodeRow{}, tsExportMissing
+	}
+
+	if n, ok := ix.exportedByName(fileID, name); ok {
+		return n, tsExportDirect
+	}
+
+	if binding, ok := ix.reexports[fileID][name]; ok && binding.Imported != "*" {
+		return ix.followTSExport(fileID, binding, seen, depth, tsExportReexport)
+	}
+
+	external := false
+	for _, binding := range ix.starReexports[fileID] {
+		target, _ := ix.specifierTarget(ix.paths[fileID], binding.Source)
+		if target == 0 {
+			if !isRelative(binding.Source) {
+				external = true
+			}
+			continue
+		}
+		n, hop := ix.tsExport(target, name, seen, depth+1)
+		switch hop {
+		case tsExportDirect, tsExportReexport, tsExportStar:
+			return n, tsExportStar
+		case tsExportExternal:
+			external = true
+		}
+	}
+	if external {
+		return store.NodeRow{}, tsExportExternal
+	}
+	return store.NodeRow{}, tsExportMissing
+}
+
+// followTSExport continues a barrel chain through one named re-export binding.
+// A broken relative source stays unresolved; a package source that is not in
+// the repo ends the chain as external, which is how a compat barrel over a
+// dependency is classified rather than reported as a gap.
+func (ix *Index) followTSExport(fileID int64, binding facts.Import, seen []int64, depth int, hop tsExportHop) (store.NodeRow, tsExportHop) {
+	target, _ := ix.specifierTarget(ix.paths[fileID], binding.Source)
+	if target == 0 {
+		if isRelative(binding.Source) {
+			return store.NodeRow{}, tsExportMissing
+		}
+		return store.NodeRow{}, tsExportExternal
+	}
+	n, child := ix.tsExport(target, binding.Imported, seen, depth+1)
+	switch child {
+	case tsExportDirect:
+		return n, hop
+	case tsExportReexport, tsExportStar:
+		// A `export *` anywhere in the chain is the weaker link, so the edge
+		// reports the star hop rather than the named one that wrapped it.
+		if child == tsExportStar {
+			return n, tsExportStar
+		}
+		return n, hop
+	}
+	return store.NodeRow{}, child
+}
+
+// containsFile reports whether the barrel walk already visited fileID. The
+// slice holds at most maxBarrelDepth+1 entries, so a linear scan is cheaper
+// than the map and the hash it would need.
+func containsFile(seen []int64, fileID int64) bool {
+	for _, id := range seen {
+		if id == fileID {
+			return true
+		}
+	}
+	return false
+}
+
+// maxBarrelDepth bounds a re-export chain. Real barrels are one or two hops;
+// the cap keeps a pathological or cyclic chain from making resolution
+// unbounded, and the seen set makes a cycle terminate instead of repeating.
+const maxBarrelDepth = 8
+
+type tsExportHop int
+
+const (
+	tsExportMissing tsExportHop = iota
+	tsExportDirect
+	tsExportReexport
+	tsExportStar
+	tsExportExternal
+)
+
+// tsHopConfidence is the confidence of a name found through a barrel hop.
+func tsHopConfidence(hop tsExportHop) float64 {
+	if hop == tsExportStar {
+		return 0.85
+	}
+	return 0.95
+}
+
+// tsReexportRule names the barrel rule. A workspace entry is a different
+// resolution input, so it carries its own id instead of hiding behind the
+// generic one.
+func tsReexportRule(workspace, star bool) string {
+	switch {
+	case workspace && star:
+		return "ts.import.workspace.star"
+	case workspace:
+		return "ts.import.workspace.reexport"
+	case star:
+		return "ts.import.star"
+	}
+	return "ts.import.reexport"
 }
 
 // pyByImport resolves a name bound by `import x`, `from x import y`, or an
@@ -1165,7 +1389,10 @@ func (ix *Index) byUnique(name string, arity int, candidates []store.NodeRow, ru
 	return Resolution{Confidence: 0.40, Rule: rulePrefix + ".ambiguous", Candidates: ids, Found: true}
 }
 
-// byTypedMethod resolves Type.method when the receiver's type is known.
+// byTypedMethod resolves Type.method when the receiver's type is known. The
+// type may have been imported from a barrel or a workspace package, in which
+// case the class symbol is looked up through tsExport and its method in the
+// defining file; that path is one notch weaker than a direct import.
 func (ix *Index) byTypedMethod(fromFile int64, fromPath string, ref facts.Ref, imports map[string]facts.Import) Resolution {
 	qname := ref.ReceiverType + "." + ref.Name
 
@@ -1176,10 +1403,20 @@ func (ix *Index) byTypedMethod(fromFile int64, fromPath string, ref facts.Ref, i
 	}
 
 	if binding, ok := imports[ref.ReceiverType]; ok {
-		if target := ix.resolveSpecifier(fromPath, binding.Source); target != 0 {
+		if target, _ := ix.specifierTarget(fromPath, binding.Source); target != 0 {
 			for _, n := range ix.byQName[qname] {
 				if n.FileID == target {
 					return Resolution{Dst: n.ID, Confidence: 0.85, Rule: "ts.typed.method", Found: true}
+				}
+			}
+			// The type declaration may live behind a barrel or workspace-entry
+			// re-export: resolve the class first, then its method in the file
+			// that declares it.
+			if classNode, hop := ix.tsExport(target, binding.Imported, nil, 0); hop != tsExportMissing && hop != tsExportExternal {
+				for _, n := range ix.byQName[classNode.QName+"."+ref.Name] {
+					if n.FileID == classNode.FileID {
+						return Resolution{Dst: n.ID, Confidence: 0.80, Rule: "ts.typed.method.reexport", Found: true}
+					}
 				}
 			}
 		}
@@ -1239,15 +1476,17 @@ func (ix *Index) language(fileID int64) string {
 	return "typescript"
 }
 
-// resolveSpecifier maps an import source to a file id. Zero means external.
-func (ix *Index) resolveSpecifier(fromPath, spec string) int64 {
+// specifierTarget maps an import source to a file id. Zero means external. The
+// bool reports that the mapping came from a workspace package (package.json
+// `workspaces`), which the barrel rules name explicitly.
+func (ix *Index) specifierTarget(fromPath, spec string) (int64, bool) {
 	if strings.HasPrefix(spec, ".") {
-		return ix.resolveFile(path.Join(path.Dir(fromPath), spec))
+		return ix.resolveFile(path.Join(path.Dir(fromPath), spec)), false
 	}
 	if target := ix.aliases.Resolve(spec); target != "" {
-		return ix.resolveFile(target)
+		return ix.resolveFile(target), false
 	}
-	return 0
+	return ix.workspaceTarget(spec)
 }
 
 func (ix *Index) resolveFile(base string) int64 {

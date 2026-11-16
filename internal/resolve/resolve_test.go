@@ -2,6 +2,7 @@ package resolve_test
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -226,4 +227,131 @@ func pythonEdges(t *testing.T, st *store.Store) map[string]string {
 		out[e.SrcQName+"|"+e.DstQName] = e.Rule
 	}
 	return out
+}
+
+// indexRepo indexes a throwaway repo with the real pipeline and returns its
+// store, which is the only way to exercise resolution end to end.
+func indexRepo(t *testing.T, root string) *store.Store {
+	t.Helper()
+	ctx := context.Background()
+	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { st.Close() })
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if _, err := index.Run(ctx, st, root, index.Options{}); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+	return st
+}
+
+// tsEdges reads the resolved TypeScript edges as "srcQName|dstQName" → rule.
+func tsEdges(t *testing.T, st *store.Store) map[string]string {
+	t.Helper()
+	edges, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+	out := make(map[string]string, len(edges))
+	for _, e := range edges {
+		if strings.HasSuffix(e.SrcPath, ".py") || strings.HasSuffix(e.SrcPath, ".rs") {
+			continue
+		}
+		out[e.SrcQName+"|"+e.DstQName] = e.Rule
+	}
+	return out
+}
+
+// TestTypeScriptWorkspacePackageResolves pins #56 workspace detection: a
+// package.json `workspaces` entry maps `@scope/pkg` to the package's source
+// entry (manifest `main`/`exports`, then src/index), and a subpath resolves
+// inside the package directory. It is local-manifest only, no registry.
+func TestTypeScriptWorkspacePackageResolves(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "package.json", `{"name":"mono","private":true,"workspaces":["packages/*"]}`)
+	writeFile(t, root, "packages/widget/package.json", `{"name":"@demo/widget","main":"src/index.ts"}`)
+	writeFile(t, root, "packages/widget/src/index.ts", "export * from './impl';\n")
+	writeFile(t, root, "packages/widget/src/impl.ts", "export function gadget() { return 1; }\n")
+	writeFile(t, root, "packages/gizmo/package.json", `{"name":"@demo/gizmo","exports":"./index.ts"}`)
+	writeFile(t, root, "packages/gizmo/index.ts", "export function spin() { return 2; }\n")
+	writeFile(t, root, "packages/gizmo/extra.ts", "export function extra() { return 3; }\n")
+	writeFile(t, root, "use.ts", `import { gadget } from "@demo/widget";
+import { spin } from "@demo/gizmo";
+import { extra } from "@demo/gizmo/extra";
+
+export function run(): number {
+  return gadget() + spin() + extra();
+}
+`)
+
+	st := indexRepo(t, root)
+	want := map[string]string{
+		"run|gadget": "ts.import.workspace.star",
+		"run|spin":   "ts.import.workspace",
+		"run|extra":  "ts.import.workspace",
+	}
+	got := tsEdges(t, st)
+	for key, rule := range want {
+		if got[key] != rule {
+			t.Fatalf("edge %s rule = %q, want %q (all: %v)", key, got[key], rule, got)
+		}
+	}
+	pending, err := st.Pending(context.Background())
+	if err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("workspace imports left %d pending rows: %+v", len(pending), pending)
+	}
+}
+
+// TestTypeScriptBarrelDepthIsBounded pins the chain cap from #56: eight hops
+// resolve, nine stop and stay unresolved instead of being guessed. The global
+// pending retry still links the name, which is why the assertion is on the rule
+// and not only on an unresolved count.
+func TestTypeScriptBarrelDepthIsBounded(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "impl.ts", "export function helper() { return 1; }\n")
+	for hop := 1; hop <= 9; hop++ {
+		source := "./impl"
+		if hop > 1 {
+			source = fmt.Sprintf("./hop%d", hop-1)
+		}
+		writeFile(t, root, fmt.Sprintf("hop%d.ts", hop),
+			fmt.Sprintf("export { helper } from %q;\n", source))
+	}
+	writeFile(t, root, "use.ts", `import { helper as eight } from "./hop8";
+import { helper as nine } from "./hop9";
+
+export function viaEight(): number {
+  return eight();
+}
+
+export function viaNine(): number {
+  return nine();
+}
+`)
+
+	st := indexRepo(t, root)
+	got := tsEdges(t, st)
+
+	if rule := got["viaEight|helper"]; rule != "ts.import.reexport" {
+		t.Fatalf("eight-hop chain rule = %q, want ts.import.reexport (all: %v)", rule, got)
+	}
+	// Nine hops exceed maxBarrelDepth: the walk stops, so the aliased call has
+	// no edge and stays in the pending queue rather than being linked by name
+	// (the pending retry only re-links identifiers whose own name is unique).
+	if rule, found := got["viaNine|helper"]; found {
+		t.Fatalf("nine-hop chain was followed: rule %q (all: %v)", rule, got)
+	}
+	pending, err := st.Pending(context.Background())
+	if err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+	if len(pending) != 1 || pending[0].Name != "nine" {
+		t.Fatalf("pending = %+v, want one row for the aliased nine call", pending)
+	}
 }
