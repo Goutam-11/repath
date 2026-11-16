@@ -40,7 +40,7 @@ type Index struct {
 	files   map[string]int64
 	paths   map[int64]string
 	imports map[int64]map[string]facts.Import
-	crates []rustCrate
+	crates  []rustCrate
 	// crateByName maps a workspace member's crate name (underscored, as `use`
 	// paths spell it) to its source root. Only local members are listed; a
 	// registry dependency has no source here and stays external.
