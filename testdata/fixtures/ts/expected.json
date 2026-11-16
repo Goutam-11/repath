@@ -7,5 +7,19 @@
   { "src": "src/circle.ts:Circle", "dst": "src/base.ts:Base", "kind": "EXTENDS" },
   { "src": "src/circle.ts:Circle", "dst": "src/shape.ts:Shape", "kind": "IMPLEMENTS" },
   { "src": "src/fmt.ts:print", "dst": "src/format.ts:format", "kind": "CALLS" },
-  { "src": "src/dup.ts:go", "dst": "src/dup-a.ts:run", "kind": "CALLS" }
+  { "src": "src/dup.ts:go", "dst": "src/dup-a.ts:run", "kind": "CALLS" },
+
+  { "src": "src/barrel-use.ts:viaBarrel", "dst": "src/util.ts:add", "kind": "CALLS" },
+  { "src": "src/barrel-use.ts:viaBarrel", "dst": "src/util.ts:clamp", "kind": "CALLS" },
+  { "src": "src/barrel-use.ts:viaBarrel", "dst": "src/format.ts:format", "kind": "CALLS" },
+  { "src": "src/barrel-use.ts:viaBarrel", "dst": "src/cart.ts:Cart", "kind": "REFERENCES" },
+  { "src": "src/barrel-use.ts:viaBarrel", "dst": "src/cart.ts:Cart.total", "kind": "CALLS" },
+  { "src": "src/cycle-use.ts:both", "dst": "src/cycle-a.ts:alpha", "kind": "CALLS" },
+  { "src": "src/cycle-use.ts:both", "dst": "src/cycle-b.ts:beta", "kind": "CALLS" },
+  { "src": "src/deep-use.ts:capped", "dst": "src/util.ts:clamp", "kind": "CALLS" },
+  { "src": "src/dynamic-use.ts:dynamic", "dst": "src/util.ts:add", "kind": "CALLS" },
+  { "src": "src/dynamic-use.ts:dynamic", "dst": "src/util.ts:clamp", "kind": "CALLS" },
+  { "src": "src/dynamic-use.ts:dynamicAwait", "dst": "src/util.ts:clamp", "kind": "CALLS" },
+  { "src": "src/workspace-use.ts:viaWorkspace", "dst": "packages/gizmo/index.ts:spin", "kind": "CALLS" },
+  { "src": "src/workspace-use.ts:viaWorkspace", "dst": "packages/widget/src/impl.ts:gadget", "kind": "CALLS" }
 ]

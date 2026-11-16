@@ -1,0 +1,5 @@
+{
+  "name": "repath-ts-fixture",
+  "private": true,
+  "workspaces": ["packages/*"]
+}
