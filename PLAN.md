@@ -865,6 +865,40 @@ guesses. No schema, node-kind, exit-code, rule-rename, or Go-dependency change.
 See `docs/resolution.md`, `docs/benchmarks.md` §“Python inheritance and receiver
 typing”, and `AGENTS.md`.
 
+**Rust generic bounds, workspace imports, and module layout landed** (issue
+#55): the ladder now records `T: Trait` / `where T: Trait` per
+function/impl/trait scope and follows a type-parameter receiver to the bound
+trait's local method declaration, walks same-repo supertraits (cap 4), reads
+unqualified paths as Rust 2018 uniform paths (current module → crate root →
+local workspace member), resolves inline `mod` and `#[path]` import targets from
+reserved `@mod:` bindings, follows trait default methods through `IMPLEMENTS`
+links resolved in a pre-pass and persisted like Python's bases, types a receiver
+from a same-file return definition (including a same-file `Self::Assoc` impl
+binding), and resolves private in-scope items. New ladder rows:
+`rs.generic.bound` 0.85, `rs.generic.bound.ambiguous` 0.40, `rs.trait.method`
+0.80, `rs.trait.method.ambiguous` 0.40, `rs.typed.method.return` 0.80,
+`rs.typed.method.crate` 0.80, `rs.assoc.fn.crate` 0.90, `rs.assoc.ambiguous`
+0.40, `rs.assoc.global.ambiguous` 0.40, `rs.use.workspace` 0.95,
+`rs.module.workspace` 0.95, `rs.module.inline` 0.95, `rs.module.path.attr`
+0.95. On `rayon-rs/rayon` @ `599425d`: pending **2,048 → 1,394** (48.66% →
+35.58%), edges **2,161 → 2,524** (239 from the new rules; `member-scope`
+1,357 → 786); on `Goutam-11/hyusk` @ `06bdb2b`: pending **4,222 → 4,126**
+(60.94% → 57.97%), edges **2,706 → 2,992** (83 from the new rules, most of the
+rest through uniform paths/reexports), with the same seven parse-failed files
+reported. Ambiguity stays visible on both (`status.ambiguous` 74 / 23 rows,
+`ambiguity_rate` 2.93% / 0.77%); the fixture gate is 55/55 Rust edges at
+precision 1.00 / recall 1.00 with 3 ambiguous groups (TS 9/9, Python 65/65
+unchanged), the 0.85/0.70 gate and `maxUnresolved` 2 are untouched, and
+cold/incremental/second `--full` edge and pending row sets are identical on both
+corpora. The pinned `rust-analyzer` files still take rayon **1,394 → 1,156**
+(215 edges, 16 groups replaced) and hyusk **4,126 → 3,998** (71 edges), so the
+adapter gap is smaller but real. Macro bodies, proc macros, `impl Trait`,
+generic containers, unknown projections, and same-file inherent-vs-trait method
+collapse (node identity is `(qname, file, arity)`) remain documented gaps. No
+schema, node-kind, exit-code, rule-rename, fixture-loosening, TS/Python-resolver,
+or Go-dependency change. See `docs/resolution.md`, `docs/benchmarks.md`
+§“Rust generic bounds, workspace imports, and module layout”, and `AGENTS.md`.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
