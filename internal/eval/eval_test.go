@@ -314,6 +314,8 @@ func TestRustRuleIDs(t *testing.T) {
 		"src/path_use.rs:via_attr -> src/alt/impl_file.rs:alt_helper CALLS":          "rs.module.path.attr",
 		"src/workspace_use.rs:measure -> crates/extra/src/lib.rs:extra_helper CALLS": "rs.use.workspace",
 		"src/workspace_use.rs:direct -> crates/extra/src/lib.rs:model.clamp2 CALLS":  "rs.module.workspace",
+		"src/cross_use.rs:run -> src/cross.rs:Cross.cross CALLS":                     "rs.typed.method.crate",
+		"src/cross_use.rs:build -> src/cross.rs:Cross.make CALLS":                    "rs.assoc.fn.crate",
 	}
 	for key, rule := range want {
 		if got[key] != rule {

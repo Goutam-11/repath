@@ -25,6 +25,21 @@
     "kind": "CALLS"
   },
   {
+    "src": "src/cross.rs:Cross.make",
+    "dst": "src/models.rs:Cross",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "src/cross_use.rs:build",
+    "dst": "src/cross.rs:Cross.make",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/cross_use.rs:run",
+    "dst": "src/cross.rs:Cross.cross",
+    "kind": "CALLS"
+  },
+  {
     "src": "src/entry.rs:main_flow",
     "dst": "src/models.rs:User.new",
     "kind": "CALLS"
