@@ -142,9 +142,28 @@ Invariants:
   edges. No rollup rows exist in the database.
 - `confidence` ∈ `(0,1]`; `rule` is a stable id (`ts.import.named`,
   `rs.use.super`, `py.module.relative`, …) used by tests and by `status`.
-- Adapter facts add edges only: rules are prefixed `scip.ts.*`, `scip.py.*`, or
-  `scip.rs.*`, stats live in `meta.adapter.<name>` (`scip`, `scip-python`,
-  `scip-rust`), and no adapter row is a node or a schema change.
+- Adapter facts add edges, and may replace exactly one tree-sitter **ambiguous**
+  candidate group (confidence `0.40`, rule id `%.ambiguous`): when a SCIP
+  reference occurrence maps to the group's source node and line and its exact
+  target is one of the group's 2-5 same-name candidates, the adapter deletes
+  only that group's candidate rows and inserts one exact `scip.<lang>.*` edge
+  at `0.99`. It never touches an edge at or above the default `0.5` floor,
+  never touches an import/`this`/local/typed edge, and never collapses two
+  references: exactly one compiler occurrence must disambiguate the group;
+  otherwise the group is left alone and the occurrence counted. Each
+  replacement is reported in stats (`replaced` groups, `replaced_edges`
+  candidate rows), conflicts are still reported, and a same-key edge is never
+  overwritten. Resolved edges keep their tree-sitter rule and confidence.
+  Rules are prefixed `scip.ts.*`, `scip.py.*`, or `scip.rs.*`, stats live in
+  `meta.adapter.<name>` (`scip`, `scip-python`, `scip-rust`), and no adapter row
+  is a node or a schema change.
+  *Amended for #57.* The original "adapter facts add edges only" rule
+  made a 0.40 ambiguity permanent even when a compiler could prove the exact
+  target. The replacement path is still non-overwriting for every resolved
+  edge; it is a group-local deletion whose guard re-checks confidence,
+  rule suffix, source node, reference line, and candidate membership in the
+  same transaction (`store.ReplaceAmbiguousGroup`). Same-line references that
+  the index cannot distinguish (no reference column) are never attributed.
 - SARIF diagnostics are ingested per `check` run and attached to the enclosing
   symbol at read time (`sarif.<tool>.<rule>`); they are never persisted as
   nodes, edges, or a schema change (decision 22, amended in v1.2).
@@ -721,6 +740,36 @@ web/TUI was not automated, so modern/GUI verification remains the
 `@modelcontextprotocol/client` 2.4.0 probe. The six-tool surface, envelope, and
 dependency set are unchanged. See `docs/mcp.md`.
 
+**Ambiguous-group replacement landed** (issue #57): the adapter may now
+replace one tree-sitter ambiguous candidate group (confidence `0.40`, rule
+suffix `.ambiguous`, 2-5 same-name candidates) with the compiler's exact
+target when exactly one SCIP reference occurrence maps to the group's source
+node and line and names a candidate. The deletion is group-local and
+transaction-guarded (`store.ReplaceAmbiguousGroup`: source, line, kind,
+confidence `< 0.5`, rule suffix, and candidate membership re-checked); a
+resolved edge at the exact key is still a reported conflict, never an
+overwrite. Two same-line occurrences leave the group alone and are counted, so
+two distinct references are never merged. Stats gain `replaced` (groups) and
+`replaced_edges` (candidate rows) in `meta`/`status.adapters`, with no schema
+change (`SchemaVersion` stays 5). Measured: Django production-index
+**15 groups / 32 rows** replaced (ambiguous rows 1,572 → 1,540; pending
+105,319 → 103,306; edges 45,834 → 47,486), rayon **17 / 41** (ambiguous
+75 → 34; pending 2,048 → 1,214; edges 2,161 → 2,886), requests **0 / 0**. The
+full-tree Django producer now works: `scip-python` 0.6.8 with
+`NODE_OPTIONS=--max-old-space-size=4096` indexes 2,941 `.py` in **2:08** at
+**3.74 GiB** RSS (100.3 MiB SCIP), and the adapter takes the cold graph
+105,319 → 82,510 pending with **295 / 914** replaced, 16,903 edges, 33
+conflicts, 33.1 s and 347.6 MiB RSS. Accuracy: the adapter-touched cohort grows
+to 183 targets / 1,447 expected, and replacement adds **17** of the **+745** TP
+(rayon callers R 9.2% → 60.7%, precision 98.1% unchanged); the harness "before"
+row is now a pre-adapter caller snapshot because replacement deletes rows.
+Fixture gates, exit codes, producers-in-CI, dependencies, and the resolver are
+unchanged; the adversarial tests are `TestSCIPAmbiguousReplacement`,
+`TestSCIPAmbiguousNonCandidateLeftAlone`,
+`TestSCIPAmbiguousSameLineTwoCallsNotMerged`, and
+`TestSCIPPendingConflictStillReported`. See `docs/adapters.md` and
+`docs/benchmarks.md`.
+
 **v1.2 read-only HTTP server landed** (issue #32): `repath serve --addr
 127.0.0.1:0` exposes `GET /find`, `/impact`, `/path`, `/callers`, `/map`, and
 `/status` with the same envelope, confidence, truncation, and provenance as
@@ -755,9 +804,11 @@ incremental **53.8 ms** / RSS **45.3 MiB** / `map` p95 **15.35 ms** / artifact
 budgets target 10k/50k trees. `scip-python` 0.6.8 takes `requests` unresolved
 **543 → 523** (18 edges, 20 matched, 0 conflicts); `rust-analyzer` 1.97.0 takes
 `rayon` **2,048 → 1,214** (rate **48.66% → 29.44%**) with **749** edges (640
-method / 92 call / 17 new), 834 matched, 0 conflicts. Of those 749, **637**
-(85.0%) are library production, 59 (7.9%) test sources, and 53 (7.1%)
-`rayon-demo` examples/benchmarks — the production split the issue asked for.
+method / 92 call / 17 new), 834 matched, 0 conflicts (pre-#57 numbers; the
+current run is **766** edges with 17 ambiguous groups replaced — see the #57
+note below). Of those 749, **637** (85.0%) are library production, 59 (7.9%)
+test sources, and 53 (7.1%) `rayon-demo` examples/benchmarks — the production
+split the issue asked for.
 No schema, node-kind, rule, fixture-gate, or Go-dependency change; `make perf`
 stayed green. The run exposed a warm/cold divergence (an incremental ten-file
 comment edit adds five Python and eight Rust `pending` refs through unloaded
@@ -787,10 +838,11 @@ Three runs: Django cold **4.54 s**, 10-file incremental **209 ms**, RSS
 (26.1%)**; hyusk cold **292 ms**, incremental **41.4 ms**, RSS **66.4 MiB**,
 `map` p95 **8.48 ms**, artifact **1.0 MiB → 313.7 KiB (29.4%)**. Adapter:
 `scip-python` 0.6.8 on a production-only 909-file Django index takes unresolved
-**105,319 → 103,306** (69.68% → 68.50%) with 1,669 edges, while the full tree
-OOMs at Node's 2 GB heap; `scip-rust` on the 750-crate hyusk workspace takes
-**4,222 → 4,081** (60.94% → 59.36%) with 88 edges, 54 of them production, from
-a 157.7 s producer run. No code, schema, rule, gate, or dependency change;
+**105,319 → 103,306** (69.68% → 68.50%) with 1,669 edges (pre-#57; 1,684 now),
+while the full tree needs a 4 GB Node heap and then works (#57, below);
+`scip-rust` on the 750-crate hyusk workspace takes **4,222 → 4,081**
+(60.94% → 59.36%) with 88 edges, 54 of them production, from a 157.7 s
+producer run. No code, schema, rule, gate, or dependency change;
 `make check` and `make perf` are unchanged. The producer limits and corpus
 caveats are in `docs/benchmarks.md` §“Large corpora”.
 
