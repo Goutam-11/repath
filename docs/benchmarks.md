@@ -175,6 +175,143 @@ The old PLAN §4.1 estimate of 250–400 MB at 50k files was **wrong by roughly
 compact symbol rows with no source text, so file count alone overstated the
 size. The estimate is corrected in PLAN §4.1 and `docs/sharing.md`.
 
+## TypeScript barrels, workspaces, and static dynamic imports (#56)
+
+Issue #56 closed the last three documented TypeScript resolution gaps: barrel
+re-exports (`export * from`, `export { a } from`, `export { default as X } from`),
+`package.json` workspace packages (`@scope/pkg`), and static `import("./x")` /
+`require("./x")` bindings. The barrel walk is bounded at eight hops, cycle-safe,
+and deterministic; [`docs/resolution.md`](resolution.md#typescript--javascript)
+has the full ladder and the remaining gaps.
+
+### Method
+
+A private copy of the same pinned clone (`cp -a .cache/kibana .cache/kibana-56`,
+1.1 GiB). `<root>/.repath/` and `<root>/.git/repath/` are removed before every
+cold run: a `--full` run over a *seeded* manifest leaves edges the new rules no
+longer produce, so a cache-seeded "cold" run is not a baseline. The baseline and
+after binaries ran on the same host in the same session; the machine was shared,
+load average 2.6–5.9, which is why ranges are given.
+
+### Graph before / after
+
+| Metric | Baseline (main) | After #56 | Delta |
+| --- | --- | --- | --- |
+| Indexed files / nodes | 38,548 / 87,478 | same | — |
+| Parse failures | 158 | 158 | — |
+| Edges | 61,904 | **62,489** | +585 |
+| `CALLS` / `REFERENCES` / `IMPLEMENTS` / `EXTENDS` | 59,988 / 1,642 / 60 / 214 | 60,571 / 1,643 / 61 / 214 | +583 / +1 / +1 / — |
+| Pending references | 158,503 (71.91%) | **157,205 (71.56%)** | −1,298 (−0.36 pp) |
+| Ambiguous edges | 5,242 (8.47%) | **5,138 (8.22%)** | −104 |
+
+Pending by reason:
+
+| Reason | Baseline | After #56 | Delta |
+| --- | --- | --- | --- |
+| `member-scope` | 87,706 | 87,672 | −34 |
+| `missing-definition` | 65,952 | 65,643 | −309 |
+| `parse-failure` | 359 | 355 | −4 |
+| `scope-gap` | **4,486** | **3,535** | **−951** |
+
+The slope is the honest part: this work targets `scope-gap`, which is 2.8% of
+the subtree's unresolved references. The pending rows that disappeared are
+951 `scope-gap`, 309 `missing-definition`, 34 `member-scope`, and 4
+`parse-failure`; **no pending row was added** (row-set diff: 1,298 removed, 0
+added). The remaining 71.56% is the member-call ceiling that typed receivers,
+SCIP, and the documented gaps still own.
+
+Edges by rule (rules that moved; the Python rows are untouched):
+
+| Rule | Baseline | After #56 | Delta |
+| --- | --- | --- | --- |
+| `ts.import.named` | 28,822 | 28,922 | +100 |
+| `ts.import.namespace` | 528 | 529 | +1 |
+| `ts.import.reexport` | — | **1,159** | +1,159 |
+| `ts.import.star` | — | **1,738** | +1,738 |
+| `ts.typed.method` | 567 | 568 | +1 |
+| `ts.typed.method.reexport` | — | **120** | +120 |
+| `ts.typed.method.global` | 168 | 53 | −115 |
+| `ts.global.unique` | 5,094 | 2,779 | −2,315 |
+| `ts.global.ambiguous` | 5,224 | 5,120 | −104 |
+| `ts.local` / `ts.this.method` | 18,412 / 2,555 | same | — |
+
+Two effects explain the shape:
+
+1. **2,317 edges keep their symbol pair and change rule**, almost all upgrades:
+   2,115 `ts.global.unique` (0.60, the pending retry's unique-name guess) become
+   `ts.import.star` (1,159) or `ts.import.reexport` (956); 114
+   `ts.typed.method.global` (0.70) become `ts.typed.method.reexport` (0.80); 37
+   `ts.global.ambiguous` (0.40, several candidates) become one exact barrel edge.
+2. **802 new symbol pairs**: 579 `ts.import.star`, 202 `ts.import.reexport`, 14
+   static `require`/`import()` named bindings (stored as `ts.import.named`), 6
+   `ts.typed.method.reexport`, 1 `ts.import.namespace`.
+
+215 pairs disappeared, and they are the cost side: 148 were 0.60
+`ts.global.unique` edges pointing at an unrelated same-named project symbol
+whose real origin is a dependency the local barrel re-exports from (for example
+`@kbn/apm-types` through a local `formatters/index.ts`) — the reference is now
+correctly external, matching the Python `requests.compat` rule; 67 were the
+wrong candidates of an ambiguity group the barrel now resolves exactly. Both are
+precision improvements, but they remove impact/caller branches from those local
+symbols, so they are recorded rather than celebrated.
+
+`ts.import.workspace*` is 0 on Kibana: the root `package.json` has no
+`workspaces` field (its workspace list lives in `pnpm-workspace.yaml`, which
+`docs/resolution.md` lists as not read), so `@kbn/*` imports stay external.
+Workspace resolution is fixture- and unit-tested instead
+(`testdata/fixtures/ts/packages/*` and `TestTypeScriptWorkspacePackageResolves`).
+
+### Cold / incremental / full parity
+
+One lineage, compared as full row sets (file paths and qnames, rule,
+confidence, line, and ambiguous candidate ids) rather than counts:
+
+| Path | Edges | Pending rows | Row sets |
+| --- | --- | --- | --- |
+| Cold | 62,489 | 157,435 | reference |
+| Ten-file comment edit, incremental | 62,489 | 157,435 | identical |
+| Second `index --full` | 62,489 | 157,435 | identical |
+
+Two independent cold runs also agree on every edge row once the node ids inside
+`candidates` are excluded: ids are handed out in file-write order, which is not
+stable across processes; the graph is.
+
+### Budgets
+
+| Metric | Baseline run | After #56 | PLAN §10 target |
+| --- | --- | --- | --- |
+| Cold index | 27.13 s | 26.9–27.8 s | < 3 min · pass |
+| Peak RSS (cold) | 953.3 MiB | 932.1–1005.0 MiB, one run at 1.00 GiB | < 1 GiB · pass, one borderline miss |
+| 10-file incremental | 759 ms | 737–814 ms | < 1 s · pass |
+| `impact` p50 / p95 | 77.3 / 89.1 ms | 74.3 / 84.1 ms | < 150 ms p95 · pass |
+| `callers` p50 / p95 | 51.5 / 65.1 ms | 48.8 / 64.8 ms | < 150 ms p95 · pass |
+| `path` p50 / p95 | 69.3 / 97.3 ms | 67.7 / 107.9 ms | < 250 ms p95 · pass |
+| `map` p50 / p95 | 306.1 / 323.7 ms | 296.8 / 312.6 ms | < 300 ms p95 · miss |
+| `check` | 1.12 s | 1.04 s | no target |
+| Artifact / zstd | 65.6 → 17.2 MiB (26.2%) | 66.4 → 17.4 MiB (26.3%) | no target |
+
+The `map` miss is the documented host-load variance from #43 (a quiet machine
+measured 223 ms there) and the baseline missed it in the same session. The
+incremental path now lazily loads the import bindings of unchanged barrels
+through the same `importsOf` path Python and Rust use; the ten files the harness
+touches reach few barrels, so the budget holds. A cold run reads the root
+`package.json` once on the first bare specifier (ties: one 5.5 KiB read; Kibana
+has no workspaces) and persists 10,417 more `imports` rows (305,808 → 316,225),
+which is ≈25 MiB of live heap — the reason cold RSS sits near the 1 GiB line.
+
+### Not verified
+
+- Workspace resolution is not measured on a real package.json-workspaces
+  monorepo. Kibana uses `pnpm-workspace.yaml` and no other pinned corpus has
+  local workspaces, so that part of #56 is fixture/unit evidence only.
+- Every number above is one Linux host with a warm page cache and a shared
+  load (2.6–5.9). The `map` and RSS rows are load-sensitive.
+- Only the `x-pack/solutions` subtree is indexed, so no whole-Kibana claim.
+- `export * as ns`, computed specifiers, subpath `exports` maps, and
+  non-package.json workspace manifests are documented gaps, not measured.
+- The 215 removed pairs were sampled and classified by hand; they were not
+  audited one by one.
+
 ## Python and Rust corpora (#48)
 
 Issue #48 extended the same matrix to a second and a third language and split

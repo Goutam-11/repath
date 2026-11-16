@@ -13,8 +13,16 @@ nothing better was available.
 | `ts.import.named` | 1.00 | `import { add } from "./util"` and `add` is exported there |
 | `ts.import.namespace` | 0.95 | `import * as ns` then `ns.add()` |
 | `ts.import.default` | 0.95 | default import, target file has exactly one export |
+| `ts.import.reexport` | 0.95 | the name is reached through `export { a } from "./x"` (or `export { default as a } from "./x"`) in the target module |
+| `ts.import.star` | 0.85 | the name is reached through one or more `export * from "./x"` hops |
+| `ts.import.workspace` | 0.95 | `import { a } from "@scope/pkg"` resolved through package.json `workspaces` to the package's source entry |
+| `ts.import.workspace.reexport` | 0.90 | the workspace entry re-exports the name with `export { … } from` |
+| `ts.import.workspace.star` | 0.80 | the workspace entry reaches it through `export *` |
 | `ts.this.method` | 0.90 | `this.add()` inside `class Cart` → `Cart.add` |
+| `ts.typed.method` | 0.85 | `cart.total()` where `cart` is `new Cart()`, `cart: Cart`, or annotated; the class is local or imported directly |
 | `ts.local` | 0.85 | a symbol in the same file, unique (arity disambiguates) |
+| `ts.typed.method.reexport` | 0.80 | the receiver type was imported through a barrel or workspace entry, so the class is resolved first and its method looked up in the defining file |
+| `ts.typed.method.global` | 0.70 | receiver type known and exactly one `Type.method` exists in the repo |
 | `ts.global.unique` | 0.60 | exactly one symbol with that name in the repo |
 | `ts.method.unique` | 0.60 | `obj.add()` where exactly one method is named `add` |
 | `ts.global.ambiguous` | 0.40 | 2–5 candidates; one edge per candidate, default queries filter it |
@@ -123,6 +131,39 @@ symbol's arity; a `@classmethod`'s `cls` does not.
 `baseUrl` + `paths` from `tsconfig.json` (or `jsconfig.json`) are honoured, so
 `@/util` resolves to `src/util.ts`. The parser tolerates JSON with comments.
 
+`export * from "./x"`, `export { a } from "./x"`, and
+`export { a as b } from "./x"` are recorded as public import bindings, which is
+what lets the resolver follow a barrel. The walk is bounded at eight hops,
+cycle-safe through a visited set, and deterministic: a declaration exported by
+the module wins over a named re-export, a named re-export over `export *`, and
+several `export *` lines are tried in source order. `export *` never re-exports
+a default (matching TypeScript), so a default import only crosses a barrel
+through `export { default } from` or `export { X as default } from`. A chain
+that ends at a dependency is classified external instead of pending, which is
+why imports of names a local barrel re-exports from `@scope/pkg` no longer fall
+back to a repo-wide same-name guess.
+
+A bare specifier is then matched against the root `package.json` `workspaces`
+patterns (`packages/*`, and the object form's `packages` array). Each matching
+directory's `package.json` maps its `name` to a source entry, tried in this
+order: `exports` (string, `.` condition, or `import`/`types`/`require`/`default`
+condition), `source`, `types`, `typings`, `module`, `main`, then the
+`src/index` / `index` convention. An entry that is not in the index (build
+output under `dist/`) falls through to the next candidate, so a package whose
+`main` points at compiled JavaScript still resolves to its TypeScript source.
+`@scope/pkg/sub` resolves inside the package directory. This is local-manifest
+only: no registry, lockfile, or package manager is consulted, and
+`pnpm-workspace.yaml` is **not** read (Kibana declares its workspaces there, so
+its `@kbn/*` imports stay external).
+
+A static dynamic import is a binding too: `const m = require("./x")` and
+`const m = await import("./x")` bind a namespace (resolved like
+`import * as m`, including bundler magic comments inside the argument list),
+`const { a, b: c } = require("./x")` binds names (resolved like named imports),
+and `import x = require("./x")` binds a namespace. A computed or template
+specifier creates no binding and stays external, and a side-effect-only
+`import("./x")` has no symbol to point at, so it produces no edge.
+
 Anything else — `react`, `@excalidraw/common` — is a package import and is
 marked external. It is not an error and not counted as unresolved.
 
@@ -189,11 +230,29 @@ imports define the same name the last one wins, matching Python execution.
 
 ### TypeScript / JavaScript
 
-- **Barrel re-exports.** `export * from "./x"` and `export { a } from "./x"` are
-  not followed yet.
-- **Monorepo workspace packages.** `@scope/pkg` imports do not resolve to the
-  package's source; they are treated as external until workspace detection lands.
-- **Dynamic imports and `require`.**
+- **`export * as ns`.** A namespace re-export is not followed, so
+  `import { ns } from "./barrel"` for a barrel that writes
+  `export * as ns from "./x"` stays unresolved. Named and star re-exports are
+  followed.
+- **Workspace manifests other than package.json.** Only the root package.json
+  `workspaces` field is read. `pnpm-workspace.yaml` (Kibana), `lerna.json`, and
+  per-package overrides are not consulted, so those repos' `@scope/*` imports
+  stay external even when the sources are indexed.
+- **Computed specifiers.** `import(path)` / `require(name)` with a variable or
+  a template substitution is not a static module edge. `require` inside a
+  non-declaration position (`module.exports = require("./x")`, a call argument)
+  binds nothing; CommonJS `module.exports` / `exports.foo` export shapes are
+  not modelled as exports either.
+- **Barrel condition resolution.** `exports` conditions are tried in a fixed
+  order (`import`, `types`, `require`, `default`, `node`); a package whose
+  conditions disagree with what this repo would load can map to the other
+  file. Subpath `exports` maps are ignored; `@scope/pkg/sub` resolves as a
+  path inside the package directory.
+- **Re-export chains through dependencies.** A local barrel that re-exports
+  from an external package classifies the name external. That is deliberate
+  (the definition is not in the repo) but it removes the 0.60 same-name
+  fallback a pending retry used to provide; see the #56 note in
+  [`docs/benchmarks.md`](benchmarks.md).
 
 ### Rust
 
