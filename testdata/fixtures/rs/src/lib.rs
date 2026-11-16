@@ -14,6 +14,11 @@ pub mod amb_a;
 pub mod amb_b;
 pub mod amb_use;
 pub mod macros;
+pub mod generic;
+pub mod generic_use;
+pub mod workspace_use;
+pub mod path_use;
+pub mod inline_use;
 
 pub use crate::models::User;
 

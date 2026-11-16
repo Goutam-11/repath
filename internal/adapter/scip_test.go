@@ -2,11 +2,14 @@ package adapter
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
 
 	"github.com/Goutam-11/repath/internal/index"
 	"github.com/Goutam-11/repath/internal/store"
@@ -359,6 +362,32 @@ func TestRustSymbolName(t *testing.T) {
 	}
 }
 
+// seedGenericBoundPending removes the resolver's generic-bound edges and puts
+// the same references back into pending, where the adapter can supply the
+// compiler's exact target. It is test setup for the adapter gate only.
+func seedGenericBoundPending(t *testing.T, root string, ctx context.Context) {
+	t.Helper()
+	db, err := sql.Open("sqlite", filepath.Join(root, ".repath", "index.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, `DELETE FROM edges WHERE rule = 'rs.generic.bound'`); err != nil {
+		t.Fatalf("delete generic-bound edges: %v", err)
+	}
+	var libID int64
+	if err := db.QueryRowContext(ctx, `SELECT id FROM files WHERE path = 'src/lib.rs'`).Scan(&libID); err != nil {
+		t.Fatalf("lib.rs id: %v", err)
+	}
+	for _, line := range []int{6, 22} {
+		if _, err := db.ExecContext(ctx,
+			`INSERT INTO pending (name, file_id, kind, form, line) VALUES ('total', ?, 'call', 'member', ?)`,
+			libID, line); err != nil {
+			t.Fatalf("seed pending: %v", err)
+		}
+	}
+}
+
 func TestParseSCIPRustFixture(t *testing.T) {
 	index, err := LoadSCIP(filepath.Join("..", "..", "testdata", "fixtures", "rs-adapter", "index.scip"))
 	if err != nil {
@@ -404,6 +433,14 @@ func TestRustSCIPAdapterGate(t *testing.T) {
 	if _, err := index.Run(ctx, st, root, index.Options{}); err != nil {
 		t.Fatal(err)
 	}
+
+	// #55 teaches the tree-sitter ladder to resolve generic bounds, so the two
+	// `total()` calls this fixture was built to leave pending now resolve as
+	// rs.generic.bound. The pinned SCIP file is produced externally (CI must not
+	// need rust-analyzer) and is not edited: seed the pre-#55 pending rows so the
+	// Rust adapter merge path keeps its coverage. The source lines are the pinned
+	// occurrences' lines in src/lib.rs.
+	seedGenericBoundPending(t, root, ctx)
 
 	beforePending, err := st.CountPending(ctx)
 	if err != nil {

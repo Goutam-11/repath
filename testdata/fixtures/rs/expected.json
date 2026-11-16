@@ -1,6 +1,166 @@
 [
   {
-    "src": "src/util.rs:helper",
+    "src": "src/alias_use.rs:run",
+    "dst": "src/util.rs:helper",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/assoc.rs:build",
+    "dst": "src/models.rs:User.new",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/assoc.rs:build",
+    "dst": "src/service.rs:Service.new",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/assoc.rs:build",
+    "dst": "src/service.rs:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/assoc.rs:build",
+    "dst": "src/store.rs:Store.new",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/entry.rs:main_flow",
+    "dst": "src/models.rs:User.new",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/entry.rs:main_flow",
+    "dst": "src/service.rs:Service.new",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/entry.rs:main_flow",
+    "dst": "src/service.rs:Service.total",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/entry.rs:main_flow",
+    "dst": "src/store.rs:Store.new",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:Counter",
+    "dst": "src/generic.rs:Flex",
+    "kind": "IMPLEMENTS"
+  },
+  {
+    "src": "src/generic.rs:Counter",
+    "dst": "src/generic.rs:Greet",
+    "kind": "IMPLEMENTS"
+  },
+  {
+    "src": "src/generic.rs:Counter",
+    "dst": "src/generic.rs:Wave",
+    "kind": "IMPLEMENTS"
+  },
+  {
+    "src": "src/generic.rs:Counter.new",
+    "dst": "src/generic.rs:Counter",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "src/generic.rs:Describe.label",
+    "dst": "src/generic.rs:Describe.describe",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:Service2",
+    "dst": "src/generic.rs:Buildable",
+    "kind": "IMPLEMENTS"
+  },
+  {
+    "src": "src/generic.rs:Service2.make",
+    "dst": "src/generic.rs:Counter",
+    "kind": "REFERENCES"
+  },
+  {
+    "src": "src/generic.rs:bounded",
+    "dst": "src/generic.rs:Describe.describe",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:greet_counter",
+    "dst": "src/generic.rs:Greet.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:make_counter",
+    "dst": "src/generic.rs:Counter.new",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:supertrait_call",
+    "dst": "src/generic.rs:Describe.describe",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:use_chained",
+    "dst": "src/generic.rs:Counter.bump",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:use_chained",
+    "dst": "src/generic.rs:make_counter",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:use_return",
+    "dst": "src/generic.rs:Counter.bump",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:use_return",
+    "dst": "src/generic.rs:make_counter",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:via_assoc",
+    "dst": "src/generic.rs:Counter.bump",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:via_assoc",
+    "dst": "src/generic.rs:Service2.make",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic.rs:where_clause",
+    "dst": "src/generic.rs:Describe.describe",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/generic_use.rs:show",
+    "dst": "src/service.rs:Describe.describe",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/glob_use.rs:bounded",
+    "dst": "src/util.rs:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/global_use.rs:call_global",
+    "dst": "src/util.rs:helper",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/inline_use.rs:call_inline",
+    "dst": "src/lib.rs:inline.inner",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/inline_use.rs:direct_inline",
+    "dst": "src/lib.rs:inline.inner",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/lib.rs:root_helper",
     "dst": "src/util.rs:clamp",
     "kind": "CALLS"
   },
@@ -10,9 +170,29 @@
     "kind": "REFERENCES"
   },
   {
-    "src": "src/store.rs:Store.new",
-    "dst": "src/store.rs:Store",
+    "src": "src/module_use.rs:measure",
+    "dst": "src/util.rs:clamp",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/path_use.rs:via_attr",
+    "dst": "src/alt/impl_file.rs:alt_helper",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/path_use.rs:via_use",
+    "dst": "src/alt/impl_file.rs:alt_helper",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/reexport_use.rs:literal",
+    "dst": "src/models.rs:User",
     "kind": "REFERENCES"
+  },
+  {
+    "src": "src/reexport_use.rs:make",
+    "dst": "src/models.rs:User.new",
+    "kind": "CALLS"
   },
   {
     "src": "src/service.rs:Service",
@@ -20,13 +200,28 @@
     "kind": "IMPLEMENTS"
   },
   {
+    "src": "src/service.rs:Service.describe",
+    "dst": "src/models.rs:User.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/service.rs:Service.label",
+    "dst": "src/models.rs:User.greet",
+    "kind": "CALLS"
+  },
+  {
+    "src": "src/service.rs:Service.make_default",
+    "dst": "src/service.rs:Service.new",
+    "kind": "CALLS"
+  },
+  {
     "src": "src/service.rs:Service.new",
     "dst": "src/service.rs:Service",
     "kind": "REFERENCES"
   },
   {
-    "src": "src/service.rs:Service.describe",
-    "dst": "src/models.rs:User.greet",
+    "src": "src/service.rs:Service.summary",
+    "dst": "src/service.rs:Service.total",
     "kind": "CALLS"
   },
   {
@@ -45,93 +240,23 @@
     "kind": "CALLS"
   },
   {
-    "src": "src/service.rs:Service.label",
-    "dst": "src/models.rs:User.greet",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/assoc.rs:build",
-    "dst": "src/store.rs:Store.new",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/assoc.rs:build",
-    "dst": "src/models.rs:User.new",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/assoc.rs:build",
-    "dst": "src/service.rs:Service.new",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/assoc.rs:build",
-    "dst": "src/service.rs:Service.total",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/glob_use.rs:bounded",
-    "dst": "src/util.rs:clamp",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/alias_use.rs:run",
-    "dst": "src/util.rs:helper",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/module_use.rs:measure",
-    "dst": "src/util.rs:clamp",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/reexport_use.rs:make",
-    "dst": "src/models.rs:User.new",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/reexport_use.rs:literal",
-    "dst": "src/models.rs:User",
+    "src": "src/store.rs:Store.new",
+    "dst": "src/store.rs:Store",
     "kind": "REFERENCES"
   },
   {
-    "src": "src/entry.rs:main_flow",
-    "dst": "src/service.rs:Service.new",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/entry.rs:main_flow",
-    "dst": "src/store.rs:Store.new",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/entry.rs:main_flow",
-    "dst": "src/models.rs:User.new",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/entry.rs:main_flow",
-    "dst": "src/service.rs:Service.total",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/lib.rs:root_helper",
+    "src": "src/util.rs:helper",
     "dst": "src/util.rs:clamp",
     "kind": "CALLS"
   },
   {
-    "src": "src/service.rs:Service.make_default",
-    "dst": "src/service.rs:Service.new",
+    "src": "src/workspace_use.rs:direct",
+    "dst": "crates/extra/src/lib.rs:model.clamp2",
     "kind": "CALLS"
   },
   {
-    "src": "src/service.rs:Service.summary",
-    "dst": "src/service.rs:Service.total",
-    "kind": "CALLS"
-  },
-  {
-    "src": "src/global_use.rs:call_global",
-    "dst": "src/util.rs:helper",
+    "src": "src/workspace_use.rs:measure",
+    "dst": "crates/extra/src/lib.rs:extra_helper",
     "kind": "CALLS"
   }
 ]

@@ -357,3 +357,108 @@ func refKeys(m map[string]Ref) []string {
 	}
 	return out
 }
+
+// TestExtractGenericBounds pins the bound facts a receiver needs: the type
+// parameter is marked generic and carries its declared trait paths, from both
+// the inline bound list and a where clause.
+func TestExtractGenericBounds(t *testing.T) {
+	src := `pub trait Describe { fn describe(&self) -> u32; }
+fn bounded<T: Describe>(value: T) -> u32 { value.describe() }
+fn where_clause<T>(value: T) -> u32 where T: Describe { value.describe() }
+struct Pair<T> { inner: T }
+impl<T: Describe> Pair<T> { fn label(&self) -> u32 { self.inner.describe() } }
+`
+	result := New().Extract([]byte(src), Rust)
+	if !result.OK {
+		t.Fatalf("parse failed: %s", result.Err)
+	}
+	type want struct {
+		enclosing, name, recvType, bound string
+	}
+	cases := []want{
+		{"bounded", "describe", "T", "Describe"},
+		{"where_clause", "describe", "T", "Describe"},
+		{"Pair.label", "describe", "T", "Describe"},
+	}
+	for _, c := range cases {
+		found := false
+		for _, ref := range result.Refs {
+			if ref.Enclosing != c.enclosing || ref.Name != c.name {
+				continue
+			}
+			found = true
+			if ref.ReceiverType != c.recvType || ref.ReceiverBound != c.bound || !ref.ReceiverParam {
+				t.Errorf("%s.%s = type %q bound %q param %v, want %q/%q/true",
+					c.enclosing, c.name, ref.ReceiverType, ref.ReceiverBound, ref.ReceiverParam, c.recvType, c.bound)
+			}
+		}
+		if !found {
+			t.Errorf("missing ref %s.%s", c.enclosing, c.name)
+		}
+	}
+}
+
+// TestExtractModuleLayout pins the reserved import bindings that carry module
+// layout: an inline module (empty source), a #[path] value, and a supertrait.
+func TestExtractModuleLayout(t *testing.T) {
+	src := `#[path = "other/file.rs"]
+mod attr_mod;
+mod inline_mod {
+    pub fn helper() -> u32 { 1 }
+}
+pub trait Root { fn ping(&self); }
+pub trait Child: Root { fn pong(&self); }
+`
+	result := New().Extract([]byte(src), Rust)
+	if !result.OK {
+		t.Fatalf("parse failed: %s", result.Err)
+	}
+	got := make(map[string]Import, len(result.Imports))
+	for _, imp := range result.Imports {
+		got[imp.Local] = imp
+	}
+	if imp, ok := got["@mod:attr_mod"]; !ok || imp.Source != "other/file.rs" {
+		t.Errorf("@mod:attr_mod = %+v, want source other/file.rs", imp)
+	}
+	if imp, ok := got["@mod:inline_mod"]; !ok || imp.Source != "" {
+		t.Errorf("@mod:inline_mod = %+v, want an inline module with no source", imp)
+	}
+	if imp, ok := got["@trait:Child#0"]; !ok || imp.Imported != "Root" {
+		t.Errorf("@trait:Child#0 = %+v, want supertrait Root", imp)
+	}
+}
+
+// TestExtractReturnAndAssocTypes pins the same-file return inference: a call
+// result is typed only by a local return definition, including an associated
+// type bound by the same file's impl.
+func TestExtractReturnAndAssocTypes(t *testing.T) {
+	src := `pub struct S { n: u32 }
+impl S {
+    pub fn make() -> Self { S { n: 0 } }
+    pub fn bump(&self) -> u32 { self.n }
+}
+pub fn make_s() -> S { S::make() }
+pub fn use_it() -> u32 { let s = make_s(); s.bump() }
+fn chained() -> u32 { make_s().bump() }
+pub trait Build { type Made; fn build(&self) -> Self::Made; }
+impl Build for S { type Made = S; fn build(&self) -> Self::Made { S { n: 1 } } }
+fn via(s: &S) -> u32 { let made = s.build(); made.bump() }
+`
+	result := New().Extract([]byte(src), Rust)
+	if !result.OK {
+		t.Fatalf("parse failed: %s", result.Err)
+	}
+	got := make(map[string]Ref, len(result.Refs))
+	for _, ref := range result.Refs {
+		got[ref.Enclosing+":"+ref.Name] = ref
+	}
+	for _, key := range []string{"use_it:bump", "chained:bump", "via:bump"} {
+		ref, ok := got[key]
+		if !ok {
+			t.Fatalf("missing ref %q", key)
+		}
+		if ref.ReceiverType != "S" || ref.ReceiverFrom != "return" {
+			t.Errorf("%s = type %q from %q, want S/return", key, ref.ReceiverType, ref.ReceiverFrom)
+		}
+	}
+}

@@ -586,12 +586,15 @@ type EdgeDetail struct {
 	Confidence        float64
 	Rule              string
 	Line              int
+	// Candidates is the comma-separated node id list of an ambiguous group; it
+	// is empty for a single-target edge.
+	Candidates string
 }
 
 // Edges returns every edge at or above minConfidence with its endpoints named.
 func (s *Store) Edges(ctx context.Context, minConfidence float64) ([]EdgeDetail, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT sf.path, s.qname, df.path, d.qname, e.kind, e.confidence, e.rule, e.line
+		SELECT sf.path, s.qname, df.path, d.qname, e.kind, e.confidence, e.rule, e.line, e.candidates
 		FROM edges e
 		JOIN nodes s ON s.id = e.src
 		JOIN files sf ON sf.id = s.file_id
@@ -608,7 +611,7 @@ func (s *Store) Edges(ctx context.Context, minConfidence float64) ([]EdgeDetail,
 	for rows.Next() {
 		var e EdgeDetail
 		if err := rows.Scan(&e.SrcPath, &e.SrcQName, &e.DstPath, &e.DstQName,
-			&e.Kind, &e.Confidence, &e.Rule, &e.Line); err != nil {
+			&e.Kind, &e.Confidence, &e.Rule, &e.Line, &e.Candidates); err != nil {
 			return nil, err
 		}
 		out = append(out, e)

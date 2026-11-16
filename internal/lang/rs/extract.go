@@ -66,8 +66,21 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 		}
 	}
 
-	w := &walker{src: src, res: &res, seen: make(map[string]bool), types: make(map[string]string)}
+	w := &walker{
+		src:        src,
+		res:        &res,
+		seen:       make(map[string]bool),
+		types:      make(map[string]string),
+		typeFrom:   make(map[string]string),
+		bounds:     make(map[string]string),
+		params:     make(map[string]bool),
+		returns:    make(map[string]string),
+		assocTypes: make(map[string]string),
+	}
 	w.collectFields(root)
+	w.collectAssocTypes(root, "")
+	w.collectReturns(root, "", "")
+	w.resolveReturnProjections()
 	for i := uint32(0); i < root.NamedChildCount(); i++ {
 		w.node(root.NamedChild(i), "", false, "", false)
 	}
@@ -79,6 +92,263 @@ type walker struct {
 	res   *Result
 	seen  map[string]bool
 	types map[string]string // "enclosing:name" → type, "field:Type.field" → type
+	// typeFrom records how a local binding's type was inferred ("return" for a
+	// same-file function return type), so the resolver can pick an honest rule.
+	typeFrom map[string]string
+	// bounds holds the trait bounds of a generic type parameter, keyed by
+	// "scope:T" where scope is a function qname or an impl/trait type name.
+	bounds map[string]string
+	// params records type parameter names, keyed like bounds, so a receiver can
+	// be marked as generic even when it has no bound.
+	params map[string]bool
+	// returns maps a same-file function's qname to its return type base name. It
+	// is a local definition only: a receiver typed by it never crosses a file.
+	returns map[string]string
+	// assocTypes maps "Type.Assoc" to the concrete local type an impl binds it
+	// to (`impl Trait for Type { type Assoc = Other; }`). It resolves the
+	// associated-type projections a same-file return type can name.
+	assocTypes map[string]string
+}
+
+// boundPath renders one trait bound as a module path plus its last segment.
+func boundPath(n sitter.Node, src []byte) string {
+	if n.IsNull() {
+		return ""
+	}
+	prefix, name := typePath(n, src)
+	if name == "" {
+		return ""
+	}
+	if prefix == "" {
+		return name
+	}
+	return prefix + "::" + name
+}
+
+// collectBounds reads a type_parameters / where_clause pair into the walker's
+// bound map. Bounds are kept verbatim as paths; the resolver decides whether a
+// path names a local trait.
+// childOfType returns the first named child of a type. The Rust grammar
+// exposes type_parameters as a field but where_clause only as a child.
+func childOfType(n sitter.Node, typ string) sitter.Node {
+	if n.IsNull() {
+		return sitter.Node{}
+	}
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		if child := n.NamedChild(i); child.Type() == typ {
+			return child
+		}
+	}
+	return sitter.Node{}
+}
+
+func (w *walker) collectBounds(scope string, typeParams, whereClause sitter.Node) {
+	if scope != "" && !typeParams.IsNull() {
+		for i := uint32(0); i < typeParams.NamedChildCount(); i++ {
+			param := typeParams.NamedChild(i)
+			if param.Type() != "type_parameter" {
+				continue
+			}
+			name := nameOf(param, w.src)
+			if name == "" {
+				continue
+			}
+			w.params[scopeKey(scope, name)] = true
+			w.addBounds(scopeKey(scope, name), boundsOf(param.ChildByFieldName("bounds"), w.src))
+		}
+	}
+	if scope == "" || whereClause.IsNull() {
+		return
+	}
+	for i := uint32(0); i < whereClause.NamedChildCount(); i++ {
+		pred := whereClause.NamedChild(i)
+		if pred.Type() != "where_predicate" {
+			continue
+		}
+		name := typeNameOf(pred.ChildByFieldName("left"), w.src)
+		if name == "" {
+			continue
+		}
+		w.addBounds(scopeKey(scope, name), boundsOf(pred.ChildByFieldName("bounds"), w.src))
+	}
+}
+
+func (w *walker) addBounds(key string, paths []string) {
+	if len(paths) == 0 {
+		return
+	}
+	if existing := w.bounds[key]; existing != "" {
+		paths = append(strings.Split(existing, "|"), paths...)
+	}
+	w.bounds[key] = strings.Join(paths, "|")
+}
+
+// boundsOf lists the trait paths in a trait_bounds node, skipping lifetimes.
+func boundsOf(n sitter.Node, src []byte) []string {
+	if n.IsNull() {
+		return nil
+	}
+	var out []string
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		switch child.Type() {
+		case "lifetime", "removed_trait_bound":
+			continue
+		}
+		if path := boundPath(child, src); path != "" {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+// boundsFor returns the bound paths of a receiver type, looking in the
+// enclosing function's scope first and then in its enclosing impl/trait type.
+func (w *walker) boundsFor(enclosing, typ string) string {
+	if typ == "" {
+		return ""
+	}
+	if b := w.bounds[scopeKey(enclosing, typ)]; b != "" {
+		return b
+	}
+	if parent := classOf(enclosing); parent != enclosing {
+		return w.bounds[scopeKey(parent, typ)]
+	}
+	return ""
+}
+
+// isTypeParam reports whether a receiver type names a generic type parameter of
+// the enclosing function or its impl/trait.
+func (w *walker) isTypeParam(enclosing, typ string) bool {
+	if typ == "" {
+		return false
+	}
+	if w.params[scopeKey(enclosing, typ)] {
+		return true
+	}
+	if parent := classOf(enclosing); parent != enclosing {
+		return w.params[scopeKey(parent, typ)]
+	}
+	return false
+}
+
+// collectAssocTypes records `type Assoc = Concrete` from impl blocks before
+// return types are collected, because a return type may name Self::Assoc.
+func (w *walker) collectAssocTypes(n sitter.Node, implType string) {
+	switch n.Type() {
+	case "impl_item":
+		base := typeNameOf(n.ChildByFieldName("type"), w.src)
+		body := n.ChildByFieldName("body")
+		if base == "" || body.IsNull() {
+			return
+		}
+		for i := uint32(0); i < body.NamedChildCount(); i++ {
+			child := body.NamedChild(i)
+			if child.Type() != "type_item" {
+				continue
+			}
+			name := nameOf(child, w.src)
+			value := typeNameOf(child.ChildByFieldName("type"), w.src)
+			if name != "" && value != "" {
+				w.assocTypes[base+"."+name] = value
+			}
+		}
+		return
+	case "mod_item":
+		name := nameOf(n, w.src)
+		body := n.ChildByFieldName("body")
+		if name == "" || body.IsNull() {
+			return
+		}
+		for i := uint32(0); i < body.NamedChildCount(); i++ {
+			w.collectAssocTypes(body.NamedChild(i), implType)
+		}
+		return
+	}
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		w.collectAssocTypes(n.NamedChild(i), implType)
+	}
+}
+
+// resolveReturnProjections replaces `Self::Assoc` return types with the concrete
+// local type the same file's impl binds. No impl, no answer: the projection
+// stays unresolved rather than guessed.
+func (w *walker) resolveReturnProjections() {
+	for qname, ret := range w.returns {
+		owner := qname
+		if i := strings.LastIndex(qname, "."); i >= 0 {
+			owner = qname[:i]
+		}
+		projection := ""
+		switch {
+		case strings.HasPrefix(ret, "Self::"):
+			projection = strings.TrimPrefix(ret, "Self::")
+		default:
+			if i := strings.Index(ret, "::"); i >= 0 {
+				owner = ret[:i]
+				projection = ret[i+2:]
+			}
+		}
+		if projection == "" {
+			continue
+		}
+		if concrete := w.assocTypes[owner+"."+projection]; concrete != "" {
+			w.returns[qname] = concrete
+		}
+	}
+}
+
+// collectReturns is a pre-pass: a call may precede the definition of the
+// function whose return type types its receiver.
+func (w *walker) collectReturns(n sitter.Node, enclosing, implType string) {
+	switch n.Type() {
+	case "function_item":
+		name := nameOf(n, w.src)
+		ret := typeNameOf(n.ChildByFieldName("return_type"), w.src)
+		if name != "" && ret != "" {
+			qname := join(enclosing, name)
+			if implType != "" {
+				qname = implType + "." + name
+			}
+			w.returns[qname] = ret
+		}
+		return
+	case "impl_item":
+		base := typeNameOf(n.ChildByFieldName("type"), w.src)
+		body := n.ChildByFieldName("body")
+		if base == "" || body.IsNull() {
+			return
+		}
+		for i := uint32(0); i < body.NamedChildCount(); i++ {
+			w.collectReturns(body.NamedChild(i), base, base)
+		}
+		return
+	case "trait_item":
+		name := nameOf(n, w.src)
+		body := n.ChildByFieldName("body")
+		if name == "" || body.IsNull() {
+			return
+		}
+		qname := join(enclosing, name)
+		for i := uint32(0); i < body.NamedChildCount(); i++ {
+			w.collectReturns(body.NamedChild(i), qname, "")
+		}
+		return
+	case "mod_item":
+		name := nameOf(n, w.src)
+		body := n.ChildByFieldName("body")
+		if name == "" || body.IsNull() {
+			return
+		}
+		qname := join(enclosing, name)
+		for i := uint32(0); i < body.NamedChildCount(); i++ {
+			w.collectReturns(body.NamedChild(i), qname, "")
+		}
+		return
+	}
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		w.collectReturns(n.NamedChild(i), enclosing, implType)
+	}
 }
 
 // node visits one item. enclosing is the qname prefix; implType is set inside
@@ -187,6 +457,7 @@ func (w *walker) function(n sitter.Node, enclosing string, exported bool, implTy
 	arity := w.parameters(params, qname, implType != "" || inTrait)
 	exported = hasVisibility(n) || exported
 	w.add(kind, name, qname, arity, n, exported)
+	w.collectBounds(qname, n.ChildByFieldName("type_parameters"), childOfType(n, "where_clause"))
 	w.entrypointsFor(n, name, qname)
 	if kind == "function" && name == "main" {
 		w.addEntrypoint(name, qname, "rs.main", 0.95, n)
@@ -262,6 +533,22 @@ func (w *walker) trait(n sitter.Node, enclosing string, exported bool) {
 	qname := join(enclosing, name)
 	pub := hasVisibility(n) || exported
 	w.add("trait", name, qname, 0, n, pub)
+	w.collectBounds(qname, n.ChildByFieldName("type_parameters"), childOfType(n, "where_clause"))
+
+	// Supertrait paths are stored as reserved import bindings so a later run can
+	// follow `T: Child` to `Child: Root` without the trait's AST. They carry a
+	// "@trait:" local name, which no Rust identifier can collide with.
+	if bounds := n.ChildByFieldName("bounds"); !bounds.IsNull() {
+		line := int(n.StartPoint().Row) + 1
+		for i := uint32(0); i < bounds.NamedChildCount(); i++ {
+			if path := boundPath(bounds.NamedChild(i), w.src); path != "" {
+				w.res.Imports = append(w.res.Imports, Import{
+					Local:    "@trait:" + qname + "#" + fmt.Sprint(i),
+					Imported: path, Source: "", Line: line, Public: pub,
+				})
+			}
+		}
+	}
 
 	body := n.ChildByFieldName("body")
 	if body.IsNull() {
@@ -278,6 +565,7 @@ func (w *walker) implBlock(n sitter.Node, enclosing string) {
 	if baseType == "" {
 		return
 	}
+	w.collectBounds(baseType, n.ChildByFieldName("type_parameters"), childOfType(n, "where_clause"))
 
 	if traitNode := n.ChildByFieldName("trait"); !traitNode.IsNull() {
 		w.implTraitRef(traitNode, baseType)
@@ -327,13 +615,50 @@ func (w *walker) module(n sitter.Node, enclosing string, exported bool) {
 	}
 	qname := join(enclosing, name)
 	body := n.ChildByFieldName("body")
+	pub := hasVisibility(n) || exported
+	line := int(n.StartPoint().Row) + 1
+
+	// Module layout is persisted as a reserved import binding: `mod x { .. }`
+	// carries an empty source (the module lives in this file), and
+	// `#[path = "..."] mod x;` carries the attribute value. The "@mod:" local
+	// name cannot collide with a Rust identifier, so the use tree stays
+	// untouched. Conventional `mod x;` needs no row: its file is derived from
+	// the parent module's directory.
 	if body.IsNull() {
+		if attr := pathAttribute(n, w.src); attr != "" {
+			w.res.Imports = append(w.res.Imports, Import{
+				Local: "@mod:" + qname, Imported: "@mod", Source: attr, Line: line, Public: pub,
+			})
+		}
 		return
 	}
-	pub := hasVisibility(n) || exported
+	w.res.Imports = append(w.res.Imports, Import{
+		Local: "@mod:" + qname, Imported: "@mod", Source: "", Line: line, Public: pub,
+	})
 	for i := uint32(0); i < body.NamedChildCount(); i++ {
 		w.node(body.NamedChild(i), qname, pub, "", false)
 	}
+}
+
+// pathAttribute returns the value of a #[path = "..."] attribute immediately
+// above a module declaration.
+func pathAttribute(n sitter.Node, src []byte) string {
+	for prev := n.PrevNamedSibling(); !prev.IsNull() && prev.Type() == "attribute_item"; prev = prev.PrevNamedSibling() {
+		text := prev.Content(src)
+		if !strings.Contains(text, "path") {
+			continue
+		}
+		start := strings.Index(text, `"`)
+		if start < 0 {
+			continue
+		}
+		end := strings.Index(text[start+1:], `"`)
+		if end < 0 {
+			continue
+		}
+		return text[start+1 : start+1+end]
+	}
+	return ""
 }
 
 func (w *walker) structFields(n sitter.Node) {
@@ -409,6 +734,7 @@ func (w *walker) call(n sitter.Node, enclosing, implType string) {
 			receiver := value.Content(w.src)
 			ref.Receiver = receiver
 			ref.ReceiverType = w.types[scopeKey(enclosing, receiver)]
+			ref.ReceiverFrom = w.typeFrom[scopeKey(enclosing, receiver)]
 			if ref.ReceiverType == "Self" && implType != "" {
 				ref.ReceiverType = implType
 			}
@@ -418,8 +744,24 @@ func (w *walker) call(n sitter.Node, enclosing, implType string) {
 			if recvType := w.selfFieldType(receiver, enclosing); recvType != "" {
 				ref.ReceiverType = recvType
 			}
+		case "call_expression":
+			// make().method(): only a same-file return definition types the
+			// chained receiver. A bare `Type::new()` heuristic (no local return
+			// type) is not trustworthy here, so the chain is not walked.
+			typ, from := w.constructedType(value, enclosing, implType)
+			if typ == "" || from == "" {
+				return
+			}
+			ref.ReceiverType = typ
+			ref.ReceiverFrom = from
 		default:
 			return
+		}
+		if ref.ReceiverType != "" {
+			if ref.ReceiverBound == "" {
+				ref.ReceiverBound = w.boundsFor(enclosing, ref.ReceiverType)
+			}
+			ref.ReceiverParam = w.isTypeParam(enclosing, ref.ReceiverType)
 		}
 		w.res.Refs = append(w.res.Refs, ref)
 	}
@@ -461,15 +803,17 @@ func (w *walker) structExpression(n sitter.Node, enclosing string) {
 }
 
 // letDeclaration records the type of local bindings so value.method() can
-// resolve when the type is annotated or constructed locally.
+// resolve when the type is annotated, constructed locally, or returned by a
+// same-file function whose return type is a local definition.
 func (w *walker) letDeclaration(n sitter.Node, enclosing, implType string) {
 	pattern := n.ChildByFieldName("pattern")
 	if pattern.IsNull() || pattern.Type() != "identifier" {
 		return
 	}
 	typ := typeNameOf(n.ChildByFieldName("type"), w.src)
+	from := ""
 	if typ == "" {
-		typ = constructedType(n.ChildByFieldName("value"), w.src, implType)
+		typ, from = w.constructedType(n.ChildByFieldName("value"), enclosing, implType)
 	}
 	if typ == "" {
 		return
@@ -477,7 +821,11 @@ func (w *walker) letDeclaration(n sitter.Node, enclosing, implType string) {
 	if typ == "Self" && implType != "" {
 		typ = implType
 	}
-	w.types[scopeKey(enclosing, pattern.Content(w.src))] = typ
+	key := scopeKey(enclosing, pattern.Content(w.src))
+	w.types[key] = typ
+	if from != "" {
+		w.typeFrom[key] = from
+	}
 }
 
 // parameters records parameter types and returns the declared arity, excluding
@@ -620,45 +968,75 @@ func ungeneric(n sitter.Node) sitter.Node {
 	return n
 }
 
-// constructedType infers the type of `let x = Type::new()` or `Type { .. }`.
-func constructedType(value sitter.Node, src []byte, implType string) string {
+// constructedType infers the type of `let x = Type::new()`, `Type { .. }`, or a
+// call to a same-file function whose return type is a local definition. The
+// second result is the inference source: "return" for a return type.
+func (w *walker) constructedType(value sitter.Node, enclosing, implType string) (string, string) {
 	if value.IsNull() {
-		return ""
+		return "", ""
 	}
 	switch value.Type() {
 	case "struct_expression":
 		if name := value.ChildByFieldName("name"); !name.IsNull() {
-			return typeNameOf(name, src)
+			return typeNameOf(name, w.src), ""
 		}
 	case "call_expression":
 		fn := ungeneric(value.ChildByFieldName("function"))
+		if fn.Type() == "field_expression" {
+			// value.method(): type the result only from the same file's declared
+			// return type for that receiver type.
+			recv := fn.ChildByFieldName("value")
+			field := fn.ChildByFieldName("field")
+			if !recv.IsNull() && !field.IsNull() && recv.Type() == "identifier" {
+				recvType := w.types[scopeKey(enclosing, recv.Content(w.src))]
+				if recvType != "" {
+					if ret := w.returns[recvType+"."+field.Content(w.src)]; ret != "" && ret != "Self" {
+						return ret, "return"
+					}
+				}
+			}
+			return "", ""
+		}
 		switch fn.Type() {
 		case "scoped_identifier", "scoped_type_identifier":
 			path := fn.ChildByFieldName("path")
 			name := fn.ChildByFieldName("name")
 			if path.IsNull() || name.IsNull() {
-				return ""
+				return "", ""
 			}
-			if pathText(path, src) == "Self" {
-				return "Self"
+			if pathText(path, w.src) == "Self" {
+				return "Self", ""
 			}
-			typ := typeNameOf(path, src)
+			typ := typeNameOf(path, w.src)
 			if typ == "" {
-				typ = pathText(path, src)
+				typ = pathText(path, w.src)
 			}
-			if startsUpper(lastSegment(typ)) {
-				return typ
+			last := lastSegment(typ)
+			// Only a same-file definition types the call's result. `Type::new()`
+			// returning Self is the one associated-function convention on top of
+			// that, and an explicit `-> Other` wins over the path's own name.
+			if ret := w.returns[last+"."+name.Content(w.src)]; ret != "" {
+				if ret == "Self" {
+					return typ, "return"
+				}
+				return ret, "return"
+			}
+			if startsUpper(last) {
+				return typ, ""
 			}
 		case "identifier", "type_identifier":
-			name := fn.Content(src)
+			name := fn.Content(w.src)
+			if ret := w.returns[name]; ret != "" && ret != "Self" {
+				return ret, "return"
+			}
 			if startsUpper(name) {
-				return name
+				return name, ""
 			}
 		}
 	case "reference_expression":
-		return constructedType(value.ChildByFieldName("value"), src, implType)
+		return w.constructedType(value.ChildByFieldName("value"), enclosing, implType)
 	}
-	return ""
+	return "", ""
 }
 
 func hasVisibility(n sitter.Node) bool {
