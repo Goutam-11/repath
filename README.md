@@ -14,7 +14,9 @@ immutable cache, `repath check` adds graph-native CI diagnostics, and
 overwriting tree-sitter edges, `repath adapter --lsp-facts` ingests the same
 kind of facts from an external LSP client, cross-language HTTP links connect a
 TS/JS client call to its FastAPI/Flask/Express handler at 0.45 (opt in with
-`--min-confidence 0.4`), and `repath flows` walks forward from detected
+`--min-confidence 0.4`), `repath trace` reads an existing V8 CPU profile and
+reports the calls it observed (including dynamic dispatch) without writing to
+the graph, and `repath flows` walks forward from detected
 entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`),
 and `repath tests` maps a change (or a git `--diff` set) to the test files that
 structurally reach it.
@@ -69,6 +71,7 @@ make build
 ./bin/repath check --sarif out.ts.sarif # attach SARIF diagnostics to symbols
 ./bin/repath adapter --scip index.scip # merge TS/Python SCIP facts into pending refs
 ./bin/repath adapter --lsp-facts facts.json # merge external LSP facts (opt-in)
+./bin/repath trace --file profile.cpuprofile # observed calls vs the static graph
 ./bin/repath flows <entrypoint>        # forward execution paths
 ./bin/repath tests <symbol|file:line>  # affected test files (structural)
 ./bin/repath tests --diff origin/main  # affected test files for a change set
@@ -88,8 +91,10 @@ adapter's dual-era negotiation and client verification are in
 TypeScript/Python/Rust and the opt-in LSP facts file), their merge rules, and the
 measured unresolved drops are in
 [`docs/adapters.md`](docs/adapters.md); cross-language HTTP matching, its
-fixture, and its limits are in [`docs/xlang.md`](docs/xlang.md); entrypoint
-detection/flow limits are in [`docs/flows.md`](docs/flows.md); test-impact provenance, diff mode, and
+fixture, and its limits are in [`docs/xlang.md`](docs/xlang.md); read-only
+runtime evidence, its fixture, and its limits are in
+[`docs/trace.md`](docs/trace.md); entrypoint detection/flow limits are in
+[`docs/flows.md`](docs/flows.md); test-impact provenance, diff mode, and
 limits are in [`docs/tests.md`](docs/tests.md); real-repo measurements and misses are in
 [`docs/benchmarks.md`](docs/benchmarks.md), and the read-only HTTP surface is in
 [`docs/serve.md`](docs/serve.md).
