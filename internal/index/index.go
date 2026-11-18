@@ -42,6 +42,15 @@ type Result struct {
 // database write happens on the calling goroutine.
 func Run(ctx context.Context, st *store.Store, root string, opts Options) (Result, error) {
 	start := time.Now()
+	// The xlang anchors are a v6 addition. A database migrated in place (for
+	// example a non-git directory) has files but no anchors for them, so one
+	// full re-read is forced until the marker says extraction has happened.
+	// Git worktrees already discard a stale-schema database before this point.
+	if !opts.Full {
+		if meta, err := st.Meta(ctx); err == nil && meta["xlang_indexed"] != "1" {
+			opts.Full = true
+		}
+	}
 	indexed, err := st.IndexedPaths(ctx)
 	if err != nil {
 		return Result{}, err
@@ -164,6 +173,10 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 				_ = tx.Rollback()
 				return err
 			}
+			if err := tx.ReplaceAnchors(ctx, fileID, toAnchorRows(o.anchors, ids, o.lang)); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
 			o.fileID = fileID
 			res.Indexed++
 			res.Nodes += len(o.symbols)
@@ -245,14 +258,25 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 		}
 	}
 
+	// Cross-language edges are derived from the anchors just written (and the
+	// anchors of unchanged files). Rebuilding them on every run that wrote
+	// files keeps a cold, incremental, and --full graph identical without
+	// touching any resolver or node identity.
+	if len(written) > 0 || res.Deleted > 0 {
+		if err := linkCrossLanguage(ctx, st); err != nil {
+			return res, err
+		}
+	}
+
 	res.Edges, _ = st.CountEdges(ctx)
 	res.Unresolved, _ = st.CountPending(ctx)
 
 	for key, value := range map[string]string{
-		"root":       root,
-		"indexed_at": time.Now().UTC().Format(time.RFC3339),
-		"file_count": strconv.Itoa(len(sources)),
-		"git_head":   head,
+		"root":          root,
+		"indexed_at":    time.Now().UTC().Format(time.RFC3339),
+		"file_count":    strconv.Itoa(len(sources)),
+		"git_head":      head,
+		"xlang_indexed": "1",
 	} {
 		if err := st.SetMeta(ctx, key, value); err != nil {
 			return res, err
@@ -549,6 +573,7 @@ type outcome struct {
 	refs    []facts.Ref
 	imports []facts.Import
 	entries []facts.Entrypoint
+	anchors []facts.Anchor
 	skipped bool
 	fileID  int64
 }
@@ -592,6 +617,7 @@ func parseOne(src Source, ex *lang.Extractor, existing map[string]store.FileStat
 		refs:    result.Refs,
 		imports: result.Imports,
 		entries: result.Entrypoints,
+		anchors: result.Anchors,
 	}
 }
 

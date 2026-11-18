@@ -212,7 +212,7 @@ The other commands never return `5`; exit codes `0–4` are unchanged.
 ```json
 {
   "root": "/repo",
-  "schema_version": 5,
+  "schema_version": 6,
   "min_confidence": 0.5,
   "max_findings": 200,
   "files": 17,

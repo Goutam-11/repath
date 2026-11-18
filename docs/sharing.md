@@ -31,7 +31,7 @@ and a sidecar. With `--compress`, the snapshot is zstd-encoded after
 
 ```json
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "tool_version": "v0.5.0",
   "commit": "5c68771…",
   "file_count": 2,

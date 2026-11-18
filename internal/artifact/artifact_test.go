@@ -219,7 +219,7 @@ func TestCompressedPullRefusesUnknownSchemaVersion(t *testing.T) {
 
 	laptop := t.TempDir()
 	_, err = Pull(context.Background(), outDir, laptop, "test-version")
-	if err == nil || !strings.Contains(err.Error(), "expects v5") {
+	if err == nil || !strings.Contains(err.Error(), "expects v6") {
 		t.Fatalf("error = %v, want schema refusal", err)
 	}
 	if _, statErr := os.Stat(filepath.Join(laptop, ".repath", "index.db")); !os.IsNotExist(statErr) {
@@ -247,7 +247,7 @@ func TestPullRefusesUnknownSchemaVersion(t *testing.T) {
 		t.Fatal("pull accepted schema v99")
 	}
 	message := err.Error()
-	for _, want := range []string{"schema v99", "expects v5", "upgrade"} {
+	for _, want := range []string{"schema v99", "expects v6", "upgrade"} {
 		if !strings.Contains(message, want) {
 			t.Fatalf("error %q does not contain %q", message, want)
 		}

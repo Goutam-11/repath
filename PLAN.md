@@ -79,6 +79,7 @@ Two hard constraints inherited from the field:
 | 20 | Worktrees | Per-worktree DB seeded by copying a commit-keyed cache | Parallel agents own separate trees; sub-second seed, zero lock contention |
 | 21 | Sharing | Commit-keyed CI artifact + local dirty overlay | Snapshot distribution like SCIP→Sourcegraph; never a network-FS database |
 | 22 | Diagnostics | Structural `check`; opt-in SARIF 2.1.0 ingestion attaches external diagnostics and never runs the compiler (amended in v1.2) | The compiler already did the work; reading its log is a bridge, not a language frontend |
+| 23 | Cross-language | Low-confidence links between symbols in different languages, emitted as `REFERENCES` at 0.45 with `xlang.<protocol>.*` rules and rebuilt from the `xlang_anchors` dimension; first transport HTTP route literals (v1.3) | Full-stack "what breaks" without a runtime; below the default floor like ambiguity, so default answers are unchanged |
 
 Assumptions to veto if wrong: **MIT license**, **no config file** (flags only).
 
@@ -127,6 +128,17 @@ CREATE TABLE entrypoints (
     name TEXT, confidence REAL, line INT,
     UNIQUE (node_id, rule)
 );
+
+-- cross-language anchors are inputs for the xlang pass: an HTTP route on the
+-- server, a literal call site on the client. Not nodes, not edges.
+CREATE TABLE xlang_anchors (
+    id INTEGER PRIMARY KEY, node_id INT, file_id INT, lang TEXT,
+    protocol TEXT, role TEXT, method TEXT, path TEXT,
+    line INT, confidence REAL,
+    UNIQUE (node_id, protocol, role, method, path, line)
+);
+CREATE INDEX xlang_anchors_match ON xlang_anchors (protocol, role, method, path);
+CREATE INDEX xlang_anchors_file  ON xlang_anchors (file_id);
 ```
 
 **Node kinds:** `function, method, class, struct, trait, interface, type, enum, const`.
@@ -172,13 +184,24 @@ Invariants:
   ids at `0.99` and stats under `meta.adapter.<name>` (`lsp`, `lsp-python`,
   `lsp-rust`). The file carries 1-based lines and 1-based LSP columns; a column
   is used only to count and dedupe occurrences inside one run and is never
-  persisted (the schema stays 5). Because the file reports every occurrence at
+  persisted (the schema is 6). Because the file reports every occurrence at
   a position, a pending key merges only when the compiler reports at least as
   many occurrences as there are pending rows; several distinct targets merge
   only when occurrences and rows pair one-to-one and the rows share one shape.
   Otherwise the key stays pending and the references are counted, so a row the
   compiler did not account for is never deleted. Ambiguous-group replacement
   keeps the #57 rule unchanged (exactly one compiler occurrence).
+- *Amended for #59 (cross-language links).* Cross-language links are rule-tagged
+  `REFERENCES` edges at confidence `0.45` — below the default `0.5` floor — with
+  `xlang.<protocol>.<relation>` rules (`xlang.http.route` first). They are
+  derived from the `xlang_anchors` input dimension (an HTTP route on the server,
+  a literal call site on the client; replaced per file like entrypoints) by a
+  bounded pass on every index run that writes files, so cold, incremental, and
+  `--full` edge row sets stay identical (#49). A missing internal
+  `xlang_indexed` marker forces one full re-read so a migrated index backfills
+  its anchors. They link only symbols in different languages and never replace
+  a static edge. No node kind, edge kind, or resolver rule changes.
+  gRPC/protobuf, FFI, and OpenAPI anchors remain deferred (§16.7).
 - SARIF diagnostics are ingested per `check` run and attached to the enclosing
   symbol at read time (`sarif.<tool>.<rule>`); they are never persisted as
   nodes, edges, or a schema change (decision 22, amended in v1.2).
@@ -610,7 +633,7 @@ See `docs/tests.md`.
 **v1.1 entrypoint flows landed** (issue #14): `repath flows <entrypoint>`
 walks forward from a detected entrypoint and returns bounded leaf paths with
 per-edge rule/confidence, or the nearest frontier when no outgoing edge exists.
-Detection is a symbol dimension (`entrypoints` table, schema v5), not a new node
+Detection is a symbol dimension (`entrypoints` table, schema v6), not a new node
 kind: Express/Fastify route handlers, Next.js route exports, FastAPI/Flask route
 decorators, Python `test_` functions and `__main__` guards, Rust `main`, and
 Rust `#[test]` functions. `status`/`map` expose counts and rule ids in JSON.
@@ -934,6 +957,20 @@ two same-line outcomes. No schema, node-kind, exit-code, fixture-gate, or Go
 dependency change; CI needs no server. See `docs/adapters.md` and
 `docs/benchmarks.md` §“LSP facts”.
 
+**Cross-language HTTP links landed** (issue #59): a bounded pass now rebuilds
+`xlang.http.route` `REFERENCES` edges at **0.45** from the new `xlang_anchors`
+dimension (schema **v6**): server routes from FastAPI/Flask/Express/Fastify and
+literal client calls from TS/JS `fetch`/`axios`, matched on protocol + method +
+normalized path. The committed fixture `testdata/fixtures/xlang/http` produces
+exactly **3** edges (FastAPI GET/POST and a Flask POST) and none for the
+same-language pair, the missing handler, the dynamic URL, or the method
+mismatch; `impact`/`path` reach the other language only at `--min-confidence
+0.4` (the default 0.5 answers are unchanged), and cold / incremental / second
+`--full` xlang row sets are identical. No resolver, node-kind, or edge-kind
+change; the TS/PY/RS fixture gates are untouched. `make perf` stays green (50k
+cold **10.3 s**, 10-file incremental **567 ms**, `map` p95 **159 ms**). gRPC,
+FFI, and OpenAPI remain deferred (§16.7). See `docs/xlang.md`.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -995,7 +1032,10 @@ reachability rather than runtime coverage. That remains the known ceiling.
    (`repath adapter --lsp-facts`, `lsp.<lang>.*` rules) produced by an external
    client. An embedded language-server client is still deferred (§16.9). See
    `docs/adapters.md`.
-7. Cross-language edges (TS `fetch` → route → Python handler, OpenAPI, gRPC).
+7. Cross-language edges: HTTP route literals landed in v1.3 (`xlang.http.route`
+   `REFERENCES` at 0.45, §4). gRPC/protobuf, FFI (pyo3/napi/wasm), and
+   OpenAPI/shared schemas remain deferred and need their own anchor shape and
+   amendment if they do not fit the protocol/role/method/path anchor.
 8. `repath serve` (v1.2, landed): read-only HTTP GET answers for the same six
    surfaces as MCP, over stdlib `net/http`, loopback by default, no writes. See
    `docs/serve.md`. A UI and mutations remain non-goals.
@@ -1015,7 +1055,8 @@ languages (Rust added by request). Round 2 — flagship explanation, command set
 agent surface, human output, freshness contract, ambiguity handling. Round 3 —
 node taxonomy, module boundaries, symbol identity, cold start, cut line, proof
 strategy. Round 4 — transport (CLI + MCP adapter + skill), worktree seeding,
-team artifact sharing, diagnostics scope. Output: the 22 decisions in §3.
+team artifact sharing, diagnostics scope. Output: the 22 decisions in §3;
+decision 23 was added in v1.3 for cross-language links.
 
 ---
 

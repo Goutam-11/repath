@@ -175,7 +175,7 @@ anything is written:
 - `file` is a repo-relative POSIX path, `line` is 1-based, and `column` is the
   1-based LSP position (UTF-16 units). The column is used only to count and
   dedupe occurrences inside one run; it is never persisted and the SQLite
-  schema stays 5.
+  schema is 6.
 - Every `reference.target` must name a definition in the same file. Unknown
   fields are ignored for forward compatibility; an unknown schema or language,
   a bad path/line/column, or an unknown target is malformed input.

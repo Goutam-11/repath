@@ -6,7 +6,7 @@ entrypoint and returns bounded chains with per-edge rule and confidence. It is
 structural: no runtime trace, dynamic dispatch, or HTTP routing is simulated.
 
 Entrypoints are a **dimension over symbols**, not a new node kind. The
-`entrypoints` table (schema v5) stores `(node_id, rule, name, confidence, line)`;
+`entrypoints` table (schema v6) stores `(node_id, rule, name, confidence, line)`;
 the node itself remains the same symbol, so identity and every existing query
 are unchanged. One symbol may have several rules (for example a `main` that is
 also a `#[test]`).

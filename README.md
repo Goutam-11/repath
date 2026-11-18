@@ -12,7 +12,9 @@ teaches shell-capable agents the CLI. `index --artifact` exports a commit-keyed 
 immutable cache, `repath check` adds graph-native CI diagnostics, and
 `repath adapter --scip` merges TypeScript, Python, or Rust compiler facts into unresolved references without
 overwriting tree-sitter edges, `repath adapter --lsp-facts` ingests the same
-kind of facts from an external LSP client, and `repath flows` walks forward from detected
+kind of facts from an external LSP client, cross-language HTTP links connect a
+TS/JS client call to its FastAPI/Flask/Express handler at 0.45 (opt in with
+`--min-confidence 0.4`), and `repath flows` walks forward from detected
 entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`),
 and `repath tests` maps a change (or a git `--diff` set) to the test files that
 structurally reach it.
@@ -54,6 +56,7 @@ reports `ambiguous` edges and their rate.
 make build
 ./bin/repath status --json             # builds .repath/index.db on first run
 ./bin/repath impact <symbol>           # transitive blast radius
+./bin/repath impact <handler> --min-confidence 0.4  # include cross-language HTTP links
 ./bin/repath path <from> <to>          # how one symbol reaches another
 ./bin/repath map                       # ranked overview: modules, cycles, hubs
 ./bin/repath callers <symbol>          # who calls this
@@ -84,8 +87,9 @@ adapter's dual-era negotiation and client verification are in
 [`docs/mcp.md`](docs/mcp.md). The optional compiler adapters (SCIP for
 TypeScript/Python/Rust and the opt-in LSP facts file), their merge rules, and the
 measured unresolved drops are in
-[`docs/adapters.md`](docs/adapters.md), and entrypoint detection/flow limits are
-in [`docs/flows.md`](docs/flows.md), and test-impact provenance, diff mode, and
+[`docs/adapters.md`](docs/adapters.md); cross-language HTTP matching, its
+fixture, and its limits are in [`docs/xlang.md`](docs/xlang.md); entrypoint
+detection/flow limits are in [`docs/flows.md`](docs/flows.md); test-impact provenance, diff mode, and
 limits are in [`docs/tests.md`](docs/tests.md); real-repo measurements and misses are in
 [`docs/benchmarks.md`](docs/benchmarks.md), and the read-only HTTP surface is in
 [`docs/serve.md`](docs/serve.md).
