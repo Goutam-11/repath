@@ -915,6 +915,25 @@ schema, node-kind, exit-code, rule-rename, fixture-loosening, TS/Python-resolver
 or Go-dependency change. See `docs/resolution.md`, `docs/benchmarks.md`
 §“Rust generic bounds, workspace imports, and module layout”, and `AGENTS.md`.
 
+**LSP facts seam landed** (issue #58): the opt-in `repath adapter --lsp-facts
+FILE` ingests a versioned JSON file (`schema: 1`) written by an external LSP
+client; repath never starts a server. The merge is the SCIP policy plus an
+occurrence-count guard: a pending key is left alone when the compiler saw fewer
+occurrences than tree-sitter left pending, and several same-line targets merge
+only when occurrences and pending rows pair one-to-one. Rules are `lsp.ts.*`,
+`lsp.py.*`, `lsp.rs.*` at 0.99; stats live under `meta.adapter.lsp*`. On
+`microsoft/vscode-uri` @ `8b86482` (8 files) `typescript-language-server` 6.1.0
+(TS 5.9.3; 2.5 s / 79 MiB producer) takes pending **91 → 74** with 14 edges (the
+pinned SCIP file takes it to 69 with 18); on `psf/requests` @ `3c7baaa`
+`pyright-langserver` 1.1.414 (37.7 s / 640 MiB) takes pending **543 → 449** with
+84 edges and 6 replaced ambiguous groups, because pyright covers the tests
+`scip-python` does not; scope-matched to `src/` it is **543 → 522 / 19 edges**
+versus SCIP's **523 / 18**. The fixture gate
+(`testdata/fixtures/lsp-adapter`) pins 10 definitions / 13 references and the
+two same-line outcomes. No schema, node-kind, exit-code, fixture-gate, or Go
+dependency change; CI needs no server. See `docs/adapters.md` and
+`docs/benchmarks.md` §“LSP facts”.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,

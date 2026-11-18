@@ -205,10 +205,35 @@ The merge is the same narrow, pending-first pass as SCIP, with one extra input:
   conflict that is reported rather than overwritten.
 
 Stats use the same `Stats` shape, stored under `meta.adapter.lsp*` and shown in
-`status.adapters[]`; re-running the same file is idempotent. The reference
-producer is a dependency-free Python script documented with the #58 evidence;
-any client that emits this file works, and CI only reads the committed fixture
-(`testdata/fixtures/lsp-adapter`).
+`status.adapters[]`; re-running the same file is idempotent.
+
+### Producer
+
+`scripts/lsp-facts.py` is the dependency-free Python 3 reference producer. It
+starts a server on stdio, opens the language's source files, asks for document
+symbols and references, and writes the file above:
+
+```sh
+# TypeScript (a TypeScript install is needed in the workspace, or point the
+# server at one with --init-options)
+python3 scripts/lsp-facts.py --lang ts --root . \
+  --server "typescript-language-server --stdio" \
+  --init-options '{"tsserver":{"path":"/abs/typescript/lib/tsserver.js"}}' \
+  --out facts.json
+
+# Python
+python3 scripts/lsp-facts.py --lang python --root . \
+  --server "pyright-langserver --stdio" --out facts.json
+```
+
+It walks the language's source files, skipping VCS/build/dependency directories
+(`.git`, `node_modules`, `target`, `dist`, `__pycache__`, virtualenvs, and
+hidden directories) and follows no symlinks. Exit codes: `0` wrote the file,
+`2` usage, `3` server not found or failed to start, `1`
+LSP/protocol/timeout error. It is opt-in evidence tooling, not a build
+dependency, and CI never runs it. Any client that emits this file works;
+the committed fixture (`testdata/fixtures/lsp-adapter`) keeps the gate
+producer-free.
 
 ## Status
 
@@ -285,6 +310,7 @@ are from the corpora in [`docs/benchmarks.md`](benchmarks.md).
 | `scip-typescript` | 0.6.2 | 8-file `microsoft/vscode-uri` index | repo with `tsconfig.json` | smallest producer; fixture `testdata/fixtures/ts-adapter` |
 | `scip-python` | 0.6.8 | 798 KiB (`requests`), 30.3 MiB (Django production 909 files), 100.3 MiB (Django full tree 2,941 `.py`) | project root | needs Python 3.12; 0.6.8 rejects Python 3.14; full Django tree needs `NODE_OPTIONS=--max-old-space-size=4096` |
 | `rust-analyzer` | 1.97.0 | 7.4 MiB (`rayon`), 7.1 MiB (`hyusk`) | crate/workspace root | needs `cargo metadata` plus the crate's dependencies |
+| external LSP client (`scripts/lsp-facts.py`) | `typescript-language-server` 6.1.0 + TS 5.9.3; `pyright-langserver` 1.1.414 | JSON facts: 0.8 MB (`vscode-uri`), 1.9 MB (`requests`) | server command + `--root` | no server bundled; TypeScript 7 has no `lib/tsserver.js`, so the TS server is pinned to 5.9.3 |
 
 The pinned fixtures were produced externally and committed:
 `testdata/fixtures/ts-adapter` (scip-typescript 0.6.2),
@@ -389,9 +415,30 @@ index in-process (`SCIPIndex`) instead of committing another producer file.
   production-only file above is the useful application-code number. This is the
   documented large-tree mode; see [Producer scale](#producer-scale).
 
+- **LSP facts, TypeScript** (`microsoft/vscode-uri` @ `8b86482`, 8 files):
+  `typescript-language-server` 6.1.0 with TypeScript 5.9.3 produced 677
+  definitions / 3,801 references in **2.52 s** (79 MiB peak RSS, 808 KB facts).
+  `repath adapter` merged 17 pending rows into 14 edges in **0.15 s** (19 MiB):
+  unresolved **91 → 74**, edges 21 → 35. The pinned `scip-typescript` 0.6.2 file
+  takes the same graph to 69 with 18 edges, so SCIP is slightly better on this
+  tiny repo; LSP's value is that it exists for servers without a SCIP producer.
+- **LSP facts, Python** (`psf/requests` @ `3c7baaa`, 37 files):
+  `pyright-langserver` 1.1.414 produced 3,071 definitions / 7,396 references in
+  **37.7 s** (640 MiB peak RSS, 1.9 MB facts). `repath adapter` merged 94
+  pending rows into 84 edges and replaced 6 ambiguous groups (18 rows) in
+  **1.01 s** (25 MiB): unresolved **543 → 449**, edges 1,031 → 1,097 (net +66
+  after replacement). Pyright covers the test files (`scip-python` 0.6.8 indexes
+  the package under `src/` only), so 65 of the 84 new edges have a test-path
+  source. Scope-matched to `src/`, the same pyright facts give **543 → 522**
+  with 19 edges versus SCIP's **543 → 523** with 18 — a wash — at a much higher
+  producer cost (`scip-python` 4.78 s / 400 MiB / 989 KB on the same tree). The
+  honest conclusion: LSP buys coverage where the SCIP producer is scoped out,
+  not speed.
+
 The tree-sitter-only fixture gates in `internal/eval` are unchanged and were
 not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
-`TestPythonSCIPAdapterGate`, and `TestRustSCIPAdapterGate`.
+`TestPythonSCIPAdapterGate`, `TestRustSCIPAdapterGate`, and
+`TestLSPFactsAdapterGate`.
 
 ## Limits
 
