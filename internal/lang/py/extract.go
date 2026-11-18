@@ -28,6 +28,7 @@ type (
 	Ref        = facts.Ref
 	Import     = facts.Import
 	Entrypoint = facts.Entrypoint
+	Anchor     = facts.Anchor
 	Result     = facts.Result
 )
 
@@ -390,11 +391,64 @@ func (w *walker) decoratorEntries(decorators []sitter.Node, enclosing string) {
 			continue
 		}
 
+		routeName := firstString(args, w.src)
 		w.res.Entrypoints = append(w.res.Entrypoints, Entrypoint{
-			QName: enclosing, Name: firstString(args, w.src), Rule: rule,
+			QName: enclosing, Name: routeName, Rule: rule,
 			Confidence: 0.90, Line: int(decorator.StartPoint().Row) + 1,
 		})
+		routePath, pathOK := facts.NormalizeHTTPPath(routeName)
+		if !pathOK || name == "websocket" {
+			continue
+		}
+		for _, rawMethod := range routeMethods(name, args, w.src) {
+			method, ok := facts.NormalizeHTTPMethod(rawMethod)
+			if !ok {
+				continue
+			}
+			w.res.Anchors = append(w.res.Anchors, Anchor{
+				QName: enclosing, Protocol: "http", Role: "server", Method: method,
+				Path: routePath, Line: int(decorator.StartPoint().Row) + 1, Confidence: 0.90,
+			})
+		}
 	}
+}
+
+// routeMethods returns the HTTP methods a decorated route answers. FastAPI
+// names the method in the decorator; Flask's `route` defaults to GET and can
+// list literal methods in `methods=[...]`.
+func routeMethods(name string, args sitter.Node, src []byte) []string {
+	if name != "route" {
+		return []string{name}
+	}
+	if args.IsNull() {
+		return []string{"GET"}
+	}
+	for i := uint32(0); i < args.NamedChildCount(); i++ {
+		arg := args.NamedChild(i)
+		if arg.Type() != "keyword_argument" {
+			continue
+		}
+		key := arg.ChildByFieldName("name")
+		value := arg.ChildByFieldName("value")
+		if key.IsNull() || value.IsNull() || key.Content(src) != "methods" {
+			continue
+		}
+		if value.Type() != "list" && value.Type() != "tuple" {
+			return []string{"GET"}
+		}
+		methods := make([]string, 0, value.NamedChildCount())
+		for j := uint32(0); j < value.NamedChildCount(); j++ {
+			item := value.NamedChild(j)
+			if item.Type() == "string" {
+				methods = append(methods, strings.Trim(item.Content(src), `"'`))
+			}
+		}
+		if len(methods) == 0 {
+			return []string{"GET"}
+		}
+		return methods
+	}
+	return []string{"GET"}
 }
 
 func firstString(n sitter.Node, src []byte) string {

@@ -285,7 +285,7 @@ func TestJSONRPCRoundTripOverPipes(t *testing.T) {
 	if err := json.Unmarshal(status.Env.Answer, &statusAnswer); err != nil {
 		t.Fatalf("status answer: %v", err)
 	}
-	if statusAnswer.Files != 3 || statusAnswer.Nodes != 3 || statusAnswer.SchemaVersion != 5 {
+	if statusAnswer.Files != 3 || statusAnswer.Nodes != 3 || statusAnswer.SchemaVersion != 6 {
 		t.Fatalf("status answer = %+v", statusAnswer)
 	}
 

@@ -277,7 +277,7 @@ symbol when `name` is defined in `pkg/__init__.py`, and binds a submodule when
 m` and `import pkg.mod` both keep the dotted path, so `pkg.mod.f()` and
 `m.f()` resolve.
 
-Import bindings are persisted per file in the `imports` table (schema v5, extended for entrypoints). They
+Import bindings are persisted per file in the `imports` table (schema v6, extended for entrypoints and cross-language anchors). They
 are resolution inputs, never nodes or edges. Storing them is what lets a package
 `__init__.py` (or a compat module such as `requests.compat`) re-export a name to
 a file that was not re-parsed in the current incremental run. A re-export chain
@@ -408,3 +408,11 @@ imports define the same name the last one wins, matching Python execution.
 
 `--min-confidence` (default 0.5) is the dial: 0.9 gives import/this/local edges
 only; 0.4 includes ambiguous candidates with their rule id visible.
+
+## Cross-language links
+
+A `fetch("/api/users")` and a `@app.get("/api/users")` are separate islands for
+name resolution. The cross-language pass links them with a derived `REFERENCES`
+edge at confidence **0.45** (`xlang.http.route`), below the default floor, from
+literal route anchors; it is not a ladder row and never replaces a resolved
+edge. See [`docs/xlang.md`](xlang.md).

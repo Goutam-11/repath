@@ -5,7 +5,7 @@ structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no daemon; the
 optional read-only `repath serve` is the only HTTP surface.
 
-**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence across TypeScript, Python, and Rust, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution) plus the v1.3 LSP facts seam.**
+**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence across TypeScript, Python, and Rust, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution) plus the v1.3 LSP facts seam and cross-language HTTP links.**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
@@ -21,7 +21,7 @@ The measured 10k and 50k budgets live in PLAN §12 and are reproducible with
 
 | File | Why |
 | --- | --- |
-| [`PLAN.md`](PLAN.md) | The contract: 22 locked decisions (§3), schema (§4), CLI/MCP contracts (§6–7), milestones and gates (§12) |
+| [`PLAN.md`](PLAN.md) | The contract: 23 locked decisions (§3), schema (§4), CLI/MCP contracts (§6–7), milestones and gates (§12) |
 | [`docs/resolution.md`](docs/resolution.md) | The confidence ladder and the resolution gaps |
 | [`docs/development.md`](docs/development.md) | Branch, commit, PR, definition of done |
 
@@ -76,7 +76,7 @@ export GOCACHE=$PWD/.cache/go-build GOPATH=$PWD/.cache/gopath \
 ```
 cmd/repath        entrypoint only
 internal/cli      commands, text renderers, JSON, exit codes
-internal/index    discovery, hashing, batching, module detection, orchestration
+internal/index    discovery, hashing, batching, module detection, orchestration, xlang pass
 internal/lang     path → dialect; lang/{tsx,py,rs} extract symbols + refs + imports
 internal/resolve  global name index, confidence ladder, language-specific module rules
 internal/store    SQLite schema and queries only
@@ -110,6 +110,13 @@ the database.
   `--min-confidence` (default 0.5).
 - Unresolved references go to `pending`. Each run prunes dangling edges and
   retries pending identifier names that now exist (members are never guessed).
+- Cross-language links are `REFERENCES` at **0.45** with `xlang.<protocol>.*`
+  rules, derived from the `xlang_anchors` dimension (schema v6) and rebuilt by
+  the xlang pass. They are not ladder rows and never a new edge kind (decision
+  23). Default queries exclude them; `--min-confidence 0.4` opts in.
+- `xlang_anchors` is an **input dimension** (like `imports`), not a node or edge
+  table: literal protocol facts anchored to the enclosing symbol, replaced per
+  file. The pass in `internal/index` owns matching; `store` only reads/writes.
 
 ## Repo rules
 
@@ -369,7 +376,7 @@ the database.
   refs/non-git exit `3`, clean diffs exit `0` without opening an index, and
   untracked files require `git add`.
 - **Entrypoints are a dimension, not nodes.** The `entrypoints` table (schema
-  v5) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
+  v6) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
   `rs.main` to existing symbols. Do not turn them into a node kind or let
   framework detection change node identity. `flows` follows forward edges only
   at the confidence floor; it is structural, not a runtime trace.
@@ -418,7 +425,7 @@ the database.
   pending-first merge and the same #57 ambiguous-group replacement guard, with
   `lsp.ts.*` / `lsp.py.*` / `lsp.rs.*` rules at `0.99` and stats under
   `meta.adapter.lsp*`. The file's 1-based columns are used only to count and
-  dedupe occurrences inside one run; they are never persisted (schema stays 5).
+  dedupe occurrences inside one run; they are never persisted (schema is 6).
   A pending key merges only when the compiler reports at least as many
   occurrences as there are pending rows, and several distinct targets merge
   only when occurrences pair one-to-one with rows of one shape; otherwise the
@@ -426,6 +433,22 @@ the database.
   is `1`, both/neither adapter flag is `2`, and a valid empty file is `0`. See
   `docs/adapters.md` and keep the fixture gate (`TestLSPFactsAdapterGate`)
   meaningful.
+- **Cross-language links are derived and opt-in.** The `xlang` pass in
+  `index.Run` rebuilds every `xlang.*` edge from the `xlang_anchors` dimension
+  whenever a run wrote files: it deletes only its own rule-prefixed rows and
+  re-inserts `REFERENCES` at **0.45** (`xlang.http.route`) where a client anchor
+  and a server anchor in a different language share protocol + method + path.
+  The 0.45 confidence is below the default 0.5 query floor, so default answers
+  are unchanged; `--min-confidence 0.4` opts in. Rebuilding every write is what
+  keeps cold/incremental/`--full` edge row sets identical (#49) — do not make
+  it incremental without proving parity. No node/edge kind change, no name
+  guessing: literal paths only, no templates, full URLs, path-parameter
+  inference, or same-language pairs. A missing internal `xlang_indexed` meta
+  marker forces one full re-read after a schema upgrade so anchors backfill;
+  git worktrees discard a stale-schema database anyway.
+  `testdata/fixtures/xlang/http` is the gate
+  (`TestXlangHTTPBridge`, `TestXlangDefaultFloorHidesLinks`,
+  `TestXlangColdIncrementalFullParity`). See `docs/xlang.md`.
 - **`check` is graph-native, not a compiler.** Dead code only considers private
   functions/methods; exported API, test paths, parse failures, and special
   entrypoint names are excluded. Boundary checks are objective heuristics
