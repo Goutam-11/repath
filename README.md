@@ -11,7 +11,8 @@ six answers over stdio JSON-RPC in both the legacy and 2026-07-28 eras, and [`sk
 teaches shell-capable agents the CLI. `index --artifact` exports a commit-keyed snapshot (with opt-in `--compress`), `pull` seeds it locally, parallel git worktrees warm from a shared
 immutable cache, `repath check` adds graph-native CI diagnostics, and
 `repath adapter --scip` merges TypeScript, Python, or Rust compiler facts into unresolved references without
-overwriting tree-sitter edges, and `repath flows` walks forward from detected
+overwriting tree-sitter edges, `repath adapter --lsp-facts` ingests the same
+kind of facts from an external LSP client, and `repath flows` walks forward from detected
 entrypoints (Express/Fastify/Next.js, FastAPI/Flask, pytest, `main`, `#[test]`),
 and `repath tests` maps a change (or a git `--diff` set) to the test files that
 structurally reach it.
@@ -64,6 +65,7 @@ make build
 ./bin/repath check --fail-on warning   # cycles, dead code, boundaries, hotspots
 ./bin/repath check --sarif out.ts.sarif # attach SARIF diagnostics to symbols
 ./bin/repath adapter --scip index.scip # merge TS/Python SCIP facts into pending refs
+./bin/repath adapter --lsp-facts facts.json # merge external LSP facts (opt-in)
 ./bin/repath flows <entrypoint>        # forward execution paths
 ./bin/repath tests <symbol|file:line>  # affected test files (structural)
 ./bin/repath tests --diff origin/main  # affected test files for a change set
@@ -79,8 +81,9 @@ check-only exit code `5` are in [`docs/check.md`](docs/check.md); that page also
 covers opt-in SARIF ingestion, the `diagnostic` kind, and the clean `2`/`3`
 SARIF error paths. The MCP
 adapter's dual-era negotiation and client verification are in
-[`docs/mcp.md`](docs/mcp.md). The optional SCIP adapter (TypeScript and Python),
-its merge rules, and the measured unresolved drops are in
+[`docs/mcp.md`](docs/mcp.md). The optional compiler adapters (SCIP for
+TypeScript/Python/Rust and the opt-in LSP facts file), their merge rules, and the
+measured unresolved drops are in
 [`docs/adapters.md`](docs/adapters.md), and entrypoint detection/flow limits are
 in [`docs/flows.md`](docs/flows.md), and test-impact provenance, diff mode, and
 limits are in [`docs/tests.md`](docs/tests.md); real-repo measurements and misses are in

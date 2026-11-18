@@ -67,7 +67,7 @@ Two hard constraints inherited from the field:
 | 8 | Nodes | Symbols are the only nodes; file and module are dimensions (amended in M2) | Same rollup power, no 10k no-op nodes, no drift after incremental |
 | 9 | Modules | Manifest-first, directory fallback | Zero-config that survives monorepos |
 | 10 | Identity | Scoped qname + kind + arity; lines for display | Survives edits, disambiguates overloads |
-| 11 | Fidelity | tree-sitter + scope heuristics + confidence; optional SCIP adapter merge (v1.1) | Zero setup; compiler facts are opt-in and never required |
+| 11 | Fidelity | tree-sitter + scope heuristics + confidence; optional compiler-fact merge via SCIP (v1.1) or an LSP facts file (v1.3) | Zero setup; compiler facts are opt-in and never required |
 | 12 | Ambiguity | Emit at low confidence with candidates + rule id | Complete answers; precision is the user's choice |
 | 13 | Languages | TypeScript/JS, Python, Rust | Modern web + AI + systems coverage |
 | 14 | Storage | Single SQLite file, recursive CTEs | Zero infra, incremental writes, one shippable file |
@@ -164,6 +164,21 @@ Invariants:
   rule suffix, source node, reference line, and candidate membership in the
   same transaction (`store.ReplaceAmbiguousGroup`). Same-line references that
   the index cannot distinguish (no reference column) are never attributed.
+- *Amended for #58 (LSP facts).* Compiler facts may also arrive through the
+  opt-in LSP facts seam: `repath adapter --lsp-facts FILE` ingests a versioned
+  JSON file (`schema: 1`) produced by an external LSP client; repath never
+  starts a server. It uses the same pending-first, never-overwrite merge and
+  the same ambiguous-group replacement guard as SCIP, with `lsp.<lang>.*` rule
+  ids at `0.99` and stats under `meta.adapter.<name>` (`lsp`, `lsp-python`,
+  `lsp-rust`). The file carries 1-based lines and 1-based LSP columns; a column
+  is used only to count and dedupe occurrences inside one run and is never
+  persisted (the schema stays 5). Because the file reports every occurrence at
+  a position, a pending key merges only when the compiler reports at least as
+  many occurrences as there are pending rows; several distinct targets merge
+  only when occurrences and rows pair one-to-one and the rows share one shape.
+  Otherwise the key stays pending and the references are counted, so a row the
+  compiler did not account for is never deleted. Ambiguous-group replacement
+  keeps the #57 rule unchanged (exactly one compiler occurrence).
 - SARIF diagnostics are ingested per `check` run and attached to the enclosing
   symbol at read time (`sarif.<tool>.<rule>`); they are never persisted as
   nodes, edges, or a schema change (decision 22, amended in v1.2).
@@ -284,7 +299,8 @@ repath path   <A> <B>           [--max-depth 8] [--alternates 3] [--json]
 repath map    [--max-tokens 2000] [--json]
 repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
               [--max-findings 200] [--sarif FILE|DIR ...] [--json]
-repath adapter --scip FILE [--json]
+repath adapter --scip FILE      [--json]
+repath adapter --lsp-facts FILE [--json]
 repath serve  [--addr 127.0.0.1:0] [--root DIR]
 ```
 
@@ -956,13 +972,17 @@ reachability rather than runtime coverage. That remains the known ceiling.
    unions the per-file answer for a git change set. See `docs/tests.md`.
 6. Adapter seam (v1.1, landed): SCIP facts merged into pending references;
    Python and Rust landed in v1.2 under the separate `scip-python` and
-   `scip-rust` adapter names. LSP transport is still deferred. See
+   `scip-rust` adapter names; v1.3 adds the opt-in LSP facts file
+   (`repath adapter --lsp-facts`, `lsp.<lang>.*` rules) produced by an external
+   client. An embedded language-server client is still deferred (§16.9). See
    `docs/adapters.md`.
 7. Cross-language edges (TS `fetch` → route → Python handler, OpenAPI, gRPC).
 8. `repath serve` (v1.2, landed): read-only HTTP GET answers for the same six
    surfaces as MCP, over stdlib `net/http`, loopback by default, no writes. See
    `docs/serve.md`. A UI and mutations remain non-goals.
-9. Watch mode / LSP server for editors.
+9. Watch mode / LSP server for editors, and an embedded LSP client that would
+   run a server from `repath adapter`; the facts-file seam (§16.6) is the
+   contract an embedded client would feed.
 10. Distribution (v1.2, landed): tag-triggered GoReleaser for Linux amd64/arm64,
     SHA-256 checksums, source archive, and a draft GitHub release; see
     `docs/install.md`. Homebrew/apt/Docker and `go install` packaging remain
