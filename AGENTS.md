@@ -5,7 +5,7 @@ structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no daemon; the
 optional read-only `repath serve` is the only HTTP surface.
 
-**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence across TypeScript, Python, and Rust, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution) plus the v1.3 LSP facts seam and cross-language HTTP links.**
+**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence across TypeScript, Python, and Rust, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution) plus the v1.3 LSP facts seam, cross-language HTTP links, and read-only runtime trace evidence.**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
@@ -21,7 +21,7 @@ The measured 10k and 50k budgets live in PLAN §12 and are reproducible with
 
 | File | Why |
 | --- | --- |
-| [`PLAN.md`](PLAN.md) | The contract: 23 locked decisions (§3), schema (§4), CLI/MCP contracts (§6–7), milestones and gates (§12) |
+| [`PLAN.md`](PLAN.md) | The contract: 24 locked decisions (§3), schema (§4), CLI/MCP contracts (§6–7), milestones and gates (§12) |
 | [`docs/resolution.md`](docs/resolution.md) | The confidence ladder and the resolution gaps |
 | [`docs/development.md`](docs/development.md) | Branch, commit, PR, definition of done |
 
@@ -53,6 +53,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath check --sarif out.ts.sarif    # attach external SARIF 2.1.0 findings
 ./bin/repath adapter --scip index.scip     # merge compiler facts, no overwrite
 ./bin/repath adapter --lsp-facts facts.json # merge external LSP facts, same policy
+./bin/repath trace --file profile.cpuprofile # observed calls vs the static graph (read-only)
 ./bin/repath flows <entrypoint>            # forward execution paths
 ./bin/repath tests <symbol|file:line>      # structurally affected test files
 ./bin/repath tests --diff origin/main      # affected tests for a git change set
@@ -88,12 +89,14 @@ internal/serve    read-only HTTP handlers over query/output
 internal/artifact export/pull, manifest, schema gate
 internal/check    cycles, dead code, boundaries, hotspots, unresolved rate, SARIF
 internal/adapter  SCIP and LSP-facts ingestion, group-guarded edge merge
+internal/trace   read-only V8 CPU profile evidence (observed calls, no writes)
 internal/testpath shared test-path classifier for check and tests
 internal/eval     fixture gate (test-only)
 ```
 
 `cli → index → {lang, resolve, store}`, `cli → query → {index, graph, store}`,
 `cli → check → {graph, store}`, `cli → adapter → {store, index}`,
+`cli → trace → store`,
 `mcp → query`, `cli → serve → {query, output, store}`,
 `artifact → {index, store}`.
 Nothing in `store` knows about languages or parsing; nothing in `lang` touches
@@ -449,6 +452,18 @@ the database.
   `testdata/fixtures/xlang/http` is the gate
   (`TestXlangHTTPBridge`, `TestXlangDefaultFloorHidesLinks`,
   `TestXlangColdIncrementalFullParity`). See `docs/xlang.md`.
+- **Trace evidence is read-only, never a graph edge.** `repath trace --file
+  PROFILE` parses a V8/Chrome CPU profile, maps frames by repo file + line and
+  requires the enclosing symbol's name to equal the frame's function name, then
+  reports observed caller→callee pairs as `dyn.trace` at 0.60, split into
+  static-confirmed (an edge exists at ≥0.5) and observed-only. Nothing is
+  persisted: no rule row enters the DB, and no default answer changes. Skipped
+  frames are counted by reason (`external-file`, `no-function`, `unmapped-file`,
+  `no-enclosing`, `name-mismatch`); a same-named function elsewhere is never a
+  fallback, and shifted/stale profiles are refused rather than attributed.
+  Missing input is `3`, malformed input is `2`, `5` stays check-only, and the
+  six MCP/HTTP answers are unchanged. The gates are `internal/trace` and
+  `internal/cli`; see `docs/trace.md`.
 - **`check` is graph-native, not a compiler.** Dead code only considers private
   functions/methods; exported API, test paths, parse failures, and special
   entrypoint names are excluded. Boundary checks are objective heuristics

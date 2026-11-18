@@ -80,6 +80,7 @@ Two hard constraints inherited from the field:
 | 21 | Sharing | Commit-keyed CI artifact + local dirty overlay | Snapshot distribution like SCIP→Sourcegraph; never a network-FS database |
 | 22 | Diagnostics | Structural `check`; opt-in SARIF 2.1.0 ingestion attaches external diagnostics and never runs the compiler (amended in v1.2) | The compiler already did the work; reading its log is a bridge, not a language frontend |
 | 23 | Cross-language | Low-confidence links between symbols in different languages, emitted as `REFERENCES` at 0.45 with `xlang.<protocol>.*` rules and rebuilt from the `xlang_anchors` dimension; first transport HTTP route literals (v1.3) | Full-stack "what breaks" without a runtime; below the default floor like ambiguity, so default answers are unchanged |
+| 24 | Runtime evidence | Optional read-only trace import: a V8/Chrome CPU profile becomes observed caller→callee evidence (`dyn.trace`, 0.60) classified as static-confirmed or observed-only; nothing is persisted and default graph answers are unchanged | Dynamic dispatch/framework magic the static graph cannot prove, without a daemon, instrumentation, or required runtime data |
 
 Assumptions to veto if wrong: **MIT license**, **no config file** (flags only).
 
@@ -324,6 +325,7 @@ repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
               [--max-findings 200] [--sarif FILE|DIR ...] [--json]
 repath adapter --scip FILE      [--json]
 repath adapter --lsp-facts FILE [--json]
+repath trace  --file PROFILE    [--limit 50] [--json]
 repath serve  [--addr 127.0.0.1:0] [--root DIR]
 ```
 
@@ -971,6 +973,22 @@ change; the TS/PY/RS fixture gates are untouched. `make perf` stays green (50k
 cold **10.3 s**, 10-file incremental **567 ms**, `map` p95 **159 ms**). gRPC,
 FFI, and OpenAPI remain deferred (§16.7). See `docs/xlang.md`.
 
+**Runtime trace evidence landed** (issue #62): `repath trace --file PROFILE`
+reads an existing V8/Chrome CPU profile (`node --cpu-prof`, generated with Node
+24.18.0) and reports the calls it observed as `dyn.trace` evidence at **0.60**,
+split into static-confirmed and observed-only, with every skipped frame counted
+by reason (`external-file`, `no-function`, `unmapped-file`, `no-enclosing`,
+`name-mismatch`). Frames map by repo file + line + function name through
+`EnclosingNode`, so a same-named function in another file is not guessed and a
+profile whose lines have shifted is refused, not attributed. The committed
+fixture (`testdata/fixtures/trace/cpu`, one `node --cpu-prof` run) reports
+**3 mapped frames / 2 observed edges**: `run → dispatch` confirmed by the static
+`ts.local` edge and `dispatch → greet` observed only — the computed dispatch the
+static graph cannot see. Nothing is persisted (schema stays 6), no
+`impact`/`path`/MCP/HTTP answer changes, and `make perf` stays green.
+speedscope/py-spy, OTel spans, persisted dynamic edges, and a `--trace` query
+overlay remain deferred.
+
 ## 13. Evaluation harness
 
 - `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
@@ -1046,6 +1064,13 @@ reachability rather than runtime coverage. That remains the known ceiling.
     SHA-256 checksums, source archive, and a draft GitHub release; see
     `docs/install.md`. Homebrew/apt/Docker and `go install` packaging remain
     deferred because cgo needs a C toolchain either way.
+11. Runtime trace evidence (v1.3, landed read-only): `repath trace` reads an
+    existing V8/Chrome CPU profile and reports observed caller→callee calls as
+    `dyn.trace` 0.60 evidence, classified static-confirmed or observed-only,
+    with stale/mismatched frames counted and skipped. Nothing is persisted, no
+    daemon or instrumentation, and the six answers are unchanged. speedscope/
+    py-spy, OTel spans, persisted dynamic edges, and a query overlay remain
+    deferred; see `docs/trace.md`.
 
 ## 17. Decision log
 
@@ -1056,7 +1081,8 @@ agent surface, human output, freshness contract, ambiguity handling. Round 3 —
 node taxonomy, module boundaries, symbol identity, cold start, cut line, proof
 strategy. Round 4 — transport (CLI + MCP adapter + skill), worktree seeding,
 team artifact sharing, diagnostics scope. Output: the 22 decisions in §3;
-decision 23 was added in v1.3 for cross-language links.
+decisions 23 (cross-language links) and 24 (runtime trace evidence) were added
+in v1.3.
 
 ---
 

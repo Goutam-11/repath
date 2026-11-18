@@ -1,0 +1,893 @@
+{
+ "nodes": [
+  {
+   "id": 1,
+   "callFrame": {
+    "functionName": "(root)",
+    "scriptId": "0",
+    "url": "",
+    "lineNumber": -1,
+    "columnNumber": -1
+   },
+   "hitCount": 0,
+   "children": [
+    2,
+    3,
+    49
+   ]
+  },
+  {
+   "id": 2,
+   "callFrame": {
+    "functionName": "(program)",
+    "scriptId": "0",
+    "url": "",
+    "lineNumber": -1,
+    "columnNumber": -1
+   },
+   "hitCount": 0
+  },
+  {
+   "id": 3,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "86",
+    "url": "node:internal/main/run_main_module",
+    "lineNumber": 0,
+    "columnNumber": 0
+   },
+   "hitCount": 0,
+   "children": [
+    4,
+    7,
+    21
+   ]
+  },
+  {
+   "id": 4,
+   "callFrame": {
+    "functionName": "getOptionValue",
+    "scriptId": "14",
+    "url": "node:internal/options",
+    "lineNumber": 149,
+    "columnNumber": 23
+   },
+   "hitCount": 0,
+   "children": [
+    5
+   ]
+  },
+  {
+   "id": 5,
+   "callFrame": {
+    "functionName": "getCLIOptionsFromBinding",
+    "scriptId": "14",
+    "url": "node:internal/options",
+    "lineNumber": 31,
+    "columnNumber": 33
+   },
+   "hitCount": 1,
+   "children": [
+    6
+   ],
+   "positionTicks": [
+    {
+     "line": 33,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 6,
+   "callFrame": {
+    "functionName": "getCLIOptionsValues",
+    "scriptId": "0",
+    "url": "",
+    "lineNumber": -1,
+    "columnNumber": -1
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 33,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 7,
+   "callFrame": {
+    "functionName": "prepareMainThreadExecution",
+    "scriptId": "84",
+    "url": "node:internal/process/pre_execution",
+    "lineNumber": 44,
+    "columnNumber": 35
+   },
+   "hitCount": 0,
+   "children": [
+    8
+   ]
+  },
+  {
+   "id": 8,
+   "callFrame": {
+    "functionName": "prepareExecution",
+    "scriptId": "84",
+    "url": "node:internal/process/pre_execution",
+    "lineNumber": 104,
+    "columnNumber": 25
+   },
+   "hitCount": 0,
+   "children": [
+    9,
+    15,
+    16
+   ]
+  },
+  {
+   "id": 9,
+   "callFrame": {
+    "functionName": "patchProcessObject",
+    "scriptId": "84",
+    "url": "node:internal/process/pre_execution",
+    "lineNumber": 260,
+    "columnNumber": 27
+   },
+   "hitCount": 0,
+   "children": [
+    10,
+    12
+   ]
+  },
+  {
+   "id": 10,
+   "callFrame": {
+    "functionName": "resolve",
+    "scriptId": "38",
+    "url": "node:path",
+    "lineNumber": 1244,
+    "columnNumber": 9
+   },
+   "hitCount": 0,
+   "children": [
+    11
+   ]
+  },
+  {
+   "id": 11,
+   "callFrame": {
+    "functionName": "normalizeString",
+    "scriptId": "38",
+    "url": "node:path",
+    "lineNumber": 91,
+    "columnNumber": 24
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 98,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 12,
+   "callFrame": {
+    "functionName": "addReadOnlyProcessAlias",
+    "scriptId": "84",
+    "url": "node:internal/process/pre_execution",
+    "lineNumber": 317,
+    "columnNumber": 32
+   },
+   "hitCount": 0,
+   "children": [
+    13
+   ]
+  },
+  {
+   "id": 13,
+   "callFrame": {
+    "functionName": "getOptionValue",
+    "scriptId": "14",
+    "url": "node:internal/options",
+    "lineNumber": 149,
+    "columnNumber": 23
+   },
+   "hitCount": 0,
+   "children": [
+    14
+   ]
+  },
+  {
+   "id": 14,
+   "callFrame": {
+    "functionName": "getCLIOptionsFromBinding",
+    "scriptId": "14",
+    "url": "node:internal/options",
+    "lineNumber": 31,
+    "columnNumber": 33
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 33,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 15,
+   "callFrame": {
+    "functionName": "initializeReport",
+    "scriptId": "84",
+    "url": "node:internal/process/pre_execution",
+    "lineNumber": 436,
+    "columnNumber": 25
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 442,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 16,
+   "callFrame": {
+    "functionName": "initializeModuleLoaders",
+    "scriptId": "84",
+    "url": "node:internal/process/pre_execution",
+    "lineNumber": 216,
+    "columnNumber": 32
+   },
+   "hitCount": 0,
+   "children": [
+    17
+   ]
+  },
+  {
+   "id": 17,
+   "callFrame": {
+    "functionName": "initializeCJS",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 486,
+    "columnNumber": 22
+   },
+   "hitCount": 0,
+   "children": [
+    18
+   ]
+  },
+  {
+   "id": 18,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 2110,
+    "columnNumber": 28
+   },
+   "hitCount": 0,
+   "children": [
+    19
+   ]
+  },
+  {
+   "id": 19,
+   "callFrame": {
+    "functionName": "resolve",
+    "scriptId": "38",
+    "url": "node:path",
+    "lineNumber": 1244,
+    "columnNumber": 9
+   },
+   "hitCount": 0,
+   "children": [
+    20
+   ]
+  },
+  {
+   "id": 20,
+   "callFrame": {
+    "functionName": "isPosixPathSeparator",
+    "scriptId": "38",
+    "url": "node:path",
+    "lineNumber": 68,
+    "columnNumber": 29
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 70,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 21,
+   "callFrame": {
+    "functionName": "executeUserEntryPoint",
+    "scriptId": "81",
+    "url": "node:internal/modules/run_main",
+    "lineNumber": 139,
+    "columnNumber": 30
+   },
+   "hitCount": 0,
+   "children": [
+    22,
+    28,
+    30
+   ]
+  },
+  {
+   "id": 22,
+   "callFrame": {
+    "functionName": "resolveMainPath",
+    "scriptId": "81",
+    "url": "node:internal/modules/run_main",
+    "lineNumber": 28,
+    "columnNumber": 24
+   },
+   "hitCount": 0,
+   "children": [
+    23
+   ]
+  },
+  {
+   "id": 23,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 725,
+    "columnNumber": 27
+   },
+   "hitCount": 0,
+   "children": [
+    24,
+    26
+   ]
+  },
+  {
+   "id": 24,
+   "callFrame": {
+    "functionName": "resolve",
+    "scriptId": "38",
+    "url": "node:path",
+    "lineNumber": 1244,
+    "columnNumber": 9
+   },
+   "hitCount": 0,
+   "children": [
+    25
+   ]
+  },
+  {
+   "id": 25,
+   "callFrame": {
+    "functionName": "normalizeString",
+    "scriptId": "38",
+    "url": "node:path",
+    "lineNumber": 91,
+    "columnNumber": 24
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 106,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 26,
+   "callFrame": {
+    "functionName": "toRealPath",
+    "scriptId": "55",
+    "url": "node:internal/modules/helpers",
+    "lineNumber": 61,
+    "columnNumber": 19
+   },
+   "hitCount": 0,
+   "children": [
+    27
+   ]
+  },
+  {
+   "id": 27,
+   "callFrame": {
+    "functionName": "realpathSync",
+    "scriptId": "48",
+    "url": "node:fs",
+    "lineNumber": 2710,
+    "columnNumber": 21
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 2794,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 28,
+   "callFrame": {
+    "functionName": "shouldUseESMLoader",
+    "scriptId": "81",
+    "url": "node:internal/modules/run_main",
+    "lineNumber": 51,
+    "columnNumber": 27
+   },
+   "hitCount": 0,
+   "children": [
+    29
+   ]
+  },
+  {
+   "id": 29,
+   "callFrame": {
+    "functionName": "getNearestParentPackageJSONType",
+    "scriptId": "0",
+    "url": "",
+    "lineNumber": -1,
+    "columnNumber": -1
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 76,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 30,
+   "callFrame": {
+    "functionName": "wrapModuleLoad",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 237,
+    "columnNumber": 23
+   },
+   "hitCount": 0,
+   "children": [
+    31,
+    39
+   ]
+  },
+  {
+   "id": 31,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "13",
+    "url": "node:internal/util",
+    "lineNumber": 774,
+    "columnNumber": 17
+   },
+   "hitCount": 0,
+   "children": [
+    32
+   ]
+  },
+  {
+   "id": 32,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 223,
+    "columnNumber": 26
+   },
+   "hitCount": 0,
+   "children": [
+    33
+   ]
+  },
+  {
+   "id": 33,
+   "callFrame": {
+    "functionName": "tracingChannel",
+    "scriptId": "31",
+    "url": "node:diagnostics_channel",
+    "lineNumber": 444,
+    "columnNumber": 23
+   },
+   "hitCount": 0,
+   "children": [
+    34
+   ]
+  },
+  {
+   "id": 34,
+   "callFrame": {
+    "functionName": "TracingChannel",
+    "scriptId": "31",
+    "url": "node:diagnostics_channel",
+    "lineNumber": 295,
+    "columnNumber": 13
+   },
+   "hitCount": 0,
+   "children": [
+    35
+   ]
+  },
+  {
+   "id": 35,
+   "callFrame": {
+    "functionName": "tracingChannelFrom",
+    "scriptId": "31",
+    "url": "node:diagnostics_channel",
+    "lineNumber": 278,
+    "columnNumber": 27
+   },
+   "hitCount": 0,
+   "children": [
+    36
+   ]
+  },
+  {
+   "id": 36,
+   "callFrame": {
+    "functionName": "channel",
+    "scriptId": "31",
+    "url": "node:diagnostics_channel",
+    "lineNumber": 238,
+    "columnNumber": 16
+   },
+   "hitCount": 0,
+   "children": [
+    37
+   ]
+  },
+  {
+   "id": 37,
+   "callFrame": {
+    "functionName": "Channel",
+    "scriptId": "31",
+    "url": "node:diagnostics_channel",
+    "lineNumber": 190,
+    "columnNumber": 13
+   },
+   "hitCount": 0,
+   "children": [
+    38
+   ]
+  },
+  {
+   "id": 38,
+   "callFrame": {
+    "functionName": "set",
+    "scriptId": "31",
+    "url": "node:diagnostics_channel",
+    "lineNumber": 47,
+    "columnNumber": 5
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 49,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 39,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 1266,
+    "columnNumber": 23
+   },
+   "hitCount": 0,
+   "children": [
+    40
+   ]
+  },
+  {
+   "id": 40,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 1578,
+    "columnNumber": 32
+   },
+   "hitCount": 1,
+   "children": [
+    41
+   ],
+   "positionTicks": [
+    {
+     "line": 1600,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 41,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 1966,
+    "columnNumber": 36
+   },
+   "hitCount": 0,
+   "children": [
+    42,
+    43
+   ]
+  },
+  {
+   "id": 42,
+   "callFrame": {
+    "functionName": "getNearestParentPackageJSON",
+    "scriptId": "70",
+    "url": "node:internal/modules/package_json_reader",
+    "lineNumber": 166,
+    "columnNumber": 36
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 174,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 43,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 1822,
+    "columnNumber": 36
+   },
+   "hitCount": 0,
+   "children": [
+    44,
+    45
+   ]
+  },
+  {
+   "id": 44,
+   "callFrame": {
+    "functionName": "wrapSafe",
+    "scriptId": "68",
+    "url": "node:internal/modules/cjs/loader",
+    "lineNumber": 1761,
+    "columnNumber": 17
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 1804,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 45,
+   "callFrame": {
+    "functionName": "",
+    "scriptId": "87",
+    "url": "src/dynamic.js",
+    "lineNumber": 0,
+    "columnNumber": 0
+   },
+   "hitCount": 15,
+   "children": [
+    46
+   ],
+   "positionTicks": [
+    {
+     "line": 1,
+     "ticks": 15
+    }
+   ]
+  },
+  {
+   "id": 46,
+   "callFrame": {
+    "functionName": "run",
+    "scriptId": "87",
+    "url": "src/dynamic.js",
+    "lineNumber": 17,
+    "columnNumber": 12
+   },
+   "hitCount": 9,
+   "children": [
+    47
+   ],
+   "positionTicks": [
+    {
+     "line": 5,
+     "ticks": 4
+    },
+    {
+     "line": 18,
+     "ticks": 2
+    },
+    {
+     "line": 21,
+     "ticks": 3
+    }
+   ]
+  },
+  {
+   "id": 47,
+   "callFrame": {
+    "functionName": "dispatch",
+    "scriptId": "87",
+    "url": "src/dynamic.js",
+    "lineNumber": 12,
+    "columnNumber": 17
+   },
+   "hitCount": 5,
+   "children": [
+    48
+   ],
+   "positionTicks": [
+    {
+     "line": 13,
+     "ticks": 2
+    },
+    {
+     "line": 15,
+     "ticks": 3
+    }
+   ]
+  },
+  {
+   "id": 48,
+   "callFrame": {
+    "functionName": "greet",
+    "scriptId": "87",
+    "url": "src/dynamic.js",
+    "lineNumber": 2,
+    "columnNumber": 14
+   },
+   "hitCount": 1,
+   "positionTicks": [
+    {
+     "line": 5,
+     "ticks": 1
+    }
+   ]
+  },
+  {
+   "id": 49,
+   "callFrame": {
+    "functionName": "(garbage collector)",
+    "scriptId": "0",
+    "url": "",
+    "lineNumber": -1,
+    "columnNumber": -1
+   },
+   "hitCount": 11
+  }
+ ],
+ "startTime": 28767257740,
+ "endTime": 28767276291,
+ "samples": [
+  2,
+  6,
+  5,
+  11,
+  14,
+  15,
+  20,
+  25,
+  27,
+  29,
+  38,
+  42,
+  44,
+  48,
+  46,
+  47,
+  47,
+  47,
+  46,
+  49,
+  49,
+  46,
+  47,
+  47,
+  45,
+  49,
+  46,
+  49,
+  45,
+  46,
+  49,
+  45,
+  45,
+  45,
+  49,
+  46,
+  45,
+  49,
+  49,
+  45,
+  45,
+  45,
+  49,
+  45,
+  46,
+  45,
+  46,
+  45,
+  49,
+  46,
+  46,
+  45,
+  45,
+  45,
+  49,
+  40
+ ],
+ "timeDeltas": [
+  9362,
+  298,
+  149,
+  160,
+  163,
+  148,
+  157,
+  158,
+  157,
+  538,
+  97,
+  159,
+  160,
+  160,
+  159,
+  161,
+  155,
+  168,
+  166,
+  156,
+  159,
+  161,
+  128,
+  157,
+  158,
+  156,
+  158,
+  156,
+  160,
+  157,
+  155,
+  159,
+  159,
+  159,
+  163,
+  113,
+  54,
+  167,
+  164,
+  163,
+  159,
+  157,
+  123,
+  162,
+  161,
+  159,
+  157,
+  159,
+  156,
+  159,
+  157,
+  162,
+  163,
+  159,
+  156,
+  162
+ ]
+}
