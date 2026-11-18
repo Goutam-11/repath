@@ -33,6 +33,7 @@ Usage:
                  [--fail-on none|error|warning|info] [--max-findings N]
                  [--sarif FILE|DIR ...]
   repath adapter --scip FILE [--root DIR] [--json]
+  repath adapter --lsp-facts FILE [--root DIR] [--json]
   repath mcp     [--root DIR]
   repath serve   [--addr 127.0.0.1:0] [--root DIR]
   repath version
@@ -50,7 +51,7 @@ Commands:
   flows    forward execution paths from a detected entrypoint
   check    graph-native checks: cycles, dead code, boundaries, hotspots
            (opt-in --sarif adds compiler/linter diagnostics; repath never runs one)
-  adapter  merge compiler facts (SCIP) into unresolved references
+  adapter  merge compiler facts (SCIP or LSP facts JSON) into unresolved references
   mcp      stdio JSON-RPC server for MCP clients (six answer tools)
   serve    read-only HTTP answers for dashboards and shell-less clients
   version  print the build version
@@ -123,6 +124,7 @@ type options struct {
 	artifact      string
 	compress      bool
 	scip          string
+	lspFacts      string
 	sarif         []string
 	diff          bool
 	diffBase      string
@@ -191,6 +193,14 @@ func parseOptions(args []string) (options, []string, error) {
 			o.scip = args[i]
 		case strings.HasPrefix(arg, "--scip="):
 			o.scip = strings.TrimPrefix(arg, "--scip=")
+		case arg == "--lsp-facts":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--lsp-facts needs a JSON file")
+			}
+			i++
+			o.lspFacts = args[i]
+		case strings.HasPrefix(arg, "--lsp-facts="):
+			o.lspFacts = strings.TrimPrefix(arg, "--lsp-facts=")
 		case arg == "--addr":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--addr needs host:port")

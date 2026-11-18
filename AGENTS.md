@@ -5,12 +5,13 @@ structural questions about it (`impact`, `path`, `map`, `find`, `callers`) for
 humans and coding agents. One static binary, SQLite, no LLM, no daemon; the
 optional read-only `repath serve` is the only HTTP surface.
 
-**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence across TypeScript, Python, and Rust, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution).**
+**Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence across TypeScript, Python, and Rust, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution) plus the v1.3 LSP facts seam.**
 TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
 findings to enclosing symbols (it never runs the compiler), `repath adapter --scip` merges TypeScript/Python/Rust compiler facts into unresolved
-references, `repath flows` walks forward from detected entrypoints,
+references (`repath adapter --lsp-facts` ingests the same kind of facts from an
+external LSP client), `repath flows` walks forward from detected entrypoints,
 `repath tests` maps a change to structurally reachable test files, and
 `repath mcp` speaks both the legacy handshake and the 2026-07-28 discovery era.
 The measured 10k and 50k budgets live in PLAN §12 and are reproducible with
@@ -51,6 +52,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath check --fail-on warning       # graph-native diagnostics for CI
 ./bin/repath check --sarif out.ts.sarif    # attach external SARIF 2.1.0 findings
 ./bin/repath adapter --scip index.scip     # merge compiler facts, no overwrite
+./bin/repath adapter --lsp-facts facts.json # merge external LSP facts, same policy
 ./bin/repath flows <entrypoint>            # forward execution paths
 ./bin/repath tests <symbol|file:line>      # structurally affected test files
 ./bin/repath tests --diff origin/main      # affected tests for a git change set
@@ -85,7 +87,7 @@ internal/mcp      hand-rolled stdio JSON-RPC adapter
 internal/serve    read-only HTTP handlers over query/output
 internal/artifact export/pull, manifest, schema gate
 internal/check    cycles, dead code, boundaries, hotspots, unresolved rate, SARIF
-internal/adapter  SCIP fact ingestion, group-guarded edge merge
+internal/adapter  SCIP and LSP-facts ingestion, group-guarded edge merge
 internal/testpath shared test-path classifier for check and tests
 internal/eval     fixture gate (test-only)
 ```
@@ -409,6 +411,21 @@ the database.
   `rust-analyzer` 1.97.0 and CI must not need a Rust toolchain. Do not turn the
   adapter into a silent replacement for the resolver, and do not add a
   SCIP/Node/Python/Rust dependency to the build.
+- **LSP facts are a file seam, not an embedded client.** `repath adapter
+  --lsp-facts FILE` reads a versioned JSON file (`schema: 1`) written by an
+  external client; repath never starts a language server and CI never needs one
+  (the committed fixture is `testdata/fixtures/lsp-adapter`). It uses the same
+  pending-first merge and the same #57 ambiguous-group replacement guard, with
+  `lsp.ts.*` / `lsp.py.*` / `lsp.rs.*` rules at `0.99` and stats under
+  `meta.adapter.lsp*`. The file's 1-based columns are used only to count and
+  dedupe occurrences inside one run; they are never persisted (schema stays 5).
+  A pending key merges only when the compiler reports at least as many
+  occurrences as there are pending rows, and several distinct targets merge
+  only when occurrences pair one-to-one with rows of one shape; otherwise the
+  key stays pending and is counted. A missing file is exit `3`, malformed input
+  is `1`, both/neither adapter flag is `2`, and a valid empty file is `0`. See
+  `docs/adapters.md` and keep the fixture gate (`TestLSPFactsAdapterGate`)
+  meaningful.
 - **`check` is graph-native, not a compiler.** Dead code only considers private
   functions/methods; exported API, test paths, parse failures, and special
   entrypoint names are excluded. Boundary checks are objective heuristics

@@ -16,8 +16,8 @@ func adapterCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%v\n\n%s", err, usage)
 		return 2
 	}
-	if len(positional) != 0 || opts.scip == "" {
-		fmt.Fprintf(stderr, "adapter needs exactly one --scip FILE and no positional arguments\n\n%s", usage)
+	if len(positional) != 0 || (opts.scip == "") == (opts.lspFacts == "") {
+		fmt.Fprintf(stderr, "adapter needs exactly one of --scip FILE or --lsp-facts FILE and no positional arguments\n\n%s", usage)
 		return 2
 	}
 
@@ -35,18 +35,36 @@ func adapterCmd(args []string, stdout, stderr io.Writer) int {
 	}
 	defer st.Close()
 
-	index, err := adapter.LoadSCIP(opts.scip)
-	if err != nil {
-		fmt.Fprintf(stderr, "adapter: %v\n", err)
-		if errors.Is(err, adapter.ErrNotFound) {
-			return 3
+	var statsList []adapter.Stats
+	if opts.scip != "" {
+		index, err := adapter.LoadSCIP(opts.scip)
+		if err != nil {
+			fmt.Fprintf(stderr, "adapter: %v\n", err)
+			if errors.Is(err, adapter.ErrNotFound) {
+				return 3
+			}
+			return 1
 		}
-		return 1
-	}
-	statsList, err := adapter.ApplySCIPAll(ctx, st.Store, index)
-	if err != nil {
-		fmt.Fprintf(stderr, "adapter: %v\n", err)
-		return 1
+		statsList, err = adapter.ApplySCIPAll(ctx, st.Store, index)
+		if err != nil {
+			fmt.Fprintf(stderr, "adapter: %v\n", err)
+			return 1
+		}
+	} else {
+		facts, err := adapter.LoadLSPFacts(opts.lspFacts)
+		if err != nil {
+			fmt.Fprintf(stderr, "adapter: %v\n", err)
+			if errors.Is(err, adapter.ErrNotFound) {
+				return 3
+			}
+			return 1
+		}
+		stats, err := adapter.ApplyLSPFacts(ctx, st.Store, facts)
+		if err != nil {
+			fmt.Fprintf(stderr, "adapter: %v\n", err)
+			return 1
+		}
+		statsList = []adapter.Stats{stats}
 	}
 
 	if opts.json {

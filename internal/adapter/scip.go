@@ -460,33 +460,9 @@ func familiesFor(index SCIPIndex) []scipFamily {
 func applySCIPFamily(ctx context.Context, st *store.Store, index SCIPIndex, family scipFamily) (Stats, error) {
 	stats := Stats{Adapter: family.adapter, LastRun: time.Now().UTC().Format(time.RFC3339)}
 
-	paths, err := st.FilePaths(ctx)
+	fileIDFor, err := filePathLookup(ctx, st)
 	if err != nil {
 		return stats, err
-	}
-	pathIDs := make(map[string]int64, len(paths))
-	for id, path := range paths {
-		pathIDs[path] = id
-	}
-	// A SCIP index is rooted at its project directory, which may be a
-	// subdirectory of the repo (for example src/tsconfig.json). Accept an exact
-	// repo-relative path first, then a unique path suffix; an ambiguous suffix is
-	// skipped rather than guessed.
-	fileIDFor := func(scipPath string) (int64, bool) {
-		scipPath = strings.TrimPrefix(filepath.ToSlash(scipPath), "./")
-		if id, ok := pathIDs[scipPath]; ok {
-			return id, true
-		}
-		var matches []int64
-		for path, id := range pathIDs {
-			if strings.HasSuffix(path, "/"+scipPath) {
-				matches = append(matches, id)
-			}
-		}
-		if len(matches) == 1 {
-			return matches[0], true
-		}
-		return 0, false
 	}
 
 	pending, err := st.Pending(ctx)
@@ -811,47 +787,29 @@ func isRustDocument(doc SCIPDocument) bool {
 	return strings.EqualFold(filepath.Ext(doc.Path), ".rs")
 }
 
-func tsAdapterRule(ref store.PendingRef) string {
+// adapterRule is the shared selector for compiler-adapter rule ids: a member
+// reference gets .method, a call .call, a constructor-like reference .new, and
+// everything else .reference. The caller supplies the namespace prefix, so
+// `scip.ts`, `scip.py`, `lsp.ts`, and `lsp.py` stay one rule table.
+func adapterRule(prefix string, ref store.PendingRef) string {
 	if ref.Form == "member" || ref.Form == "this" {
-		return "scip.ts.method"
+		return prefix + ".method"
 	}
 	switch ref.Kind {
 	case "call":
-		return "scip.ts.call"
+		return prefix + ".call"
 	case "new":
-		return "scip.ts.new"
+		return prefix + ".new"
 	default:
-		return "scip.ts.reference"
+		return prefix + ".reference"
 	}
 }
 
-func pyAdapterRule(ref store.PendingRef) string {
-	if ref.Form == "member" || ref.Form == "this" {
-		return "scip.py.method"
-	}
-	switch ref.Kind {
-	case "call":
-		return "scip.py.call"
-	case "new":
-		return "scip.py.new"
-	default:
-		return "scip.py.reference"
-	}
-}
+func tsAdapterRule(ref store.PendingRef) string { return adapterRule("scip.ts", ref) }
 
-func rsAdapterRule(ref store.PendingRef) string {
-	if ref.Form == "member" || ref.Form == "this" {
-		return "scip.rs.method"
-	}
-	switch ref.Kind {
-	case "call":
-		return "scip.rs.call"
-	case "new":
-		return "scip.rs.new"
-	default:
-		return "scip.rs.reference"
-	}
-}
+func pyAdapterRule(ref store.PendingRef) string { return adapterRule("scip.py", ref) }
+
+func rsAdapterRule(ref store.PendingRef) string { return adapterRule("scip.rs", ref) }
 
 func edgeKind(refKind string) string {
 	switch refKind {
