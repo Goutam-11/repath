@@ -230,3 +230,29 @@ const computed = await import(` + "`./${name}`" + `);
 		}
 	}
 }
+
+func TestExtractHTTPAnchors(t *testing.T) {
+	src := []byte(`export async function load() { return fetch("/api/users"); }
+export async function create() { return fetch("/api/users", { method: "POST" }); }
+export async function put() { return axios.put("/api/items", body); }
+export async function dynamic(id: string) { return fetch(` + "`/api/users/${id}`" + `); }
+app.get("/api/products", products);`)
+	res := New().Extract(src, TypeScript)
+	if !res.OK {
+		t.Fatalf("parse failed: %s", res.Err)
+	}
+	want := []Anchor{
+		{QName: "load", Protocol: "http", Role: "client", Method: "GET", Path: "/api/users", Line: 1, Confidence: 0.90},
+		{QName: "create", Protocol: "http", Role: "client", Method: "POST", Path: "/api/users", Line: 2, Confidence: 0.90},
+		{QName: "put", Protocol: "http", Role: "client", Method: "PUT", Path: "/api/items", Line: 3, Confidence: 0.90},
+		{QName: "products", Protocol: "http", Role: "server", Method: "GET", Path: "/api/products", Line: 5, Confidence: 0.90},
+	}
+	if len(res.Anchors) != len(want) {
+		t.Fatalf("anchors = %+v, want %d", res.Anchors, len(want))
+	}
+	for i := range want {
+		if res.Anchors[i] != want[i] {
+			t.Fatalf("anchor %d = %+v, want %+v", i, res.Anchors[i], want[i])
+		}
+	}
+}

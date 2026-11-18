@@ -15,7 +15,7 @@ import (
 
 // SchemaVersion is bumped whenever the schema below changes. A binary refuses
 // an index written by a newer version.
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 const schema = `
 CREATE TABLE IF NOT EXISTS meta    (key TEXT PRIMARY KEY, value TEXT);
@@ -92,6 +92,24 @@ CREATE INDEX IF NOT EXISTS imports_file ON imports (file_id);
 CREATE INDEX IF NOT EXISTS entrypoints_rule ON entrypoints (rule);
 CREATE INDEX IF NOT EXISTS entrypoints_file ON entrypoints (file_id);
 CREATE UNIQUE INDEX IF NOT EXISTS modules_root ON modules (root);
+-- Cross-language anchors are inputs for the bounded xlang pass, not nodes or
+-- edges: an HTTP route on the server, a call site on the client. Replaced per
+-- file like entrypoints; matched into rule-tagged REFERENCES edges at 0.45.
+CREATE TABLE IF NOT EXISTS xlang_anchors (
+    id         INTEGER PRIMARY KEY,
+    node_id    INTEGER NOT NULL,
+    file_id    INTEGER NOT NULL,
+    lang       TEXT NOT NULL,
+    protocol   TEXT NOT NULL,
+    role       TEXT NOT NULL,
+    method     TEXT NOT NULL,
+    path       TEXT NOT NULL,
+    line       INTEGER NOT NULL DEFAULT 0,
+    confidence REAL NOT NULL,
+    UNIQUE (node_id, protocol, role, method, path, line)
+);
+CREATE INDEX IF NOT EXISTS xlang_anchors_match ON xlang_anchors (protocol, role, method, path);
+CREATE INDEX IF NOT EXISTS xlang_anchors_file  ON xlang_anchors (file_id);
 `
 
 // Store is one index database.
@@ -632,6 +650,78 @@ func (t *Tx) ReplaceEntrypoints(ctx context.Context, fileID int64, entries []Ent
 	return nil
 }
 
+// AnchorRow is one persisted cross-language anchor. It is an input for the
+// xlang pass, never a node or an edge.
+type AnchorRow struct {
+	NodeID     int64
+	Lang       string
+	Protocol   string
+	Role       string
+	Method     string
+	Path       string
+	Line       int
+	Confidence float64
+}
+
+// ReplaceAnchors swaps the cross-language anchors for one file. Anchors are
+// inputs like imports: they are replaced with the file's fresh facts and never
+// touched by the resolver.
+func (t *Tx) ReplaceAnchors(ctx context.Context, fileID int64, anchors []AnchorRow) error {
+	if _, err := t.tx.ExecContext(ctx, `DELETE FROM xlang_anchors WHERE file_id = ?`, fileID); err != nil {
+		return err
+	}
+	if len(anchors) == 0 {
+		return nil
+	}
+	stmt, err := t.tx.PrepareContext(ctx, `
+		INSERT INTO xlang_anchors (node_id, file_id, lang, protocol, role, method, path, line, confidence)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, anchor := range anchors {
+		if _, err := stmt.ExecContext(ctx, anchor.NodeID, fileID, anchor.Lang,
+			anchor.Protocol, anchor.Role, anchor.Method, anchor.Path, anchor.Line, anchor.Confidence); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Anchors lists every cross-language anchor, stable by protocol, role, method,
+// path, and node.
+func (s *Store) Anchors(ctx context.Context) ([]AnchorRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT node_id, lang, protocol, role, method, path, line, confidence
+		FROM xlang_anchors
+		ORDER BY protocol, role, method, path, node_id, line`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []AnchorRow
+	for rows.Next() {
+		var a AnchorRow
+		if err := rows.Scan(&a.NodeID, &a.Lang, &a.Protocol, &a.Role, &a.Method, &a.Path, &a.Line, &a.Confidence); err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// DeleteEdgesByRulePrefix removes every edge whose rule starts with prefix. The
+// xlang pass uses it to rebuild its own edges from anchors; no other rule shares
+// the prefix.
+func (s *Store) DeleteEdgesByRulePrefix(ctx context.Context, prefix string) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM edges WHERE rule LIKE ?`, prefix+"%")
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // DeleteFile removes a file row and its nodes, entrypoints, and import bindings.
 func (t *Tx) DeleteFile(ctx context.Context, path string) error {
 	if _, err := t.tx.ExecContext(ctx,
@@ -640,6 +730,10 @@ func (t *Tx) DeleteFile(ctx context.Context, path string) error {
 	}
 	if _, err := t.tx.ExecContext(ctx,
 		`DELETE FROM entrypoints WHERE file_id = (SELECT id FROM files WHERE path = ?)`, path); err != nil {
+		return err
+	}
+	if _, err := t.tx.ExecContext(ctx,
+		`DELETE FROM xlang_anchors WHERE file_id = (SELECT id FROM files WHERE path = ?)`, path); err != nil {
 		return err
 	}
 	if _, err := t.tx.ExecContext(ctx,

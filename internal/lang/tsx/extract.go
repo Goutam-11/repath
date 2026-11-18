@@ -35,6 +35,7 @@ type (
 	Ref        = facts.Ref
 	Import     = facts.Import
 	Entrypoint = facts.Entrypoint
+	Anchor     = facts.Anchor
 	Result     = facts.Result
 )
 
@@ -168,6 +169,7 @@ func (w *walker) node(n sitter.Node, enclosing string, exported bool) {
 	case "call_expression":
 		w.call(n, enclosing)
 		w.routeEntrypoint(n)
+		w.httpClient(n, enclosing)
 		w.children(n, enclosing)
 		return
 
@@ -501,16 +503,116 @@ func (w *walker) routeEntrypoint(n sitter.Node) {
 		return
 	}
 	name := routePath(args, w.src)
+	httpMethod, methodOK := facts.NormalizeHTTPMethod(method)
+	httpPath, pathOK := facts.NormalizeHTTPPath(name)
 	for i := uint32(0); i < args.NamedChildCount(); i++ {
 		arg := args.NamedChild(i)
 		if arg.Type() != "identifier" {
 			continue
 		}
+		qname := arg.Content(w.src)
 		w.res.Entrypoints = append(w.res.Entrypoints, Entrypoint{
-			QName: arg.Content(w.src), Name: name, Rule: rule,
+			QName: qname, Name: name, Rule: rule,
 			Confidence: 0.90, Line: int(n.StartPoint().Row) + 1,
 		})
+		if methodOK && pathOK && method != "route" {
+			w.res.Anchors = append(w.res.Anchors, facts.Anchor{
+				QName: qname, Protocol: "http", Role: "server", Method: httpMethod,
+				Path: httpPath, Line: int(n.StartPoint().Row) + 1, Confidence: 0.90,
+			})
+		}
 	}
+}
+
+// httpClient records a client-side HTTP call site as a cross-language anchor.
+// Only a literal same-origin path is accepted: a computed URL, a template
+// string, or a full URL is not a fact the pass can match without guessing.
+func (w *walker) httpClient(n sitter.Node, enclosing string) {
+	if enclosing == "" {
+		return
+	}
+	fn := n.ChildByFieldName("function")
+	args := n.ChildByFieldName("arguments")
+	if fn.IsNull() || args.IsNull() {
+		return
+	}
+	method, rawPath := "", ""
+	switch fn.Type() {
+	case "identifier":
+		if fn.Content(w.src) != "fetch" {
+			return
+		}
+		method = "GET"
+		rawPath = firstLiteral(args, w.src)
+		if option, ok := httpMethodOption(args, w.src); ok {
+			method = option
+		}
+	case "member_expression":
+		obj := fn.ChildByFieldName("object")
+		prop := fn.ChildByFieldName("property")
+		if obj.IsNull() || prop.IsNull() || obj.Type() != "identifier" || obj.Content(w.src) != "axios" {
+			return
+		}
+		method = prop.Content(w.src)
+		rawPath = firstLiteral(args, w.src)
+	default:
+		return
+	}
+	path, ok := facts.NormalizeHTTPPath(rawPath)
+	if !ok {
+		return
+	}
+	httpMethod, ok := facts.NormalizeHTTPMethod(method)
+	if !ok {
+		return
+	}
+	w.res.Anchors = append(w.res.Anchors, facts.Anchor{
+		QName: enclosing, Protocol: "http", Role: "client", Method: httpMethod,
+		Path: path, Line: int(n.StartPoint().Row) + 1, Confidence: 0.90,
+	})
+}
+
+// firstLiteral returns the first plain string argument, or "" when the call
+// uses a template, identifier, or other computed value.
+func firstLiteral(args sitter.Node, src []byte) string {
+	if args.IsNull() {
+		return ""
+	}
+	for i := uint32(0); i < args.NamedChildCount(); i++ {
+		arg := args.NamedChild(i)
+		if arg.Type() == "string" {
+			return unquote(arg.Content(src))
+		}
+	}
+	return ""
+}
+
+// httpMethodOption reads a literal `{ method: "POST" }` option object.
+func httpMethodOption(args sitter.Node, src []byte) (string, bool) {
+	if args.IsNull() {
+		return "", false
+	}
+	for i := uint32(0); i < args.NamedChildCount(); i++ {
+		obj := args.NamedChild(i)
+		if obj.Type() != "object" {
+			continue
+		}
+		for j := uint32(0); j < obj.NamedChildCount(); j++ {
+			pair := obj.NamedChild(j)
+			if pair.Type() != "pair" {
+				continue
+			}
+			key := pair.ChildByFieldName("key")
+			value := pair.ChildByFieldName("value")
+			if key.IsNull() || value.IsNull() || value.Type() != "string" {
+				continue
+			}
+			if unquote(key.Content(src)) == "method" {
+				return unquote(value.Content(src)), true
+			}
+		}
+	}
+	return "", false
 }
 
 func routeMethod(name string) bool {

@@ -423,3 +423,37 @@ def use():
 		t.Errorf("factory-typed call type = %q, want Cache", got)
 	}
 }
+
+func TestExtractHTTPAnchors(t *testing.T) {
+	src := []byte(`@app.get("/api/users")
+def list_users():
+    return []
+
+
+@app.route("/api/items", methods=["POST", "PUT"])
+def item():
+    return {}
+
+
+@app.websocket("/ws")
+def ws():
+    return None
+`)
+	res := New().Extract(src, Python)
+	if !res.OK {
+		t.Fatalf("parse failed: %s", res.Err)
+	}
+	want := []Anchor{
+		{QName: "list_users", Protocol: "http", Role: "server", Method: "GET", Path: "/api/users", Line: 1, Confidence: 0.90},
+		{QName: "item", Protocol: "http", Role: "server", Method: "POST", Path: "/api/items", Line: 6, Confidence: 0.90},
+		{QName: "item", Protocol: "http", Role: "server", Method: "PUT", Path: "/api/items", Line: 6, Confidence: 0.90},
+	}
+	if len(res.Anchors) != len(want) {
+		t.Fatalf("anchors = %+v, want %d", res.Anchors, len(want))
+	}
+	for i := range want {
+		if res.Anchors[i] != want[i] {
+			t.Fatalf("anchor %d = %+v, want %+v", i, res.Anchors[i], want[i])
+		}
+	}
+}

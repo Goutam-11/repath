@@ -5,6 +5,8 @@
 // these facts and the resolver turns references into edges.
 package facts
 
+import "strings"
+
 // Symbol is one definition found in a file. QName is scoped to enclosing
 // declarations ("Cart.add"), never to the file; the file is a separate column.
 type Symbol struct {
@@ -65,12 +67,59 @@ type Entrypoint struct {
 	Line       int
 }
 
+// Anchor is a cross-language fact anchored to the enclosing symbol: an HTTP
+// route on the server, an HTTP call site on the client, and later other
+// protocols. Anchors are inputs for the cross-language pass; they are never
+// nodes or edges on their own.
+type Anchor struct {
+	QName      string // enclosing symbol
+	Protocol   string // "http"
+	Role       string // "client" | "server"
+	Method     string // upper-case HTTP method, or "ALL" for a wildcard route
+	Path       string // normalized literal path
+	Line       int
+	Confidence float64
+}
+
 // Result is everything one file contributes to the graph.
 type Result struct {
 	Symbols     []Symbol
 	Refs        []Ref
 	Imports     []Import
 	Entrypoints []Entrypoint
+	Anchors     []Anchor
 	OK          bool
 	Err         string
+}
+
+// NormalizeHTTPPath accepts a literal same-origin path ("/api/users?x=1") and
+// returns the normalized route path. Full URLs, relative paths, and dynamic
+// templates return false: the cross-language pass matches exact literals only.
+func NormalizeHTTPPath(raw string) (string, bool) {
+	path := strings.TrimSpace(raw)
+	if !strings.HasPrefix(path, "/") {
+		return "", false
+	}
+	if i := strings.IndexAny(path, "?#"); i >= 0 {
+		path = path[:i]
+	}
+	for strings.Contains(path, "//") {
+		path = strings.ReplaceAll(path, "//", "/")
+	}
+	if path == "" {
+		path = "/"
+	}
+	return path, true
+}
+
+// NormalizeHTTPMethod upper-cases a known HTTP method; "ALL" is the wildcard a
+// framework registration such as Express `app.all` produces.
+func NormalizeHTTPMethod(method string) (string, bool) {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS":
+		return strings.ToUpper(strings.TrimSpace(method)), true
+	case "ALL":
+		return "ALL", true
+	}
+	return "", false
 }
