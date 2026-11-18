@@ -260,3 +260,72 @@ func TestAdapterStatusSurfacesReplaced(t *testing.T) {
 		t.Fatalf("status ambiguous = %d, want the untouched same-line pair (2 rows)", status.Ambiguous)
 	}
 }
+
+func TestAdapterCommandLSPFacts(t *testing.T) {
+	dir := copyAdapterFixtureNamed(t, "lsp-adapter")
+	facts := filepath.Join("..", "..", "testdata", "fixtures", "lsp-adapter", "facts.json")
+
+	code, out, errOut := run(t, "adapter", "--lsp-facts", facts, "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("adapter exit = %d: %s", code, errOut)
+	}
+	var stats adapter.Stats
+	if err := json.Unmarshal([]byte(out), &stats); err != nil {
+		t.Fatalf("adapter output is not JSON: %v\n%s", err, out)
+	}
+	if stats.Adapter != "lsp" || stats.Matched != 2 || stats.Edges != 2 || stats.Unmatched != 1 {
+		t.Fatalf("stats = %+v, want lsp, 2 matched, 2 edges, 1 unmatched", stats)
+	}
+
+	code, out, errOut = run(t, "status", "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("status exit = %d: %s", code, errOut)
+	}
+	var status struct {
+		Unresolved int             `json:"unresolved"`
+		Adapters   []adapter.Stats `json:"adapters"`
+	}
+	if err := json.Unmarshal([]byte(out), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.Unresolved != 2 {
+		t.Fatalf("unresolved = %d, want the 2-row refused key", status.Unresolved)
+	}
+	if len(status.Adapters) != 1 || status.Adapters[0].Adapter != "lsp" {
+		t.Fatalf("status adapters = %+v, want lsp", status.Adapters)
+	}
+}
+
+func TestAdapterCommandLSPFactsErrors(t *testing.T) {
+	dir := copyAdapterFixtureNamed(t, "lsp-adapter")
+	facts := filepath.Join("..", "..", "testdata", "fixtures", "lsp-adapter", "facts.json")
+
+	if code, _, _ := run(t, "adapter", "--root", dir); code != 2 {
+		t.Fatalf("no facts flag exit = %d, want 2", code)
+	}
+	if code, _, _ := run(t, "adapter", "--scip", "index.scip", "--lsp-facts", facts, "--root", dir); code != 2 {
+		t.Fatalf("both flags exit = %d, want 2", code)
+	}
+	if code, _, _ := run(t, "adapter", "--lsp-facts", filepath.Join(dir, "missing.json"), "--root", dir); code != 3 {
+		t.Fatalf("missing facts exit = %d, want 3", code)
+	}
+
+	tmp := t.TempDir()
+	writeFile(t, tmp, "bad.json", `{"schema":2,"language":"ts"}`)
+	if code, _, _ := run(t, "adapter", "--lsp-facts", filepath.Join(tmp, "bad.json"), "--root", dir); code != 1 {
+		t.Fatalf("malformed facts exit = %d, want 1", code)
+	}
+
+	writeFile(t, tmp, "empty.json", `{"schema":1,"language":"python","definitions":[],"references":[]}`)
+	code, out, errOut := run(t, "adapter", "--lsp-facts", filepath.Join(tmp, "empty.json"), "--root", dir, "--json")
+	if code != 0 {
+		t.Fatalf("empty facts exit = %d: %s", code, errOut)
+	}
+	var stats adapter.Stats
+	if err := json.Unmarshal([]byte(out), &stats); err != nil {
+		t.Fatal(err)
+	}
+	if stats.Adapter != "lsp-python" || stats.Definitions != 0 || stats.Edges != 0 {
+		t.Fatalf("empty stats = %+v, want a zero-fact lsp-python run", stats)
+	}
+}

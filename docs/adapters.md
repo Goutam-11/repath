@@ -9,18 +9,19 @@ ambiguous base, or a receiver typed in another module still leaves the call
 unresolved ([`docs/resolution.md`](resolution.md)). The adapter seam lets
 a compiler supply those facts without replacing the graph.
 
-Three adapters consume **SCIP**, the Sourcegraph Code Intelligence Protocol index:
+Three SCIP adapters and one opt-in JSON seam consume compiler facts:
 
 | Producer | Documents | Adapter name | Rules |
 | --- | --- | --- | --- |
 | `scip-typescript` | `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs` | `scip` | `scip.ts.*` |
 | `scip-python` | `.py` | `scip-python` | `scip.py.*` |
 | `rust-analyzer scip` | `.rs` | `scip-rust` | `scip.rs.*` |
+| external LSP client (JSON facts) | same three source families, one language per file | `lsp`, `lsp-python`, `lsp-rust` | `lsp.<lang>.*` |
 
 repath does not bundle SCIP, TypeScript, Node, Python, Rust, or a language
-server: it parses the `.scip` protobuf itself, merges the facts that tree-sitter
-could not resolve, and may replace a tree-sitter **ambiguous** candidate group
-with the compiler's exact target (see
+server: it parses the `.scip` protobuf (or the LSP facts JSON) itself, merges
+the facts that tree-sitter could not resolve, and may replace a tree-sitter
+**ambiguous** candidate group with the compiler's exact target (see
 [Ambiguous replacement](#ambiguous-replacement)). Every producer is an external
 tool, not a Go dependency.
 
@@ -142,6 +143,73 @@ A conflict therefore means an edge already existed; the existing edge keeps its
 rule and confidence, and the adapter reports the conflict instead of choosing a
 winner.
 
+## LSP facts (opt-in)
+
+`repath adapter --lsp-facts FILE` ingests a JSON fact file written by an
+**external** LSP client. repath never starts a language server: the file is the
+seam, exactly like SCIP, so CI needs no server and the binary stays a
+single-process static tool.
+
+The file covers exactly one language and is validated completely before
+anything is written:
+
+```json
+{
+  "schema": 1,
+  "language": "ts",
+  "producer": "repath-lsp-facts/1 typescript-language-server 4.x",
+  "root": "/abs/path/to/repo",
+  "definitions": [
+    {"file": "src/cart.ts", "line": 12, "column": 7, "name": "total"}
+  ],
+  "references": [
+    {"file": "src/run.ts", "line": 30, "column": 9, "name": "total",
+     "target": {"file": "src/cart.ts", "line": 12}}
+  ]
+}
+```
+
+- `language` is `ts`, `python`, or `rust`; it selects the rule prefix
+  (`lsp.ts.*`, `lsp.py.*`, `lsp.rs.*`) and the stats name (`lsp`,
+  `lsp-python`, `lsp-rust`), mirroring the SCIP adapters.
+- `file` is a repo-relative POSIX path, `line` is 1-based, and `column` is the
+  1-based LSP position (UTF-16 units). The column is used only to count and
+  dedupe occurrences inside one run; it is never persisted and the SQLite
+  schema stays 5.
+- Every `reference.target` must name a definition in the same file. Unknown
+  fields are ignored for forward compatibility; an unknown schema or language,
+  a bad path/line/column, or an unknown target is malformed input.
+- Missing file is exit `3`, malformed input is `1` (the same contract as a
+  corrupt SCIP file), both/neither adapter flag is usage `2`, and a valid empty
+  file is a zero-fact run (`0`). There is no new exit code.
+
+### What gets merged
+
+The merge is the same narrow, pending-first pass as SCIP, with one extra input:
+
+- A pending key is `file + line + name`. The compiler must report **at least as
+  many occurrences at that key as there are pending rows**; if it reports
+  fewer, at least one pending row has no fact behind it and the whole key stays
+  pending. The facts file never contains external targets, so an external call
+  on the same line is invisible and this count is the safety check.
+- One distinct local target: the pending rows merge and become `lsp.<lang>.*`
+  edges.
+- Several distinct targets: they merge only when occurrences and pending rows
+  pair one-to-one and the rows share one `(kind, form)` shape. That is how two
+  same-line calls with different targets become two exact edges without a
+  reference column.
+- Ambiguous-group replacement is unchanged from #57: exactly one compiler
+  occurrence may replace a 2-5 candidate group with one exact edge; two
+  occurrences leave the group alone and are counted.
+- A resolved tree-sitter edge is never touched, and a same-key edge is a
+  conflict that is reported rather than overwritten.
+
+Stats use the same `Stats` shape, stored under `meta.adapter.lsp*` and shown in
+`status.adapters[]`; re-running the same file is idempotent. The reference
+producer is a dependency-free Python script documented with the #58 evidence;
+any client that emits this file works, and CI only reads the committed fixture
+(`testdata/fixtures/lsp-adapter`).
+
 ## Status
 
 `status --json` includes one object per adapter run:
@@ -200,9 +268,11 @@ winner.
 - `conflicts`: edges that already existed (never overwritten).
 - `skipped`: occurrences with no usable graph mapping (module/local symbols,
   external definitions, or no enclosing source symbol).
-- `unmatched`: references resolved by SCIP with no pending row and no
+- `unmatched`: references resolved by the compiler with no pending row and no
   replaceable ambiguous group (the normal case for code tree-sitter already
-  handled, plus groups the compiler could not disambiguate).
+  handled, plus groups the compiler could not disambiguate). The `lsp*` entries
+  use the same fields; their `unmatched` also counts a pending key the
+  occurrence-count guard refused.
 
 ## Producer matrix
 
@@ -343,8 +413,13 @@ not loosened; the adapter-on gates are the separate `TestSCIPAdapterGate`,
   (`Cart#count.`), and impl members (`impl#[Cart][Total]total().`) reduce to
   their display names. A new producer grammar may need a focused case; the
   parser is intentionally narrow rather than a general SCIP name resolver.
-- SCIP must be produced externally. There is no embedded language server and no
-  LSP transport yet.
+- SCIP must be produced externally, and the LSP facts file is produced by an
+  external client: there is no embedded language server and `repath adapter`
+  never starts one. The facts file is an input contract, not a daemon or a
+  watch mode.
+- LSP columns are not persisted, so a same-line key where the compiler cannot
+  account for every pending occurrence is left alone instead of being split
+  per occurrence. The fixture gate covers both the merge and the refusal.
 - Reference matching by file+line+name is weaker than a column-exact match.
   Ambiguous replacement uses the same source-node + line mapping. Because the
   schema stores no reference column, two same-named calls on one line cannot be
