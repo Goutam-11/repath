@@ -273,8 +273,8 @@ func TestAdapterCommandLSPFacts(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &stats); err != nil {
 		t.Fatalf("adapter output is not JSON: %v\n%s", err, out)
 	}
-	if stats.Adapter != "lsp" || stats.Matched != 2 || stats.Edges != 2 || stats.Unmatched != 1 {
-		t.Fatalf("stats = %+v, want lsp, 2 matched, 2 edges, 1 unmatched", stats)
+	if stats.Adapter != "lsp" || stats.Matched != 2 || stats.Edges != 2 || stats.Unmatched != 6 {
+		t.Fatalf("stats = %+v, want lsp, 2 matched, 2 edges, 6 unmatched", stats)
 	}
 
 	code, out, errOut = run(t, "status", "--root", dir, "--json")

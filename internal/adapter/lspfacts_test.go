@@ -58,14 +58,14 @@ func TestLSPFactsAdapterGate(t *testing.T) {
 	if stats.Adapter != "lsp" {
 		t.Fatalf("adapter = %q, want lsp", stats.Adapter)
 	}
-	if stats.Definitions != 2 || stats.References != 3 {
-		t.Fatalf("stats = %+v, want 2 definitions / 3 references", stats)
+	if stats.Definitions != 10 || stats.References != 13 {
+		t.Fatalf("stats = %+v, want the pinned fixture's 10 definitions / 13 references", stats)
 	}
 	if stats.Matched != 2 || stats.Edges != 2 || stats.Conflicts != 0 || stats.Replaced != 0 {
 		t.Fatalf("stats = %+v, want 2 matched rows / 2 edges / no conflict / no replacement", stats)
 	}
-	if stats.Skipped != 0 || stats.Unmatched != 1 {
-		t.Fatalf("stats = %+v, want 0 skipped / 1 unmatched (the refused key's local half)", stats)
+	if stats.Skipped != 5 || stats.Unmatched != 6 {
+		t.Fatalf("stats = %+v, want the pinned fixture's 5 skipped / 6 unmatched", stats)
 	}
 
 	after, err := st.CountPending(ctx)

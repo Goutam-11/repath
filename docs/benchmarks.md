@@ -1348,3 +1348,80 @@ dependency change.
 - The `IMPLEMENTS` pre-pass adds one `IMPLEMENTS` edge read on warm Rust runs,
   but its effect on very large Rust workspaces (thousands of crates) was not
   measured; hyusk indexes only the root crate.
+
+## LSP facts (2026-11-18, #58)
+
+Issue #58 asked whether LSP can supply compiler facts where SCIP does not fit.
+The approved decision is a **facts file**: an external LSP client speaks
+JSON-RPC to a server and writes a versioned JSON file;
+`repath adapter --lsp-facts FILE` ingests it. repath never starts a server, CI
+needs no server, and the fixture is the gate. The format, the occurrence-count
+guard, and the merge policy are in
+[`docs/adapters.md`](adapters.md#lsp-facts-opt-in).
+
+### Pinned producers and commands
+
+| Role | Pinned version | Command |
+| --- | --- | --- |
+| TypeScript server | `typescript-language-server` 6.1.0, TypeScript 5.9.3, Node 24.18.0 | `typescript-language-server --stdio` with `--init-options '{"tsserver":{"path":"…/typescript/lib/tsserver.js"}}'` |
+| Python server | `pyright-langserver` 1.1.414, Node 24.18.0 | `pyright-langserver --stdio` |
+| Producer | `scripts/lsp-facts.py` (`repath-lsp-facts/1`) | `python3 scripts/lsp-facts.py --lang <ts\|python> --root <clone> --server "<cmd>" --out facts.json` |
+
+TypeScript 7.0.2 is the native port and does not ship `lib/tsserver.js`, so the
+language server is pinned to TypeScript 5.9.3. The producer is opt-in evidence
+tooling; neither server is a build dependency and `make check` runs neither.
+
+### Results (single run per corpus, shared host)
+
+The tree-sitter graph is the same for the LSP and SCIP passes; the adapter is
+applied to a fresh cold index. All numbers are measured on this host
+(load ~1.5–3.5 during the window), not medians.
+
+| Corpus | Producer wall / peak RSS / facts | Ingest wall / RSS | Pending before → after | Matched | New edges | Replaced groups / rows |
+| --- | --- | --- | --- | --- | --- | --- |
+| `microsoft/vscode-uri` @ `8b86482` (8 files) | **2.52 s** / **79 MiB** / 808 KB (677 defs, 3,801 refs) | **0.15 s** / 19 MiB | **91 → 74** | 17 | 14 | 0 / 0 |
+| `psf/requests` @ `3c7baaa` (37 files), full scope | **37.7 s** / **640 MiB** / 1.9 MB (3,071 defs, 7,396 refs) | **1.01 s** / 25 MiB | **543 → 449** | 94 | 84 | 6 / 18 |
+| `psf/requests`, pyright facts filtered to `src/` | (same facts) | — | **543 → 522** | 21 | 19 | 0 / 0 |
+
+Comparison with the pinned SCIP runs on the same graphs:
+
+- `vscode-uri` with `scip-typescript` 0.6.2: pending **91 → 69**, 18 edges,
+  22 matched (`docs/adapters.md`). LSP is slightly behind on this 8-file repo.
+- `requests` with `scip-python` 0.6.8 on the package (`src/`, 19 documents):
+  pending **543 → 523**, 18 edges, 20 matched — effectively a wash with the
+  scope-matched LSP row (522 / 19). The full-scope LSP number is better only
+  because pyright analyses the tests that `scip-python` does not emit; 65 of the
+  84 new edges have a test-path source, 19 are under `src/`. That is a coverage
+  difference, not an LSP quality claim.
+- Producer cost does not favour LSP: on `requests`, pyright is **37.7 s /
+  640 MiB** against `scip-python` 0.6.8 at **4.78 s / 400 MiB** (989 KB index).
+  The edge (and its `0.40` group replacements) is real; the transport is not
+  cheaper. The value is that a server without a SCIP producer can contribute.
+
+The fixture (`testdata/fixtures/lsp-adapter`) pins the two same-line outcomes:
+two local targets on one line merge into two exact `lsp.ts.method` edges
+(pending **4 → 2**, 10 definitions / 13 references, 5 skipped, 6 unmatched), and
+the local + external pair is refused so both rows stay pending.
+
+### Guards
+
+`make check` is clean, `go test ./internal/eval -v` is unchanged (TS 9/9,
+Python 65/65, Rust 55/55 at precision 1.00 / recall 1.00), and `make perf` was
+rerun for the branch. No schema, node-kind, exit-code, fixture-gate, rule
+rename, or Go dependency change; no producer runs in CI.
+
+### Not verified
+
+- One host and one run per corpus; producer/ingest timings are machine-dependent
+  and not medians. The servers are pinned to this host's install.
+- pyright analyses statically and the `requests` clone has no installed
+  third-party dependencies, so external calls stay external; local resolution is
+  unaffected. A workspace with a real venv may resolve more.
+- The `scip-python` index is scoped to the package (`src/`), so the full-scope
+  LSP row is not like-for-like; the `src/`-filtered row is.
+- No large Python tree (Django, 3,051 files) was measured through LSP; pyright
+  producer cost and memory at that scale are unknown.
+- No Rust LSP run: `rust-analyzer scip` already covers Rust and is the better
+  producer there. `path` still has no ground truth.
+- The committed fixture is the only CI gate; the producer and the corpus rows
+  remain opt-in evidence.

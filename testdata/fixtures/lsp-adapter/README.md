@@ -12,17 +12,29 @@ four `total()` calls stay pending:
   language server can only report the local half, so the compiler accounts for
   one of the two pending occurrences and the adapter must refuse that key.
 
-`facts.json` is the **contract fixture** for the seam: it is written by hand from
-the source (the exact shape an external LSP client must produce) and is
-regenerated with the pinned producer in the #58 producer PR. It is not a claim
-about any server version.
-
-Commands (once the producer exists):
+`facts.json` was produced with the pinned producer on 2026-11-18:
 
 ```sh
-python3 scripts/lsp-facts.py --lang ts --root testdata/fixtures/lsp-adapter \
-  --server "typescript-language-server --stdio" --out testdata/fixtures/lsp-adapter/facts.json
+python3 scripts/lsp-facts.py --lang ts \
+  --root testdata/fixtures/lsp-adapter \
+  --server ".cache/lsp-ts/node_modules/.bin/typescript-language-server --stdio" \
+  --init-options '{"tsserver":{"path":"'$PWD'/.cache/lsp-ts/node_modules/typescript/lib/tsserver.js"}}' \
+  --out testdata/fixtures/lsp-adapter/facts.json
 ```
 
-The gate `TestLSPFactsAdapterGate` asserts the line-6 pair becomes two exact
-`lsp.ts.method` edges at 0.99 (pending 4 → 2) and the line-8 key is left alone.
+Pinned producer versions: `typescript-language-server` **6.1.0**, TypeScript
+**5.9.3**, Node **v24.18.0**, `repath-lsp-facts/1`. TypeScript 7.0.2 (the native
+port) does not ship `lib/tsserver.js`, so the language server is pinned to 5.9.3.
+
+The committed facts file keeps CI independent of Node and any language server.
+It records 10 definitions and 13 references (the server reports symbols this
+fixture does not need, such as `makeLeft` and the local variables); the gate
+asserts the outcomes, not every reported fact:
+
+- line 6: two `total` references with different targets merge into two exact
+  `lsp.ts.method` edges at 0.99 (pending 4 → 2);
+- line 8: one local reference for two pending rows is refused, so both rows
+  stay pending and the reference is counted as unmatched.
+
+Regenerate deliberately when the source, the producer, or the pinned server
+changes, and update the gate counts in `internal/adapter/lspfacts_test.go`.
