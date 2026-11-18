@@ -34,6 +34,7 @@ Usage:
                  [--sarif FILE|DIR ...]
   repath adapter --scip FILE [--root DIR] [--json]
   repath adapter --lsp-facts FILE [--root DIR] [--json]
+  repath trace   --file PROFILE [--root DIR] [--limit N] [--json]
   repath mcp     [--root DIR]
   repath serve   [--addr 127.0.0.1:0] [--root DIR]
   repath version
@@ -52,6 +53,7 @@ Commands:
   check    graph-native checks: cycles, dead code, boundaries, hotspots
            (opt-in --sarif adds compiler/linter diagnostics; repath never runs one)
   adapter  merge compiler facts (SCIP or LSP facts JSON) into unresolved references
+  trace    read-only runtime evidence from an existing V8 CPU profile
   mcp      stdio JSON-RPC server for MCP clients (six answer tools)
   serve    read-only HTTP answers for dashboards and shell-less clients
   version  print the build version
@@ -102,6 +104,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return checkCmd(args[1:], stdout, stderr)
 	case "adapter":
 		return adapterCmd(args[1:], stdout, stderr)
+	case "trace":
+		return traceCmd(args[1:], stdout, stderr)
 	case "serve":
 		return serveCmd(args[1:], stdout, stderr)
 	default:
@@ -125,6 +129,7 @@ type options struct {
 	compress      bool
 	scip          string
 	lspFacts      string
+	traceFile     string
 	sarif         []string
 	diff          bool
 	diffBase      string
@@ -201,6 +206,14 @@ func parseOptions(args []string) (options, []string, error) {
 			o.lspFacts = args[i]
 		case strings.HasPrefix(arg, "--lsp-facts="):
 			o.lspFacts = strings.TrimPrefix(arg, "--lsp-facts=")
+		case arg == "--file":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--file needs a profile path")
+			}
+			i++
+			o.traceFile = args[i]
+		case strings.HasPrefix(arg, "--file="):
+			o.traceFile = strings.TrimPrefix(arg, "--file=")
 		case arg == "--addr":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--addr needs host:port")
