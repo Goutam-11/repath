@@ -133,6 +133,8 @@ type benchAdapter struct {
 	Definitions      int     `json:"definitions"`
 	References       int     `json:"references"`
 	Matched          int     `json:"matched"`
+	Replaced         int     `json:"replaced"`
+	ReplacedEdges    int     `json:"replaced_edges"`
 	Edges            int     `json:"edges"`
 	Conflicts        int     `json:"conflicts"`
 	Skipped          int     `json:"skipped"`

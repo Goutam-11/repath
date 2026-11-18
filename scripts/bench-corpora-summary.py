@@ -50,6 +50,8 @@ METRIC_ACCESSORS = {
     "artifact_ratio": lambda r: r.get("artifact", {}).get("ratio"),
     "adapter_wall_ms": lambda r: (r.get("adapter") or {}).get("wall_ms"),
     "adapter_matched": lambda r: (r.get("adapter") or {}).get("matched"),
+    "adapter_replaced": lambda r: (r.get("adapter") or {}).get("replaced"),
+    "adapter_replaced_edges": lambda r: (r.get("adapter") or {}).get("replaced_edges"),
     "adapter_edges": lambda r: (r.get("adapter") or {}).get("edges"),
     "adapter_conflicts": lambda r: (r.get("adapter") or {}).get("conflicts"),
     "adapter_unresolved_before": lambda r: (r.get("adapter") or {}).get("unresolved_before"),
@@ -293,6 +295,8 @@ def aggregate(outdir, matrix, runs_want):
                 "definitions": median_range([r["adapter"]["definitions"] for r in runs]),
                 "references": median_range([r["adapter"]["references"] for r in runs]),
                 "matched": metrics.get("adapter_matched"),
+                "replaced": metrics.get("adapter_replaced"),
+                "replaced_edges": metrics.get("adapter_replaced_edges"),
                 "edges": metrics.get("adapter_edges"),
                 "conflicts": metrics.get("adapter_conflicts"),
                 "skipped": median_range([r["adapter"]["skipped"] for r in runs]),
@@ -434,6 +438,8 @@ def write_baseline(summary, baseline_path):
                 "definitions": median_of(base_adapter.get("definitions")),
                 "references": median_of(base_adapter.get("references")),
                 "matched": median_of(base_adapter.get("matched")),
+                "replaced": median_of(base_adapter.get("replaced")),
+                "replaced_edges": median_of(base_adapter.get("replaced_edges")),
                 "edges": median_of(base_adapter.get("edges")),
                 "conflicts": median_of(base_adapter.get("conflicts")),
                 "skipped": median_of(base_adapter.get("skipped")),
@@ -546,9 +552,12 @@ def markdown_history(baseline, history_path):
         if adapter:
             lines.append("")
             lines.append(
-                "Adapter: **{matched}** matched · **{edges}** new edges · **{conflicts}** conflicts · "
+                "Adapter: **{matched}** matched · **{replaced}** replaced groups ({replaced_edges} rows) · "
+                "**{edges}** new edges · **{conflicts}** conflicts · "
                 "unresolved **{before} → {after}** · {wall:g} ms".format(
                     matched=adapter.get("matched"),
+                    replaced=adapter.get("replaced") or 0,
+                    replaced_edges=adapter.get("replaced_edges") or 0,
                     edges=adapter.get("edges"),
                     conflicts=adapter.get("conflicts"),
                     before=adapter.get("unresolved_before"),

@@ -399,8 +399,9 @@ func runAdapterBench(t *testing.T, ctx context.Context, st *store.Store, opts re
 	if !found {
 		t.Fatalf("%sadapter: no %s run (got %d adapter runs)", opts.label, opts.adapterName, len(statsList))
 	}
-	t.Logf("%sadapter %s: %d definitions, %d references, %d matched, %d edges, %d conflicts, %d skipped, %d unmatched in %s",
-		opts.label, stats.Adapter, stats.Definitions, stats.References, stats.Matched, stats.Edges,
+	t.Logf("%sadapter %s: %d definitions, %d references, %d matched, %d replaced groups (%d rows), %d edges, %d conflicts, %d skipped, %d unmatched in %s",
+		opts.label, stats.Adapter, stats.Definitions, stats.References, stats.Matched,
+		stats.Replaced, stats.ReplacedEdges, stats.Edges,
 		stats.Conflicts, stats.Skipped, stats.Unmatched, duration)
 
 	unresolvedAfter, err := st.CountPending(ctx)
@@ -471,6 +472,8 @@ func runAdapterBench(t *testing.T, ctx context.Context, st *store.Store, opts re
 			Definitions:      stats.Definitions,
 			References:       stats.References,
 			Matched:          stats.Matched,
+			Replaced:         stats.Replaced,
+			ReplacedEdges:    stats.ReplacedEdges,
 			Edges:            stats.Edges,
 			Conflicts:        stats.Conflicts,
 			Skipped:          stats.Skipped,

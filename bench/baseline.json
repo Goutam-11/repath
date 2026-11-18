@@ -1,30 +1,30 @@
 {
   "schema": 1,
-  "generated_at": "2026-11-14T19:49:04+00:00",
+  "generated_at": "2026-11-18T04:02:36+00:00",
   "generated_by": "scripts/bench-corpora.sh",
-  "repath_commit": "26e2f65c0452dfc29e931eab7d403d4b788b7f6a",
-  "repath_version": "26e2f65",
+  "repath_commit": "07932b22386173fcea3ce36893bfe3f34fa5dcee",
+  "repath_version": "07932b2",
   "host": {
     "hostname": "fedora",
     "platform": "Linux x86_64",
     "kernel": "7.2.11-200.fc44.x86_64",
     "cpu_model": "AMD Ryzen 5 5600H with Radeon Graphics",
     "cpu_logical": 12,
-    "ram_bytes": 7677779968,
+    "ram_bytes": 7677788160,
     "loadavg_1_5_15": [
-      3.81,
-      2.29,
-      2.37
+      3.55,
+      2.0,
+      1.31
     ],
     "loadavg_before": [
-      1.34,
-      1.63,
-      2.19
+      1.7,
+      1.35,
+      1.07
     ],
     "loadavg_after": [
-      3.81,
-      2.29,
-      2.37
+      3.55,
+      2.0,
+      1.31
     ],
     "python": "3.14.8"
   },
@@ -45,64 +45,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 3966.501,
-          "min": 3862.064,
-          "max": 4065.937
+          "median": 4047.719,
+          "min": 4036.75,
+          "max": 4070.134
         },
         "peak_rss_bytes": {
-          "median": 298758144,
-          "min": 283873280,
-          "max": 302907392
+          "median": 353755136,
+          "min": 343982080,
+          "max": 356057088
         },
         "incremental_ms": {
-          "median": 192.994,
-          "min": 190.165,
-          "max": 207.748
+          "median": 222.447,
+          "min": 214.713,
+          "max": 222.58
         },
         "impact_p50_ms": {
-          "median": 12.046,
-          "min": 11.778,
-          "max": 12.209
+          "median": 11.325,
+          "min": 11.287,
+          "max": 11.885
         },
         "impact_p95_ms": {
-          "median": 13.508,
-          "min": 13.43,
-          "max": 13.861
+          "median": 13.563,
+          "min": 13.336,
+          "max": 14.441
         },
         "callers_p50_ms": {
-          "median": 10.015,
-          "min": 9.527,
-          "max": 10.143
+          "median": 9.465,
+          "min": 9.323,
+          "max": 9.725
         },
         "callers_p95_ms": {
-          "median": 10.765,
-          "min": 10.215,
-          "max": 11.02
+          "median": 10.718,
+          "min": 10.26,
+          "max": 13.835
         },
         "path_p50_ms": {
-          "median": 18.361,
-          "min": 17.805,
-          "max": 18.893
+          "median": 17.584,
+          "min": 17.189,
+          "max": 18.407
         },
         "path_p95_ms": {
-          "median": 25.132,
-          "min": 24.119,
-          "max": 26.207
+          "median": 19.356,
+          "min": 19.054,
+          "max": 21.805
         },
         "map_p50_ms": {
-          "median": 142.838,
-          "min": 142.771,
-          "max": 144.786
+          "median": 154.428,
+          "min": 149.608,
+          "max": 156.067
         },
         "map_p95_ms": {
-          "median": 155.198,
-          "min": 143.489,
-          "max": 171.894
+          "median": 158.009,
+          "min": 155.019,
+          "max": 158.825
         },
         "check_ms": {
-          "median": 491.719,
-          "min": 485.758,
-          "max": 506.655
+          "median": 508.396,
+          "min": 503.67,
+          "max": 530.987
         },
         "check_findings": {
           "median": 200,
@@ -110,79 +110,89 @@
           "max": 200
         },
         "artifact_bytes": {
-          "median": 23347200,
-          "min": 23343104,
-          "max": 23347200
+          "median": 23613440,
+          "min": 23609344,
+          "max": 23613440
         },
         "artifact_export_ms": {
-          "median": 148.856,
-          "min": 147.499,
-          "max": 152.643
+          "median": 141.555,
+          "min": 139.051,
+          "max": 152.192
         },
         "artifact_pull_ms": {
-          "median": 13.193,
-          "min": 12.128,
-          "max": 13.557
+          "median": 12.446,
+          "min": 12.379,
+          "max": 12.502
         },
         "artifact_zstd_bytes": {
-          "median": 6078057,
-          "min": 6076771,
-          "max": 6093614
+          "median": 6182908,
+          "min": 6170526,
+          "max": 6191973
         },
         "artifact_zstd_export_ms": {
-          "median": 233.607,
-          "min": 231.764,
-          "max": 237.237
+          "median": 235.151,
+          "min": 227.275,
+          "max": 246.079
         },
         "artifact_zstd_pull_ms": {
-          "median": 35.999,
-          "min": 35.64,
-          "max": 39.617
+          "median": 40.698,
+          "min": 38.98,
+          "max": 42.761
         },
         "artifact_ratio": {
-          "median": 26.03334446957237,
-          "min": 26.032403402735127,
-          "max": 26.09997772752193
+          "median": 26.18385123048569,
+          "min": 26.131414990784908,
+          "max": 26.226789698180518
         },
         "adapter_wall_ms": {
-          "median": 5495.583,
-          "min": 5426.09,
-          "max": 5531.589
+          "median": 4943.655,
+          "min": 4878.213,
+          "max": 4943.856
         },
         "adapter_matched": {
-          "median": 2013,
-          "min": 2013,
-          "max": 2013
+          "median": 1262,
+          "min": 1262,
+          "max": 1262
+        },
+        "adapter_replaced": {
+          "median": 15,
+          "min": 15,
+          "max": 15
+        },
+        "adapter_replaced_edges": {
+          "median": 32,
+          "min": 32,
+          "max": 32
         },
         "adapter_edges": {
-          "median": 1669,
-          "min": 1669,
-          "max": 1669
+          "median": 1025,
+          "min": 1025,
+          "max": 1025
         },
         "adapter_conflicts": {
-          "median": 10,
-          "min": 10,
-          "max": 10
+          "median": 13,
+          "min": 13,
+          "max": 13
         },
         "adapter_unresolved_before": {
-          "median": 105319,
-          "min": 105319,
-          "max": 105319
+          "median": 92533,
+          "min": 92533,
+          "max": 92533
         },
         "adapter_unresolved_after": {
-          "median": 103306,
-          "min": 103306,
-          "max": 103306
+          "median": 91271,
+          "min": 91271,
+          "max": 91271
         },
         "adapter_edges_before": {
-          "median": 45834,
-          "min": 45834,
-          "max": 45834
+          "median": 56800,
+          "min": 56800,
+          "max": 56800
         },
         "adapter_edges_after": {
-          "median": 47503,
-          "min": 47503,
-          "max": 47503
+          "median": 57793,
+          "min": 57793,
+          "max": 57793
         }
       },
       "structure": {
@@ -194,24 +204,24 @@
           "method": 29999
         },
         "edges": {
-          "CALLS": 17281,
-          "EXTENDS": 8688,
-          "REFERENCES": 19865
+          "CALLS": 28208,
+          "EXTENDS": 8690,
+          "REFERENCES": 19902
         },
-        "edges_total": 45834,
-        "ambiguous": 1572,
-        "ambiguity_rate": 0.03429768294279356,
-        "unresolved": 105319,
-        "unresolved_rate": 0.696770821617831,
+        "edges_total": 56800,
+        "ambiguous": 1570,
+        "ambiguity_rate": 0.027640845070422537,
+        "unresolved": 92533,
+        "unresolved_rate": 0.6196420081294824,
         "unresolved_by_reason": {
-          "member-scope": 50052,
-          "missing-definition": 40489,
+          "member-scope": 48085,
+          "missing-definition": 40407,
           "parse-failure": 0,
-          "scope-gap": 14778
+          "scope-gap": 4041
         },
         "unresolved_by_lang": {
-          "javascript": 1215,
-          "python": 104104
+          "javascript": 1130,
+          "python": 91403
         },
         "parse_failures": 3,
         "entrypoints": 18443,
@@ -225,24 +235,26 @@
         "name": "scip-python",
         "definitions": 52884,
         "references": 157794,
-        "matched": 2013,
-        "edges": 1669,
-        "conflicts": 10,
+        "matched": 1262,
+        "replaced": 15,
+        "replaced_edges": 32,
+        "edges": 1025,
+        "conflicts": 13,
         "skipped": 142241,
-        "unmatched": 30565,
-        "wall_ms": 5495.583,
-        "unresolved_before": 105319,
-        "unresolved_after": 103306,
-        "edges_before": 45834,
-        "edges_after": 47503,
+        "unmatched": 31300,
+        "wall_ms": 4943.655,
+        "unresolved_before": 92533,
+        "unresolved_after": 91271,
+        "edges_before": 56800,
+        "edges_after": 57793,
         "new_edges_by_source": {
-          "production": 1590,
-          "test_path": 79,
+          "production": 962,
+          "test_path": 63,
           "test_entrypoint": 0
         },
         "new_edges_by_rule": {
-          "call": 32,
-          "method": 1627,
+          "call": 114,
+          "method": 901,
           "new": 0,
           "reference": 10
         }
@@ -257,64 +269,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 273.149,
-          "min": 273.017,
-          "max": 273.344
+          "median": 273.153,
+          "min": 270.613,
+          "max": 273.498
         },
         "peak_rss_bytes": {
-          "median": 67506176,
-          "min": 65982464,
-          "max": 68419584
+          "median": 72069120,
+          "min": 70516736,
+          "max": 72835072
         },
         "incremental_ms": {
-          "median": 31.229,
-          "min": 29.628,
-          "max": 43.106
+          "median": 30.948,
+          "min": 30.235,
+          "max": 32.6
         },
         "impact_p50_ms": {
-          "median": 0.898,
-          "min": 0.856,
-          "max": 0.973
+          "median": 0.79,
+          "min": 0.766,
+          "max": 0.81
         },
         "impact_p95_ms": {
-          "median": 1.586,
-          "min": 1.539,
-          "max": 1.865
+          "median": 1.189,
+          "min": 1.175,
+          "max": 1.503
         },
         "callers_p50_ms": {
-          "median": 0.555,
-          "min": 0.554,
-          "max": 0.572
+          "median": 0.497,
+          "min": 0.494,
+          "max": 0.498
         },
         "callers_p95_ms": {
-          "median": 0.706,
-          "min": 0.618,
-          "max": 0.791
+          "median": 0.666,
+          "min": 0.575,
+          "max": 0.759
         },
         "path_p50_ms": {
-          "median": 1.98,
-          "min": 1.818,
-          "max": 2.106
+          "median": 1.654,
+          "min": 1.593,
+          "max": 1.81
         },
         "path_p95_ms": {
-          "median": 11.887,
-          "min": 11.828,
-          "max": 12.089
+          "median": 13,
+          "min": 12.256,
+          "max": 13.462
         },
         "map_p50_ms": {
-          "median": 7.16,
-          "min": 6.652,
-          "max": 7.177
+          "median": 7.035,
+          "min": 6.84,
+          "max": 7.044
         },
         "map_p95_ms": {
-          "median": 7.49,
-          "min": 6.728,
-          "max": 7.699
+          "median": 7.251,
+          "min": 7.027,
+          "max": 7.281
         },
         "check_ms": {
-          "median": 25.929,
-          "min": 25.183,
-          "max": 26.166
+          "median": 26.87,
+          "min": 25.98,
+          "max": 26.966
         },
         "check_findings": {
           "median": 200,
@@ -322,79 +334,89 @@
           "max": 200
         },
         "artifact_bytes": {
-          "median": 1093632,
-          "min": 1093632,
-          "max": 1093632
+          "median": 1118208,
+          "min": 1118208,
+          "max": 1118208
         },
         "artifact_export_ms": {
-          "median": 8.725,
-          "min": 8.206,
-          "max": 8.98
+          "median": 8.781,
+          "min": 8.028,
+          "max": 10.37
         },
         "artifact_pull_ms": {
-          "median": 2.914,
-          "min": 2.845,
-          "max": 3.079
+          "median": 2.765,
+          "min": 2.679,
+          "max": 3.007
         },
         "artifact_zstd_bytes": {
-          "median": 320663,
-          "min": 320405,
-          "max": 321238
+          "median": 326546,
+          "min": 326331,
+          "max": 326656
         },
         "artifact_zstd_export_ms": {
-          "median": 22.236,
-          "min": 15.593,
-          "max": 23.392
+          "median": 15.572,
+          "min": 13.296,
+          "max": 22.656
         },
         "artifact_zstd_pull_ms": {
-          "median": 5.051,
-          "min": 5.032,
-          "max": 5.154
+          "median": 4.936,
+          "min": 4.835,
+          "max": 5.043
         },
         "artifact_ratio": {
-          "median": 29.320923308754683,
-          "min": 29.29733219218165,
-          "max": 29.373500409644194
+          "median": 29.20261704441392,
+          "min": 29.183389852335164,
+          "max": 29.21245421245421
         },
         "adapter_wall_ms": {
-          "median": 592.407,
-          "min": 573.539,
-          "max": 606.907
+          "median": 515.909,
+          "min": 505.279,
+          "max": 516.364
         },
         "adapter_matched": {
-          "median": 141,
-          "min": 141,
-          "max": 141
+          "median": 128,
+          "min": 128,
+          "max": 128
+        },
+        "adapter_replaced": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "adapter_replaced_edges": {
+          "median": 0,
+          "min": 0,
+          "max": 0
         },
         "adapter_edges": {
-          "median": 88,
-          "min": 88,
-          "max": 88
+          "median": 71,
+          "min": 71,
+          "max": 71
         },
         "adapter_conflicts": {
-          "median": 2,
-          "min": 2,
-          "max": 2
+          "median": 9,
+          "min": 9,
+          "max": 9
         },
         "adapter_unresolved_before": {
-          "median": 4222,
-          "min": 4222,
-          "max": 4222
+          "median": 4126,
+          "min": 4126,
+          "max": 4126
         },
         "adapter_unresolved_after": {
-          "median": 4081,
-          "min": 4081,
-          "max": 4081
+          "median": 3998,
+          "min": 3998,
+          "max": 3998
         },
         "adapter_edges_before": {
-          "median": 2706,
-          "min": 2706,
-          "max": 2706
+          "median": 2990,
+          "min": 2990,
+          "max": 2990
         },
         "adapter_edges_after": {
-          "median": 2794,
-          "min": 2794,
-          "max": 2794
+          "median": 3061,
+          "min": 3061,
+          "max": 3061
         }
       },
       "structure": {
@@ -411,25 +433,25 @@
           "type": 11
         },
         "edges": {
-          "CALLS": 2356,
-          "IMPLEMENTS": 1,
-          "REFERENCES": 349
+          "CALLS": 2601,
+          "IMPLEMENTS": 16,
+          "REFERENCES": 373
         },
-        "edges_total": 2706,
+        "edges_total": 2990,
         "ambiguous": 23,
-        "ambiguity_rate": 0.008499630450849963,
-        "unresolved": 4222,
-        "unresolved_rate": 0.6094110854503464,
+        "ambiguity_rate": 0.007692307692307693,
+        "unresolved": 4126,
+        "unresolved_rate": 0.5798201236649804,
         "unresolved_by_reason": {
-          "member-scope": 911,
-          "missing-definition": 2332,
-          "parse-failure": 735,
-          "scope-gap": 244
+          "member-scope": 901,
+          "missing-definition": 2286,
+          "parse-failure": 702,
+          "scope-gap": 237
         },
         "unresolved_by_lang": {
           "javascript": 341,
           "python": 282,
-          "rust": 3599
+          "rust": 3503
         },
         "parse_failures": 7,
         "entrypoints": 549,
@@ -445,24 +467,26 @@
         "name": "scip-rust",
         "definitions": 10819,
         "references": 65165,
-        "matched": 141,
-        "edges": 88,
-        "conflicts": 2,
+        "matched": 128,
+        "replaced": 0,
+        "replaced_edges": 0,
+        "edges": 71,
+        "conflicts": 9,
         "skipped": 63242,
-        "unmatched": 10208,
-        "wall_ms": 592.407,
-        "unresolved_before": 4222,
-        "unresolved_after": 4081,
-        "edges_before": 2706,
-        "edges_after": 2794,
+        "unmatched": 10221,
+        "wall_ms": 515.909,
+        "unresolved_before": 4126,
+        "unresolved_after": 3998,
+        "edges_before": 2990,
+        "edges_after": 3061,
         "new_edges_by_source": {
-          "production": 54,
+          "production": 43,
           "test_path": 0,
-          "test_entrypoint": 34
+          "test_entrypoint": 28
         },
         "new_edges_by_rule": {
-          "call": 22,
-          "method": 66,
+          "call": 14,
+          "method": 57,
           "new": 0,
           "reference": 0
         }
@@ -477,119 +501,129 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 92.849,
-          "min": 91.566,
-          "max": 93.146
+          "median": 103.188,
+          "min": 97.472,
+          "max": 118.61
         },
         "peak_rss_bytes": {
-          "median": 34078720,
-          "min": 33800192,
-          "max": 34193408
+          "median": 34799616,
+          "min": 33845248,
+          "max": 34996224
         },
         "incremental_ms": {
-          "median": 28.21,
-          "min": 26.938,
-          "max": 29.661
+          "median": 31.642,
+          "min": 31.053,
+          "max": 33.915
         },
         "impact_p50_ms": {
-          "median": 0.549,
-          "min": 0.527,
-          "max": 0.558
+          "median": 0.793,
+          "min": 0.753,
+          "max": 0.823
         },
         "impact_p95_ms": {
-          "median": 1.248,
-          "min": 1.229,
-          "max": 1.429
+          "median": 1.234,
+          "min": 1.197,
+          "max": 1.567
         },
         "callers_p50_ms": {
-          "median": 0.315,
-          "min": 0.305,
-          "max": 0.323
+          "median": 0.29,
+          "min": 0.286,
+          "max": 0.303
         },
         "callers_p95_ms": {
-          "median": 0.476,
-          "min": 0.438,
-          "max": 0.55
+          "median": 0.602,
+          "min": 0.525,
+          "max": 0.818
         },
         "path_p50_ms": {
-          "median": 1.171,
-          "min": 1.127,
-          "max": 1.231
+          "median": 1.802,
+          "min": 1.686,
+          "max": 2.09
         },
         "path_p95_ms": {
-          "median": 4.048,
-          "min": 3.757,
-          "max": 4.149
+          "median": 4.44,
+          "min": 4.395,
+          "max": 4.643
         },
         "map_p50_ms": {
-          "median": 2.371,
-          "min": 2.287,
-          "max": 2.418
+          "median": 2.237,
+          "min": 2.149,
+          "max": 2.448
         },
         "map_p95_ms": {
-          "median": 2.662,
-          "min": 2.558,
-          "max": 2.694
+          "median": 2.545,
+          "min": 2.475,
+          "max": 2.873
         },
         "check_ms": {
-          "median": 7.075,
-          "min": 7.004,
-          "max": 7.721
+          "median": 6.672,
+          "min": 6.559,
+          "max": 6.962
         },
         "check_findings": {
-          "median": 16,
-          "min": 16,
-          "max": 16
+          "median": 14,
+          "min": 14,
+          "max": 14
         },
         "artifact_bytes": {
-          "median": 471040,
+          "median": 475136,
           "min": 471040,
-          "max": 479232
+          "max": 475136
         },
         "artifact_export_ms": {
-          "median": 4.179,
-          "min": 3.606,
-          "max": 4.362
+          "median": 3.662,
+          "min": 3.597,
+          "max": 3.678
         },
         "artifact_pull_ms": {
-          "median": 2.648,
-          "min": 2.536,
-          "max": 3.064
+          "median": 2.406,
+          "min": 2.402,
+          "max": 2.822
         },
         "artifact_zstd_bytes": {
-          "median": 107136,
-          "min": 106920,
-          "max": 107201
+          "median": 107230,
+          "min": 107002,
+          "max": 107258
         },
         "artifact_zstd_export_ms": {
-          "median": 8.124,
-          "min": 7.695,
-          "max": 8.594
+          "median": 8.178,
+          "min": 7.952,
+          "max": 9.421
         },
         "artifact_zstd_pull_ms": {
-          "median": 4.056,
-          "min": 3.63,
-          "max": 4.1
+          "median": 4.021,
+          "min": 3.585,
+          "max": 4.199
         },
         "artifact_ratio": {
-          "median": 22.744565217391305,
-          "min": 22.310697115384617,
-          "max": 22.758364470108695
+          "median": 22.57416823814655,
+          "min": 22.520288927801722,
+          "max": 22.76452105978261
         },
         "adapter_wall_ms": {
-          "median": 122.326,
-          "min": 121.019,
-          "max": 122.503
+          "median": 114.923,
+          "min": 114.797,
+          "max": 117.612
         },
         "adapter_matched": {
-          "median": 20,
-          "min": 20,
-          "max": 20
+          "median": 8,
+          "min": 8,
+          "max": 8
+        },
+        "adapter_replaced": {
+          "median": 0,
+          "min": 0,
+          "max": 0
+        },
+        "adapter_replaced_edges": {
+          "median": 0,
+          "min": 0,
+          "max": 0
         },
         "adapter_edges": {
-          "median": 18,
-          "min": 18,
-          "max": 18
+          "median": 8,
+          "min": 8,
+          "max": 8
         },
         "adapter_conflicts": {
           "median": 0,
@@ -597,24 +631,24 @@
           "max": 0
         },
         "adapter_unresolved_before": {
-          "median": 543,
-          "min": 543,
-          "max": 543
+          "median": 510,
+          "min": 510,
+          "max": 510
         },
         "adapter_unresolved_after": {
-          "median": 523,
-          "min": 523,
-          "max": 523
+          "median": 502,
+          "min": 502,
+          "max": 502
         },
         "adapter_edges_before": {
-          "median": 1031,
-          "min": 1031,
-          "max": 1031
+          "median": 1044,
+          "min": 1044,
+          "max": 1044
         },
         "adapter_edges_after": {
-          "median": 1049,
-          "min": 1049,
-          "max": 1049
+          "median": 1052,
+          "min": 1052,
+          "max": 1052
         }
       },
       "structure": {
@@ -626,23 +660,23 @@
           "method": 510
         },
         "edges": {
-          "CALLS": 707,
+          "CALLS": 720,
           "EXTENDS": 41,
           "REFERENCES": 283
         },
-        "edges_total": 1031,
+        "edges_total": 1044,
         "ambiguous": 25,
-        "ambiguity_rate": 0.02424830261881668,
-        "unresolved": 543,
-        "unresolved_rate": 0.34498094027954257,
+        "ambiguity_rate": 0.023946360153256706,
+        "unresolved": 510,
+        "unresolved_rate": 0.3281853281853282,
         "unresolved_by_reason": {
-          "member-scope": 224,
-          "missing-definition": 308,
+          "member-scope": 210,
+          "missing-definition": 288,
           "parse-failure": 0,
-          "scope-gap": 11
+          "scope-gap": 12
         },
         "unresolved_by_lang": {
-          "python": 543
+          "python": 510
         },
         "parse_failures": 0,
         "entrypoints": 348,
@@ -656,24 +690,26 @@
         "name": "scip-python",
         "definitions": 1485,
         "references": 6734,
-        "matched": 20,
-        "edges": 18,
+        "matched": 8,
+        "replaced": 0,
+        "replaced_edges": 0,
+        "edges": 8,
         "conflicts": 0,
         "skipped": 6305,
-        "unmatched": 945,
-        "wall_ms": 122.326,
-        "unresolved_before": 543,
-        "unresolved_after": 523,
-        "edges_before": 1031,
-        "edges_after": 1049,
+        "unmatched": 957,
+        "wall_ms": 114.923,
+        "unresolved_before": 510,
+        "unresolved_after": 502,
+        "edges_before": 1044,
+        "edges_after": 1052,
         "new_edges_by_source": {
-          "production": 18,
+          "production": 8,
           "test_path": 0,
           "test_entrypoint": 0
         },
         "new_edges_by_rule": {
           "call": 0,
-          "method": 18,
+          "method": 8,
           "new": 0,
           "reference": 0
         }
@@ -710,11 +746,11 @@
           "recall": 0.3333333333333333,
           "out_of_scope_actual": 156,
           "impact_expected": 153,
-          "impact_actual": 67,
-          "impact_true_positives": 66,
-          "impact_precision": 0.9850746268656716,
-          "impact_recall": 0.43137254901960786,
-          "impact_out_of_scope": 239,
+          "impact_actual": 70,
+          "impact_true_positives": 69,
+          "impact_precision": 0.9857142857142858,
+          "impact_recall": 0.45098039215686275,
+          "impact_out_of_scope": 242,
           "impact_truncated": 0
         },
         "after": {
@@ -731,19 +767,19 @@
           "impact_true_positives": 72,
           "impact_precision": 0.9863013698630136,
           "impact_recall": 0.47058823529411764,
-          "impact_out_of_scope": 239,
+          "impact_out_of_scope": 242,
           "impact_truncated": 0
         },
-        "adapter_touched_targets": 14,
+        "adapter_touched_targets": 7,
         "adapter_touched_before": {
           "phase": "adapter-targets tree-sitter",
-          "samples": 14,
-          "expected_callers": 27,
+          "samples": 7,
+          "expected_callers": 17,
           "actual_callers": 9,
           "true_positives": 9,
           "precision": 1,
-          "recall": 0.3333333333333333,
-          "out_of_scope_actual": 6,
+          "recall": 0.5294117647058824,
+          "out_of_scope_actual": 4,
           "impact_expected": 0,
           "impact_actual": 0,
           "impact_true_positives": 0,
@@ -754,32 +790,32 @@
         },
         "adapter_touched_after": {
           "phase": "adapter-targets after-adapter",
-          "samples": 14,
-          "expected_callers": 27,
-          "actual_callers": 27,
-          "true_positives": 27,
+          "samples": 7,
+          "expected_callers": 17,
+          "actual_callers": 17,
+          "true_positives": 17,
           "precision": 1,
           "recall": 1,
-          "out_of_scope_actual": 6,
-          "impact_expected": 51,
-          "impact_actual": 47,
-          "impact_true_positives": 47,
+          "out_of_scope_actual": 4,
+          "impact_expected": 33,
+          "impact_actual": 30,
+          "impact_true_positives": 30,
           "impact_precision": 1,
-          "impact_recall": 0.9215686274509803,
-          "impact_out_of_scope": 59,
+          "impact_recall": 0.9090909090909091,
+          "impact_out_of_scope": 26,
           "impact_truncated": 0
         },
         "disagreements": [
           "SupportsRead <- has_read (src/requests/_types.py:32) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.init_poolmanager (src/requests/adapters.py:239) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.close (src/requests/adapters.py:555) [false-negative/tree-sitter]",
           "HTTPAdapter <- HTTPAdapter.__init__ (src/requests/adapters.py:201) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.send (src/requests/adapters.py:634) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.proxy_manager_for (src/requests/adapters.py:269) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.__setstate__ (src/requests/adapters.py:226) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.__getstate__ (src/requests/adapters.py:223) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.close (src/requests/adapters.py:555) [false-negative/tree-sitter]",
           "HTTPAdapter <- HTTPAdapter.get_connection_with_tls_context (src/requests/adapters.py:455) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.get_connection (src/requests/adapters.py:512) [false-negative/tree-sitter]"
+          "HTTPAdapter <- HTTPAdapter.__getstate__ (src/requests/adapters.py:223) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.build_connection_pool_key_attributes (src/requests/adapters.py:403) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.__setstate__ (src/requests/adapters.py:226) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.init_poolmanager (src/requests/adapters.py:239) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.proxy_manager_for (src/requests/adapters.py:269) [false-negative/tree-sitter]",
+          "HTTPAdapter <- HTTPAdapter.send (src/requests/adapters.py:634) [false-negative/tree-sitter]"
         ]
       }
     },
@@ -791,64 +827,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 240.062,
-          "min": 239.657,
-          "max": 246.49
+          "median": 249.519,
+          "min": 242.281,
+          "max": 251.821
         },
         "peak_rss_bytes": {
-          "median": 47620096,
-          "min": 47374336,
-          "max": 48095232
+          "median": 51163136,
+          "min": 49938432,
+          "max": 52142080
         },
         "incremental_ms": {
-          "median": 31.461,
-          "min": 31.352,
-          "max": 32.383
+          "median": 36.574,
+          "min": 33.508,
+          "max": 37.699
         },
         "impact_p50_ms": {
-          "median": 0.983,
-          "min": 0.963,
-          "max": 1.001
+          "median": 1.017,
+          "min": 0.965,
+          "max": 1.061
         },
         "impact_p95_ms": {
-          "median": 2.04,
-          "min": 1.631,
-          "max": 2.134
+          "median": 1.5,
+          "min": 1.482,
+          "max": 2.11
         },
         "callers_p50_ms": {
-          "median": 0.73,
-          "min": 0.697,
-          "max": 0.734
+          "median": 0.704,
+          "min": 0.67,
+          "max": 0.713
         },
         "callers_p95_ms": {
-          "median": 0.863,
-          "min": 0.804,
-          "max": 1.052
+          "median": 0.818,
+          "min": 0.71,
+          "max": 0.95
         },
         "path_p50_ms": {
-          "median": 1.573,
-          "min": 1.456,
-          "max": 1.709
+          "median": 1.466,
+          "min": 1.36,
+          "max": 1.475
         },
         "path_p95_ms": {
-          "median": 4.054,
-          "min": 3.796,
-          "max": 4.233
+          "median": 5.066,
+          "min": 5.015,
+          "max": 5.627
         },
         "map_p50_ms": {
-          "median": 7.474,
-          "min": 7.409,
-          "max": 7.686
+          "median": 7.336,
+          "min": 7.287,
+          "max": 7.509
         },
         "map_p95_ms": {
-          "median": 8.858,
-          "min": 7.946,
-          "max": 9.117
+          "median": 8.063,
+          "min": 7.557,
+          "max": 8.779
         },
         "check_ms": {
-          "median": 21.512,
-          "min": 20.224,
-          "max": 21.808
+          "median": 20.911,
+          "min": 20.588,
+          "max": 21.982
         },
         "check_findings": {
           "median": 200,
@@ -856,79 +892,89 @@
           "max": 200
         },
         "artifact_bytes": {
-          "median": 1003520,
-          "min": 999424,
-          "max": 1003520
+          "median": 1011712,
+          "min": 1007616,
+          "max": 1011712
         },
         "artifact_export_ms": {
-          "median": 8.363,
-          "min": 8.182,
-          "max": 8.867
+          "median": 8.393,
+          "min": 8.221,
+          "max": 8.547
         },
         "artifact_pull_ms": {
-          "median": 2.866,
-          "min": 2.822,
-          "max": 2.906
+          "median": 2.829,
+          "min": 2.707,
+          "max": 2.878
         },
         "artifact_zstd_bytes": {
-          "median": 298516,
-          "min": 298073,
-          "max": 299013
+          "median": 299543,
+          "min": 299315,
+          "max": 299924
         },
         "artifact_zstd_export_ms": {
-          "median": 14.334,
-          "min": 14.043,
-          "max": 14.552
+          "median": 15.847,
+          "min": 14.131,
+          "max": 22.808
         },
         "artifact_zstd_pull_ms": {
-          "median": 4.796,
-          "min": 4.542,
-          "max": 4.955
+          "median": 5.01,
+          "min": 4.516,
+          "max": 5.26
         },
         "artifact_ratio": {
-          "median": 29.796416613520407,
-          "min": 29.746890943877553,
-          "max": 29.824478899846312
+          "median": 29.645195470647774,
+          "min": 29.607536532135626,
+          "max": 29.705264704014226
         },
         "adapter_wall_ms": {
-          "median": 650.027,
-          "min": 638.031,
-          "max": 680.199
+          "median": 540.062,
+          "min": 531.25,
+          "max": 545.567
         },
         "adapter_matched": {
-          "median": 834,
-          "min": 834,
-          "max": 834
+          "median": 238,
+          "min": 238,
+          "max": 238
+        },
+        "adapter_replaced": {
+          "median": 16,
+          "min": 16,
+          "max": 16
+        },
+        "adapter_replaced_edges": {
+          "median": 39,
+          "min": 39,
+          "max": 39
         },
         "adapter_edges": {
-          "median": 749,
-          "min": 749,
-          "max": 749
+          "median": 215,
+          "min": 215,
+          "max": 215
         },
         "adapter_conflicts": {
-          "median": 0,
-          "min": 0,
-          "max": 0
+          "median": 4,
+          "min": 4,
+          "max": 4
         },
         "adapter_unresolved_before": {
-          "median": 2048,
-          "min": 2048,
-          "max": 2048
+          "median": 1394,
+          "min": 1394,
+          "max": 1394
         },
         "adapter_unresolved_after": {
-          "median": 1214,
-          "min": 1214,
-          "max": 1214
+          "median": 1156,
+          "min": 1156,
+          "max": 1156
         },
         "adapter_edges_before": {
-          "median": 2161,
-          "min": 2161,
-          "max": 2161
+          "median": 2517,
+          "min": 2517,
+          "max": 2517
         },
         "adapter_edges_after": {
-          "median": 2910,
-          "min": 2910,
-          "max": 2910
+          "median": 2693,
+          "min": 2693,
+          "max": 2693
         }
       },
       "structure": {
@@ -944,23 +990,23 @@
           "type": 422
         },
         "edges": {
-          "CALLS": 1356,
+          "CALLS": 1707,
           "IMPLEMENTS": 333,
-          "REFERENCES": 472
+          "REFERENCES": 477
         },
-        "edges_total": 2161,
-        "ambiguous": 75,
-        "ambiguity_rate": 0.034706154558074964,
-        "unresolved": 2048,
-        "unresolved_rate": 0.48657638393917796,
+        "edges_total": 2517,
+        "ambiguous": 73,
+        "ambiguity_rate": 0.029002781088597537,
+        "unresolved": 1394,
+        "unresolved_rate": 0.3564305804142163,
         "unresolved_by_reason": {
-          "member-scope": 1357,
-          "missing-definition": 510,
+          "member-scope": 786,
+          "missing-definition": 479,
           "parse-failure": 0,
-          "scope-gap": 181
+          "scope-gap": 129
         },
         "unresolved_by_lang": {
-          "rust": 2048
+          "rust": 1394
         },
         "parse_failures": 0,
         "entrypoints": 467,
@@ -974,26 +1020,28 @@
         "name": "scip-rust",
         "definitions": 14878,
         "references": 53694,
-        "matched": 834,
-        "edges": 749,
-        "conflicts": 0,
+        "matched": 238,
+        "replaced": 16,
+        "replaced_edges": 39,
+        "edges": 215,
+        "conflicts": 4,
         "skipped": 55898,
-        "unmatched": 9428,
-        "wall_ms": 650.027,
-        "unresolved_before": 2048,
-        "unresolved_after": 1214,
-        "edges_before": 2161,
-        "edges_after": 2910,
+        "unmatched": 9988,
+        "wall_ms": 540.062,
+        "unresolved_before": 1394,
+        "unresolved_after": 1156,
+        "edges_before": 2517,
+        "edges_after": 2693,
         "new_edges_by_source": {
-          "production": 690,
-          "test_path": 27,
-          "test_entrypoint": 32
+          "production": 150,
+          "test_path": 22,
+          "test_entrypoint": 43
         },
         "new_edges_by_rule": {
-          "call": 92,
-          "method": 640,
+          "call": 59,
+          "method": 135,
           "new": 17,
-          "reference": 0
+          "reference": 4
         }
       },
       "accuracy": {
@@ -1022,16 +1070,16 @@
           "phase": "tree-sitter",
           "samples": 20,
           "expected_callers": 171,
-          "actual_callers": 19,
-          "true_positives": 16,
-          "precision": 0.8421052631578947,
-          "recall": 0.0935672514619883,
+          "actual_callers": 20,
+          "true_positives": 17,
+          "precision": 0.85,
+          "recall": 0.09941520467836257,
           "out_of_scope_actual": 0,
           "impact_expected": 321,
-          "impact_actual": 100,
-          "impact_true_positives": 96,
-          "impact_precision": 0.96,
-          "impact_recall": 0.29906542056074764,
+          "impact_actual": 105,
+          "impact_true_positives": 101,
+          "impact_precision": 0.9619047619047619,
+          "impact_recall": 0.3146417445482866,
           "impact_out_of_scope": 0,
           "impact_truncated": 0
         },
@@ -1045,22 +1093,22 @@
           "recall": 0.1111111111111111,
           "out_of_scope_actual": 0,
           "impact_expected": 321,
-          "impact_actual": 104,
-          "impact_true_positives": 100,
-          "impact_precision": 0.9615384615384616,
-          "impact_recall": 0.3115264797507788,
+          "impact_actual": 107,
+          "impact_true_positives": 103,
+          "impact_precision": 0.9626168224299065,
+          "impact_recall": 0.32087227414330216,
           "impact_out_of_scope": 0,
           "impact_truncated": 0
         },
-        "adapter_touched_targets": 177,
+        "adapter_touched_targets": 118,
         "adapter_touched_before": {
           "phase": "adapter-targets tree-sitter",
-          "samples": 177,
-          "expected_callers": 1432,
-          "actual_callers": 139,
-          "true_positives": 133,
-          "precision": 0.9568345323741008,
-          "recall": 0.09287709497206705,
+          "samples": 118,
+          "expected_callers": 1027,
+          "actual_callers": 254,
+          "true_positives": 245,
+          "precision": 0.9645669291338582,
+          "recall": 0.2385589094449854,
           "out_of_scope_actual": 0,
           "impact_expected": 0,
           "impact_actual": 0,
@@ -1072,32 +1120,32 @@
         },
         "adapter_touched_after": {
           "phase": "adapter-targets after-adapter",
-          "samples": 177,
-          "expected_callers": 1432,
-          "actual_callers": 878,
-          "true_positives": 861,
-          "precision": 0.9806378132118451,
-          "recall": 0.6012569832402235,
+          "samples": 118,
+          "expected_callers": 1027,
+          "actual_callers": 462,
+          "true_positives": 453,
+          "precision": 0.9805194805194806,
+          "recall": 0.44109055501460565,
           "out_of_scope_actual": 0,
-          "impact_expected": 2258,
-          "impact_actual": 1243,
-          "impact_true_positives": 1159,
-          "impact_precision": 0.9324215607401448,
-          "impact_recall": 0.5132860938883969,
+          "impact_expected": 1619,
+          "impact_actual": 763,
+          "impact_true_positives": 706,
+          "impact_precision": 0.9252948885976409,
+          "impact_recall": 0.43607164916615193,
           "impact_out_of_scope": 0,
           "impact_truncated": 0
         },
         "disagreements": [
-          "BroadcastContext <- BroadcastContext.num_threads (rayon-core/src/broadcast/mod.rs:77) [false-negative/tree-sitter]",
+          "BroadcastContext <- spawn_broadcast_in (rayon-core/src/broadcast/mod.rs:131) [false-negative/tree-sitter]",
+          "BroadcastContext <- ScopeFifo.spawn_broadcast (rayon-core/src/scope/mod.rs:633) [false-negative/tree-sitter]",
+          "BroadcastContext <- Scope.spawn_broadcast (rayon-core/src/scope/mod.rs:582) [false-negative/tree-sitter]",
+          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
+          "BroadcastContext <- BroadcastContext.index (rayon-core/src/broadcast/mod.rs:65) [false-negative/tree-sitter]",
           "BroadcastContext <- spawn_broadcast (rayon-core/src/broadcast/mod.rs:37) [false-negative/tree-sitter]",
           "BroadcastContext <- ScopeBroadcast.inject (rayon-core/src/scope/mod.rs:835) [false-negative/tree-sitter]",
-          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]",
-          "BroadcastContext <- BroadcastContext.index (rayon-core/src/broadcast/mod.rs:65) [false-negative/tree-sitter]",
-          "BroadcastContext <- Scope.spawn_broadcast (rayon-core/src/scope/mod.rs:582) [false-negative/tree-sitter]",
-          "BroadcastContext <- ScopeFifo.spawn_broadcast (rayon-core/src/scope/mod.rs:633) [false-negative/tree-sitter]",
-          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
           "BroadcastContext <- ThreadPool.broadcast (rayon-core/src/thread_pool/mod.rs:187) [false-negative/tree-sitter]",
-          "BroadcastContext <- ThreadPool.spawn_broadcast (rayon-core/src/thread_pool/mod.rs:366) [false-negative/tree-sitter]"
+          "BroadcastContext <- BroadcastContext.num_threads (rayon-core/src/broadcast/mod.rs:77) [false-negative/tree-sitter]",
+          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]"
         ]
       }
     }
