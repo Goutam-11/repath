@@ -45,10 +45,13 @@ that is the shape both consumers can actually use.
 
 Graphify is the one prior-art entry large enough to be a competitor rather than a
 precedent, and the comparison now has numbers: it wins on input breadth (40
-languages, docs, PDFs, SQL) and adoption surface (a skill installed into ~25
-agents), and loses on answer identity (three nodes share the label `.request()`),
-transparency (dropped references are never counted) and speed (29× slower cold
-index on `django`). The measurements, the eight things worth taking (agent
+languages, docs, PDFs, SQL), adoption surface (a skill installed into ~25 agents)
+and call recall against compiler truth (F1 0.86/0.95 vs our 0.79/0.89 on
+`requests`/`django`), and loses on answer identity (three nodes share the label
+`.request()`), transparency (dropped references are never counted) and speed (29×
+slower cold index on `django`). The same measurement found a defect of ours:
+`ts.global.unique` at 0.60 sits above the default floor and was wrong in 6 of 10
+sampled edges. The measurements, the eight things worth taking (agent
 installer, token-savings benchmark, `impact --diff`, `map --md`, `--scope`,
 cross-repo merge, GraphML export, resolver passes), and what not to copy are in
 [`docs/competitive/graphify.md`](docs/competitive/graphify.md).
