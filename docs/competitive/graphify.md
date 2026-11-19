@@ -354,20 +354,39 @@ ladder rows.
 - **The star-count arms race.** Graphify has 150k stars and an issue backlog of
   1,688; the moat is answer quality and trust, which is exactly our §2 line.
 
-## 9. Three PRs I would open next
+## 9. What this changes in the backlog
 
-1. `fix(ts): keep a repo-wide unique name below the default floor` — item 0, the
-   accuracy bug §4 measured; one ladder rung and one fixture.
-2. `feat(cli): install the skill into agent config dirs` — item 1, no contract
-   change, immediate adoption win.
-3. `test(eval): measure answer tokens against reading the files` — item 2, gives
-   us a Graphify-comparable number with honest method notes.
+The open issues were checked against Graphify's source, not its README. Most are
+untouched; two are effectively answered by code we can read.
 
-Then `feat(cli): impact --diff` — item 3, the reviewer-facing question, reusing
-the existing changed-file discovery and impact walker.
+| open issue | does the comparison solve it? |
+|---|---|
+| #74 docs refresh | no. It touches the same PLAN paragraph this document added a row to, so coordinate rather than duplicate. |
+| #75 Kibana cold RSS <1 GiB | no. Graphify needs 1.78 GB on the same tree, so there is nothing to copy; today's repath run was 1.03 GB under load, which corroborates the miss. |
+| #76 query test coverage | no. Their suite shape (one pytest file per module, schema validation before build) is not our gap. |
+| #77 accuracy sampling + per-rule calibration | **partly.** `scripts/scip-accuracy.py` is the harness it asks for, and a first per-stratum datum exists (`ts.global.unique` 6/10 wrong). The issue keeps the rest: per-rule buckets, `impact --depth 2`, `bench/baseline.json`. |
+| #78 LSP facts + full-tree Django SCIP | no, but the Django compiler index (2,941 documents) is now parsed and usable for the "current like-for-like SCIP row". |
+| #79 `pnpm-workspace.yaml` | **yes, as a design.** Graphify already reads it with a ~30-line bounded parser (no YAML dependency) and prefers it over `package.json`; the parsing rules and precedence are in the issue comment. |
+| #80 Go support | **partly.** Their `go_dispatch.py` documents the hard half (implicit interface implementation, with guards) and pins `tree-sitter-go` 0.25.0; the extractor and module rules stay ours, and the decision gate stands. |
+| #81 release | no. |
 
-Then `docs/benchmarks.md` gains a competitive section with the table from §3, and
-`PLAN.md` §2 gains the row this document was written for.
+What was filed from this work:
+
+| issue | what it is | source |
+|---|---|---|
+| #82 | `fix(ts)`: keep the repo-wide unique-name guess below the default floor | §4's measured defect |
+| #83 | `feat(cli)`: install the skill into agent config dirs | §7 item 1 |
+| #84 | `feat(cli)`: `impact --diff` for change-set reach | §7 item 3 |
+| #85 | `feat(export)`: committable markdown / GraphML / DOT map artifacts | §7 items 4 and 7 |
+| #86 | `feat(index)`: `--scope` for monorepo subtrees | §7 item 5 |
+| #87 | `feat(eval)`: measure answer tokens against reading the files | §7 item 2 |
+| #88 | `feat(artifact)`: merged cross-repo index, decision-gated | §7 item 6 |
+
+Deliberately not filed: the TypeScript recall gap (interface dispatch, dynamic
+import chains) is real — they resolve 0.78–0.90 of call sites, we resolve
+0.67–0.80 — but #77's per-rule table should locate it before anyone writes a
+resolver PR; and the competitive baseline belongs in #74's documentation pass
+rather than its own issue.
 
 ## Method and what I did not verify
 
