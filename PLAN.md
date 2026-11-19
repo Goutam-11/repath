@@ -41,6 +41,17 @@ that is the shape both consumers can actually use.
 | **ctags / cscope / GNU global** | Classic index | Regex/heuristic | The baseline we must beat on *relations*, not on symbol listing. |
 | **RepoGraph / LocAgent** | Research | Line-level graphs for LLM localization | Take: evidence that graph context helps. Leave: research harnesses. |
 | **~10 new Rust "code graph MCP" repos** | Commodity | tree-sitter + SQLite + MCP | 0–17★ each — the idea is trivially reproducible. The moat is answer quality. |
+| **Graphify** (150k★, Apache-2.0, + hosted SaaS) | Code knowledge graph + agent skill | tree-sitter → NetworkX → `graph.json`, 40 languages, Leiden communities, model only for docs/images | Take: agent installer, token-savings benchmark, `impact --diff`, cross-repo merge. Leave: label-based identity + fuzzy dedup, undirected storage, LLM in the pipeline, hosted control plane. Measured head-to-head in [`docs/competitive/graphify.md`](docs/competitive/graphify.md). |
+
+Graphify is the one prior-art entry large enough to be a competitor rather than a
+precedent, and the comparison now has numbers: it wins on input breadth (40
+languages, docs, PDFs, SQL) and adoption surface (a skill installed into ~25
+agents), and loses on answer identity (three nodes share the label `.request()`),
+transparency (dropped references are never counted) and speed (29× slower cold
+index on `django`). The measurements, the eight things worth taking (agent
+installer, token-savings benchmark, `impact --diff`, `map --md`, `--scope`,
+cross-repo merge, GraphML export, resolver passes), and what not to copy are in
+[`docs/competitive/graphify.md`](docs/competitive/graphify.md).
 
 Two hard constraints inherited from the field:
 
