@@ -4,7 +4,8 @@ Structural answers about a codebase — *what breaks if I change this*, *how doe
 A reach B*, *where is the important code* — from one deterministic graph, for
 humans and for coding agents.
 
-**Status: pre-alpha (M5 + v1.1 + the v1.2 wave).** TypeScript/JS, Python, and Rust
+**Status: pre-alpha (M5 + the v1.1, v1.2, and v1.3 waves; schema v6, 24 locked
+decisions).** TypeScript/JS, Python, and Rust
 definitions and relations are indexed, and `impact`, `path`, `find`, `callers`,
 and `map` answer structural questions from SQLite. `repath mcp` serves the same
 six answers over stdio JSON-RPC in both the legacy and 2026-07-28 eras, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
@@ -28,18 +29,21 @@ shell-less clients.
 
 ## Install
 
-Prebuilt Linux amd64/arm64 archives and SHA-256 checksums are attached to
-[GitHub releases](https://github.com/Goutam-11/repath/releases); build-from-source,
-cross-compile, and runtime notes are in [`docs/install.md`](docs/install.md).
+No release is tagged yet: GoReleaser and the tag-triggered workflow are wired,
+but the first release is tracked by [#81](https://github.com/Goutam-11/repath/issues/81)
+and needs explicit approval. Until then, build from source. Once a release
+exists, prebuilt Linux amd64/arm64 archives and SHA-256 checksums will be
+attached to [GitHub releases](https://github.com/Goutam-11/repath/releases);
+cross-compile and runtime notes are in [`docs/install.md`](docs/install.md).
 
 ```sh
-# release binary
-tar -xzf repath_X.Y.Z_linux_amd64.tar.gz && sudo install -m 0755 repath /usr/local/bin/
-repath --version
-
-# or from source
+# from source
 make build
 ./bin/repath --version
+
+# once a release exists
+tar -xzf repath_X.Y.Z_linux_amd64.tar.gz && sudo install -m 0755 repath /usr/local/bin/
+repath --version
 ```
 
 ## Build
@@ -69,7 +73,7 @@ make build
 ./bin/repath pull out/                 # seed the local index from a snapshot
 ./bin/repath check --fail-on warning   # cycles, dead code, boundaries, hotspots
 ./bin/repath check --sarif out.ts.sarif # attach SARIF diagnostics to symbols
-./bin/repath adapter --scip index.scip # merge TS/Python SCIP facts into pending refs
+./bin/repath adapter --scip index.scip # merge TS/Python/Rust SCIP facts into pending refs
 ./bin/repath adapter --lsp-facts facts.json # merge external LSP facts (opt-in)
 ./bin/repath trace --file profile.cpuprofile # observed calls vs the static graph
 ./bin/repath flows <entrypoint>        # forward execution paths
@@ -112,9 +116,11 @@ is in `PLAN.md` §12.
 A pinned real-repo run (`make bench-real`, Kibana `x-pack/solutions` at
 `0551196`, 38,548 TS files) is in [`docs/benchmarks.md`](docs/benchmarks.md):
 cold **19.2 s**, incremental **582 ms**, `map` p95 **223 ms**, `impact`/
-`callers`/`path` p95 **60.8 / 38.3 / 71.6 ms**, peak RSS **920 MiB** cold, and
-artifact **65.6 MiB → 17.2 MiB** (26.2%). Every measured target is met; the
-synthetic budgets above remain the gate.
+`callers`/`path` p95 **60.8 / 38.3 / 71.6 ms**, peak RSS **920 MiB** cold at the
+#43 measurement, and artifact **65.6 MiB → 17.2 MiB** (26.2%). A quiet-host
+rerun now reports **1.09 GiB** cold RSS, above the 1 GiB PLAN §10 budget; the
+miss is tracked by [#75](https://github.com/Goutam-11/repath/issues/75). Every
+other measured target is met; the synthetic budgets above remain the gate.
 
 A Python corpus (`psf/requests`, 37 files) and a Rust corpus (`rayon`, 191
 files) run with `make bench-real-langs`: the `scip-python` adapter takes

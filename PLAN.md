@@ -6,12 +6,13 @@
 > things connect, or where the important code is — and get a finished answer,
 > confidence-tagged, as text for a human or JSON for an agent.
 
-Status: **M0–M5 plus v1.1 and the v1.2 wave landed** — `check` + opt-in SARIF,
-the TypeScript/Python/Rust SCIP adapters, entrypoint flows, test-impact mapping and
-`--diff`, dual-era MCP, opt-in artifact compression, the read-only HTTP server,
-and GoReleaser-based distribution. This document is the contract for v1 and its
-v1.1/v1.2 slices.
-Scope changes require editing the decision table, not just the code.
+Status: **M0–M5 plus the v1.1, v1.2, and v1.3 waves landed** — `check` + opt-in
+SARIF, the TypeScript/Python/Rust SCIP adapters and the LSP facts seam,
+entrypoint flows, test-impact mapping and `--diff`, dual-era MCP, opt-in artifact
+compression, the read-only HTTP server, cross-language HTTP links, read-only
+trace evidence, and GoReleaser-based distribution (no tag yet; #81). Schema v6,
+24 locked decisions. This document is the contract for v1 and its v1.1–v1.3
+slices. Scope changes require editing the decision table, not just the code.
 
 ---
 
@@ -1110,10 +1111,19 @@ in v1.3.
 
 ---
 
-Next action: the **v1.2 wave is complete** — SARIF, the Python and Rust SCIP
-adapters, test-impact `--diff`, real-repo evidence on TypeScript/Python/Rust,
-real-client MCP verification, the read-only HTTP server, and release engineering
-all landed. The largest remaining quality gap is still member calls without
-typed receivers; the next candidates are closing the warm/cold parity gap
-(issue #49) and the deferred LSP/watch surface. None should start without a new
-plan decision and explicit approval.
+Next action: the **v1.3 wave is complete** — the LSP facts seam (#58),
+cross-language HTTP links (decision 23, #59), and read-only trace evidence
+(decision 24, #62) landed, and #82 removed the last known default-confidence
+precision defect by moving the TypeScript unique-name guess to 0.40. The current
+work is hardening, not new surface: direct `query`/`output`/`graph` tests (#76),
+the Kibana cold-RSS miss against the §10 budget (#75), per-rule compiler-accuracy
+calibration (#77), and full-tree Django evidence (#78). After those, #81 is the
+first tagged release and stays approval-gated.
+
+The two large bets are alternatives, not a queue, and both need a §3 amendment
+and explicit approval before code: `pnpm-workspace.yaml` workspaces (#79) and Go
+support (#80). A merged cross-repo index (#88) is the third decision-gated item.
+The independent adoption features are #83 (`repath install` skill), #84
+(`impact --diff`), #85 (`map --md` + GraphML/DOT), #86 (`index --scope`), and
+#87 (token-savings benchmark). The largest remaining resolution quality gap is
+still member calls without typed receivers.
