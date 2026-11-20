@@ -349,6 +349,12 @@ the database.
   **3.74 GiB** max RSS, 100.3 MiB index), and the documented bounded fallback
   is `--target-only django` (909 files) at a 3 GB heap. `rust-analyzer` needs
   ~158 s / 7.1 MiB for `hyusk`. Both targets stay opt-in; CI needs no producer.
+  `scip-python` 0.6.8 also mis-resolves wildcard package attributes
+  (`models.CharField` becomes `DateTimeField#`), so a Python **member** slice
+  (`pkg.Name`) is not SCIP-attributable — only the `from pkg import Name`
+  identifier slice is. Audit a Python rung with the opt-in
+  `scripts/audit-python-star.py` (a Python interpreter that can import the
+  corpus; never CI) instead of scoring members from that producer (#105).
 - **`make bench-corpora` is reproducible evidence, not a gate.** Issue #61's
   `scripts/bench-corpora.sh` pins `django` @ `f24f38c`, `hyusk` @ `06bdb2b`,
   `requests` @ `3c7baaa`, and `rayon` @ `599425d` (repo + commit + optional
