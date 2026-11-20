@@ -94,6 +94,47 @@ shows attributes that mean something for that mode.
   different files, so the qname is an attribute, not the id. Module nodes use
   `m0`, `m1`, … in name order.
 
+## Schema and viewer validation
+
+The GraphML writer emits the GraphML 1.0 element set, namespaced and with an
+`xsi:schemaLocation`; its attributes are declared as `<key>` elements so a
+consumer can type them (node `d0`–`d3`; edge `d4`–`d6`, with module mode using
+its own key set and `m0`, `m1`, … node ids for modules).
+
+- **Schema.** The official GraphML 1.0 schema is a set of five files
+  (`graphml.xsd` redefines `graphml-structure.xsd` with the attributes and
+  parse-info schemas, which imports `xlink.xsd`). The schema host was "out of
+  service" when #85 shipped and again when this was added, so the set is
+  vendored under [`testdata/export/graphml/`](../testdata/export/graphml/) with
+  its archived provenance and hashes. The opt-in check validates both modes:
+
+  ```sh
+  REPATH_XSD=1 go test ./internal/cli -run TestGraphMLMatchesXSDSchema -v
+  ```
+
+  It skips when `xmllint` is not installed and never runs in `make check`.
+  On the pinned `django` export (44,426 nodes, 20.5 MB) the symbol graph
+  validates with `xmllint` against the vendored set.
+
+- **Viewer (GraphML).** Gephi was not installed on this host, so the **Gephi
+  Toolkit 0.11.4** headless import — the same GraphML import plugin the desktop
+  application uses — was run against the generated files:
+  the test fixture imports as 3 nodes / 2 edges, the module view as 2 / 1, and
+  the `django` export as **44,426 nodes / 61,884 edges** (the export's default
+  `--min-confidence 0.5` floor; the index holds 63,537 rows including 0.40
+  ambiguous and 0.45 cross-language edges). The declared types arrive as
+  expected: node `qname`/`kind`/`file` String, `line` Integer; edge `kind`/`rule`
+  String, `confidence` Double. Module mode: node `symbols` Integer, edge
+  `weight` Double. On Java 25 the toolkit prints a NetBeans `Lookup`
+  `InaccessibleObjectException` during startup; the import still completes, and
+  `--add-opens java.base/java.net=ALL-UNNAMED` silences it. No writer change was
+  needed: the viewer accepted every attribute.
+
+- **Viewer (DOT).** Graphviz 14.1.4 renders both `export --dot` modes
+  (`dot -Tsvg`), including the module graph of the same `django` checkout; the
+  rendered SVG is non-empty in both modes. DOT has no schema, so the gate is the
+  existing byte-identical-output test, not a schema check.
+
 ## Deliberately omitted
 
 - **No new data.** No pending rows, no inferred edges, no synthetic edges beyond
