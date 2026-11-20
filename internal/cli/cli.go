@@ -35,6 +35,8 @@ Usage:
   repath adapter --scip FILE [--root DIR] [--json]
   repath adapter --lsp-facts FILE [--root DIR] [--json]
   repath trace   --file PROFILE [--root DIR] [--limit N] [--json]
+  repath install   [--platform claude|codex|cursor|gemini|vscode] [--all] [--force] [--json]
+  repath uninstall [--platform NAME|--all] [--purge] [--root DIR] [--json]
   repath mcp     [--root DIR]
   repath serve   [--addr 127.0.0.1:0] [--root DIR]
   repath version
@@ -54,6 +56,8 @@ Commands:
            (opt-in --sarif adds compiler/linter diagnostics; repath never runs one)
   adapter  merge compiler facts (SCIP or LSP facts JSON) into unresolved references
   trace    read-only runtime evidence from an existing V8 CPU profile
+  install  copy the repath agent skill into a user-scope agent skill directory
+  uninstall  remove the installed skill; --purge also deletes .repath/
   mcp      stdio JSON-RPC server for MCP clients (six answer tools)
   serve    read-only HTTP answers for dashboards and shell-less clients
   version  print the build version
@@ -106,6 +110,10 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return adapterCmd(args[1:], stdout, stderr)
 	case "trace":
 		return traceCmd(args[1:], stdout, stderr)
+	case "install":
+		return installCmd(args[1:], stdout, stderr)
+	case "uninstall":
+		return uninstallCmd(args[1:], stdout, stderr)
 	case "serve":
 		return serveCmd(args[1:], stdout, stderr)
 	default:
@@ -136,6 +144,10 @@ type options struct {
 	addr          string
 	failOn        string
 	maxFindings   int
+	platform      string
+	all           bool
+	force         bool
+	purge         bool
 }
 
 // parseOptions returns the flags and the positional arguments.
@@ -247,6 +259,20 @@ func parseOptions(args []string) (options, []string, error) {
 			o.failOn = args[i]
 		case strings.HasPrefix(arg, "--fail-on="):
 			o.failOn = strings.TrimPrefix(arg, "--fail-on=")
+		case arg == "--platform":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--platform needs a name")
+			}
+			i++
+			o.platform = args[i]
+		case strings.HasPrefix(arg, "--platform="):
+			o.platform = strings.TrimPrefix(arg, "--platform=")
+		case arg == "--all":
+			o.all = true
+		case arg == "--force":
+			o.force = true
+		case arg == "--purge":
+			o.purge = true
 		case arg == "--max-findings":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--max-findings needs a number")

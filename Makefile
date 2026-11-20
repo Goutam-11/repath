@@ -16,7 +16,7 @@ fmt:
 	gofmt -l -w .
 
 check:
-	test -z "$$(gofmt -l ./cmd ./internal)" || (echo "unformatted files above; run 'make fmt'"; exit 1)
+	test -z "$$(gofmt -l ./cmd ./internal ./skills)" || (echo "unformatted files above; run 'make fmt'"; exit 1)
 	go vet ./...
 	go test ./...
 	./scripts/test-commit-msg-hook.sh

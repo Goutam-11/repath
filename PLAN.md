@@ -360,10 +360,19 @@ repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
 repath adapter --scip FILE      [--json]
 repath adapter --lsp-facts FILE [--json]
 repath trace  --file PROFILE    [--limit 50] [--json]
+repath install   [--platform NAME|--all] [--force] [--json]
+repath uninstall [--platform NAME|--all] [--purge] [--root DIR] [--json]
 repath serve  [--addr 127.0.0.1:0] [--root DIR]
 ```
 
 Symbol references accept `qname`, `name`, `file:line`, or `file:name`.
+
+`install`/`uninstall` are a file copy of the embedded `skills/repath/SKILL.md`
+into a user-scope agent skill directory (`claude`, `codex`, `cursor`, `gemini`,
+`vscode`; default `claude`). An existing different file is kept unless
+`--force`, a missing file is success for `uninstall`, and `--purge` is the only
+way to delete `.repath/`. No network, no config file, no index access; an
+unknown platform is usage exit `2`.
 
 `impact` output (text):
 
