@@ -160,3 +160,58 @@ func TestCyclesFindsStronglyConnectedModules(t *testing.T) {
 		t.Fatalf("second cycle = %+v, want [c]", cycles[1])
 	}
 }
+
+// TestBuildMapBundleIsTheUntrimmedMap pins the file-export view: it carries
+// every ranked symbol with its module and the per-file rollup even when the
+// token-trimmed map answer holds only a prefix.
+func TestBuildMapBundleIsTheUntrimmedMap(t *testing.T) {
+	ctx := context.Background()
+	st := buildMapFixture(t)
+
+	bundle, err := graph.BuildMapBundle(ctx, st, 0.5)
+	if err != nil {
+		t.Fatalf("build bundle: %v", err)
+	}
+	if len(bundle.Symbols) != 14 {
+		t.Fatalf("bundle symbols = %d, want all 14", len(bundle.Symbols))
+	}
+	if len(bundle.Modules) != 2 {
+		t.Fatalf("bundle modules = %d, want 2", len(bundle.Modules))
+	}
+	if len(bundle.Files) != 4 {
+		t.Fatalf("bundle files = %d, want 4", len(bundle.Files))
+	}
+
+	// The trimmed answer keeps fewer symbols than the bundle has.
+	trimmed, err := graph.BuildMap(ctx, st, 100, 0.5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !trimmed.Truncated || len(trimmed.Top) >= len(bundle.Symbols) {
+		t.Fatalf("trimmed top = %d of %d, want a prefix", len(trimmed.Top), len(bundle.Symbols))
+	}
+
+	modules := map[string]int{}
+	for _, sym := range bundle.Symbols {
+		if sym.Module == "" || sym.File == "" || sym.QName == "" {
+			t.Fatalf("bundle symbol missing fields: %+v", sym)
+		}
+		modules[sym.Module]++
+	}
+	if modules["a"] != 3 || modules["b"] != 11 {
+		t.Fatalf("symbol modules = %v, want a=3 b=11", modules)
+	}
+
+	for i := 1; i < len(bundle.Symbols); i++ {
+		prev, cur := bundle.Symbols[i-1], bundle.Symbols[i]
+		if cur.Rank > prev.Rank || (cur.Rank == prev.Rank && cur.QName < prev.QName) {
+			t.Fatalf("bundle not rank-ordered at %d", i)
+		}
+	}
+	for i := 1; i < len(bundle.Files); i++ {
+		prev, cur := bundle.Files[i-1], bundle.Files[i]
+		if cur.Module < prev.Module || (cur.Module == prev.Module && cur.Path < prev.Path) {
+			t.Fatalf("bundle files not ordered at %d: %+v then %+v", i, prev, cur)
+		}
+	}
+}

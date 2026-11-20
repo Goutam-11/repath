@@ -33,25 +33,71 @@ type MapResult struct {
 	Truncated       bool           `json:"truncated"`
 }
 
-// BuildMap ranks symbols with PageRank over call edges, rolls modules up into a
-// dependency graph, and finds cycles. The symbol list is trimmed to the token
-// budget; the module section always fits because it is small.
-func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence float64) (MapResult, error) {
+// MapBundle is the untrimmed overview used by file-backed exports. The JSON
+// map answer carries only the symbols that fit its token budget; a committable
+// bundle needs every ranked symbol with the module it belongs to, plus the
+// per-file rollup that the module section does not expose. Both come from
+// buildMapData, so a bundle and the map answer rank and roll modules up
+// identically.
+type MapBundle struct {
+	Modules         []ModuleStat
+	Cycles          [][]string
+	Symbols         []BundleSymbol
+	Files           []BundleFile
+	Entrypoints     int
+	EntrypointRules map[string]int
+}
+
+// BundleSymbol is a ranked symbol plus the module it belongs to.
+type BundleSymbol struct {
+	Ranked
+	Module string
+}
+
+// BundleFile is one indexed file with its symbol count and module.
+type BundleFile struct {
+	Path    string
+	Module  string
+	Symbols int
+}
+
+// rankedNode is one symbol before its file path is resolved.
+type rankedNode struct {
+	node    store.MapNode
+	rank    float64
+	callers int
+	module  string
+}
+
+// mapData is the shared, untrimmed map pipeline output.
+type mapData struct {
+	modules         []ModuleStat
+	cycles          [][]string
+	ranked          []rankedNode
+	entrypoints     int
+	entrypointRules map[string]int
+}
+
+// buildMapData ranks every symbol with PageRank over call and reference edges
+// and rolls modules up into a dependency graph. It is the one implementation;
+// BuildMap trims its symbol list for the JSON answer and BuildMapBundle keeps
+// all of it for the file exports.
+func buildMapData(ctx context.Context, st *store.Store, minConfidence float64) (mapData, error) {
 	nodes, err := st.MapNodes(ctx)
 	if err != nil {
-		return MapResult{}, err
+		return mapData{}, err
 	}
 	all, err := st.GraphEdgeSkeletons(ctx, minConfidence)
 	if err != nil {
-		return MapResult{}, err
+		return mapData{}, err
 	}
 	moduleOf, moduleNames, err := moduleLookup(ctx, st)
 	if err != nil {
-		return MapResult{}, err
+		return mapData{}, err
 	}
 	entrypointRules, err := st.EntrypointCounts(ctx)
 	if err != nil {
-		return MapResult{}, err
+		return mapData{}, err
 	}
 	entrypointCount := 0
 	for _, count := range entrypointRules {
@@ -67,7 +113,7 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 
 	ranks, callers := pageRank(nodes, edges)
 
-	result := MapResult{Entrypoints: entrypointCount, EntrypointRules: entrypointRules}
+	data := mapData{entrypoints: entrypointCount, entrypointRules: entrypointRules}
 
 	// Module section: symbol counts and outgoing module dependencies.
 	moduleSymbols := map[string]int{}
@@ -98,33 +144,49 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 			stat.Deps = append(stat.Deps, dep)
 		}
 		sort.Strings(stat.Deps)
-		result.Modules = append(result.Modules, stat)
+		data.modules = append(data.modules, stat)
 	}
-	sort.Slice(result.Modules, func(i, j int) bool {
-		if result.Modules[i].Symbols != result.Modules[j].Symbols {
-			return result.Modules[i].Symbols > result.Modules[j].Symbols
+	sort.Slice(data.modules, func(i, j int) bool {
+		if data.modules[i].Symbols != data.modules[j].Symbols {
+			return data.modules[i].Symbols > data.modules[j].Symbols
 		}
-		return result.Modules[i].Name < result.Modules[j].Name
+		return data.modules[i].Name < data.modules[j].Name
 	})
-	result.Cycles = Cycles(moduleDeps)
+	data.cycles = Cycles(moduleDeps)
 
-	// Symbol section: ranked, trimmed to what the budget allows. Only the
-	// symbols that survive the budget need their file path resolved.
-	type rankedNode struct {
-		node    store.MapNode
-		rank    float64
-		callers int
-	}
-	ranked := make([]rankedNode, 0, len(nodes))
+	// Symbol section: every symbol ranked, then sorted deterministically.
+	data.ranked = make([]rankedNode, 0, len(nodes))
 	for _, n := range nodes {
-		ranked = append(ranked, rankedNode{node: n, rank: ranks[n.ID], callers: callers[n.ID]})
+		data.ranked = append(data.ranked, rankedNode{
+			node:    n,
+			rank:    ranks[n.ID],
+			callers: callers[n.ID],
+			module:  moduleNames[moduleOf[n.FileID]],
+		})
 	}
-	sort.Slice(ranked, func(i, j int) bool {
-		if ranked[i].rank != ranked[j].rank {
-			return ranked[i].rank > ranked[j].rank
+	sort.Slice(data.ranked, func(i, j int) bool {
+		if data.ranked[i].rank != data.ranked[j].rank {
+			return data.ranked[i].rank > data.ranked[j].rank
 		}
-		return ranked[i].node.QName < ranked[j].node.QName
+		return data.ranked[i].node.QName < data.ranked[j].node.QName
 	})
+	return data, nil
+}
+
+// BuildMap ranks symbols with PageRank over call edges, rolls modules up into a
+// dependency graph, and finds cycles. The symbol list is trimmed to the token
+// budget; the module section always fits because it is small.
+func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence float64) (MapResult, error) {
+	data, err := buildMapData(ctx, st, minConfidence)
+	if err != nil {
+		return MapResult{}, err
+	}
+	result := MapResult{
+		Modules:         data.modules,
+		Cycles:          data.cycles,
+		Entrypoints:     data.entrypoints,
+		EntrypointRules: data.entrypointRules,
+	}
 
 	// Roughly 14 tokens per line of output; modules already claim part of the budget.
 	moduleLines := len(result.Modules) + len(result.Cycles) + 4
@@ -133,13 +195,13 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 		budget = 100
 	}
 	lines := budget / 12
-	if lines > len(ranked) {
-		lines = len(ranked)
+	if lines > len(data.ranked) {
+		lines = len(data.ranked)
 	}
-	if lines < len(ranked) {
+	if lines < len(data.ranked) {
 		result.Truncated = true
 	}
-	top := ranked[:lines]
+	top := data.ranked[:lines]
 
 	fileIDs := make([]int64, 0, len(top))
 	seenFile := make(map[int64]bool, len(top))
@@ -169,6 +231,75 @@ func BuildMap(ctx context.Context, st *store.Store, maxTokens int, minConfidence
 	}
 
 	return result, nil
+}
+
+// BuildMapBundle returns the untrimmed map: every ranked symbol with its
+// module, the per-module file rollup, and the module graph. Callers own the
+// token budget, which is what lets `map --md` trim the whole bundle instead of
+// one symbol list.
+func BuildMapBundle(ctx context.Context, st *store.Store, minConfidence float64) (MapBundle, error) {
+	data, err := buildMapData(ctx, st, minConfidence)
+	if err != nil {
+		return MapBundle{}, err
+	}
+	bundle := MapBundle{
+		Modules:         data.modules,
+		Cycles:          data.cycles,
+		Entrypoints:     data.entrypoints,
+		EntrypointRules: data.entrypointRules,
+	}
+
+	fileCounts := make(map[int64]int, len(data.ranked))
+	fileModule := make(map[int64]string, len(data.ranked))
+	for _, r := range data.ranked {
+		fileCounts[r.node.FileID]++
+		if _, ok := fileModule[r.node.FileID]; !ok {
+			fileModule[r.node.FileID] = r.module
+		}
+	}
+	fileIDs := make([]int64, 0, len(fileCounts))
+	for id := range fileCounts {
+		fileIDs = append(fileIDs, id)
+	}
+	sort.Slice(fileIDs, func(i, j int) bool { return fileIDs[i] < fileIDs[j] })
+	paths, err := st.FilePathsByIDs(ctx, fileIDs)
+	if err != nil {
+		return MapBundle{}, err
+	}
+
+	bundle.Symbols = make([]BundleSymbol, 0, len(data.ranked))
+	for _, r := range data.ranked {
+		bundle.Symbols = append(bundle.Symbols, BundleSymbol{
+			Ranked: Ranked{
+				Endpoint: Endpoint{
+					ID:    r.node.ID,
+					QName: r.node.QName,
+					Kind:  r.node.Kind,
+					File:  paths[r.node.FileID],
+					Line:  r.node.StartLine,
+				},
+				Rank:    r.rank,
+				Callers: r.callers,
+			},
+			Module: r.module,
+		})
+	}
+
+	bundle.Files = make([]BundleFile, 0, len(fileCounts))
+	for _, id := range fileIDs {
+		bundle.Files = append(bundle.Files, BundleFile{
+			Path:    paths[id],
+			Module:  fileModule[id],
+			Symbols: fileCounts[id],
+		})
+	}
+	sort.Slice(bundle.Files, func(i, j int) bool {
+		if bundle.Files[i].Module != bundle.Files[j].Module {
+			return bundle.Files[i].Module < bundle.Files[j].Module
+		}
+		return bundle.Files[i].Path < bundle.Files[j].Path
+	})
+	return bundle, nil
 }
 
 // pageRank scores symbols by incoming calls, damping dangling mass back into

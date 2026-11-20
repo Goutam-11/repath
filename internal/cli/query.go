@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -133,6 +134,14 @@ func mapCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "map takes no arguments\n\n%s", usage)
 		return 2
 	}
+	if opts.out != "" && !opts.md {
+		fmt.Fprintf(stderr, "--out is only used with --md\n\n%s", usage)
+		return 2
+	}
+	if opts.md && opts.json {
+		fmt.Fprintf(stderr, "--md writes files; --json prints the answer. Pick one\n\n%s", usage)
+		return 2
+	}
 
 	ctx := context.Background()
 	root, err := query.ResolveRoot(opts.root)
@@ -146,6 +155,35 @@ func mapCmd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer st.Close()
+
+	if opts.md {
+		budget := opts.maxTokens
+		if budget <= 0 {
+			budget = query.DefaultMaxTokens
+		}
+		bundle, err := graph.BuildMapBundle(ctx, st.Store, opts.minConfidence)
+		if err != nil {
+			fmt.Fprintf(stderr, "map: %v\n", err)
+			return 1
+		}
+		outDir := opts.out
+		if outDir == "" {
+			outDir = mapBundleDir
+		}
+		// A relative --out (and the default) is anchored at the repository the
+		// answer describes, so `--root other-repo` never writes into the
+		// caller's working directory.
+		if !filepath.IsAbs(outDir) {
+			outDir = filepath.Join(root, outDir)
+		}
+		files, trimmed, err := writeMapBundle(outDir, bundle, budget, opts.minConfidence)
+		if err != nil {
+			fmt.Fprintf(stderr, "map --md: %v\n", err)
+			return 1
+		}
+		printMapBundle(stdout, files, len(bundle.Symbols), budget, trimmed)
+		return 0
+	}
 
 	answer, err := query.Map(ctx, st.Store, opts.maxTokens, opts.minConfidence)
 	if err != nil {
