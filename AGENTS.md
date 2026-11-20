@@ -220,7 +220,13 @@ the database.
   `(qname, arity)` so a file edit does not orphan incoming edges; keep that
   property when touching the indexer.
 - **Pending retries only re-link identifiers.** `pending.form` exists so an
-  untyped `obj.get()` is never retried as a repo-wide name guess.
+  untyped `obj.get()` is never retried as a repo-wide name guess. A recovered
+  edge attaches to the same enclosing symbol the forward walk used: the retry
+  re-derives `ref.Enclosing` (the packed references of a file this run resolved,
+  or a re-extraction of the unchanged file on an incremental run) rather than
+  the smallest node span, which misattributes a reference when one qname has
+  more than one definition in a file (#106). A row with no such reference stays
+  pending.
 - **Unresolved reasons are a heuristic, computed at read time.** `status` and
   `check --json` bucket every pending row exactly once: `parse-failure`
   (`files.parse_ok = 0`), `member-scope` (`form = 'member'` and the name exists

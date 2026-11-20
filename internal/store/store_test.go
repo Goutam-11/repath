@@ -563,41 +563,6 @@ func TestIndexedPathsAndHashesByPaths(t *testing.T) {
 	}
 }
 
-func TestNodeSpansByFilesOrdersSmallestFirst(t *testing.T) {
-	ctx := context.Background()
-	st := openTestStore(t)
-
-	tx, err := st.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fileID, err := tx.UpsertFile(ctx, File{Path: "a.ts", Lang: "typescript", Hash: "h", ParseOK: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := tx.ReplaceNodes(ctx, fileID, "typescript", []Node{
-		{Kind: "class", Name: "C", QName: "C", StartLine: 1, EndLine: 20},
-		{Kind: "method", Name: "m", QName: "C.m", StartLine: 5, EndLine: 9},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-
-	spans, err := st.NodeSpansByFiles(ctx, []int64{fileID})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := spans[fileID]
-	if len(got) != 2 {
-		t.Fatalf("spans = %+v", got)
-	}
-	if got[0].StartLine != 5 || got[0].EndLine != 9 {
-		t.Fatalf("first span = %+v, want the smaller method span", got[0])
-	}
-}
-
 func TestUnresolvedSummaryClassifiesPending(t *testing.T) {
 	ctx := context.Background()
 	st := openTestStore(t)
