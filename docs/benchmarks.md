@@ -1389,9 +1389,11 @@ imports the module the resolver looked the name up in and checks
 So 93.8% of the population is runtime-confirmed and none is contradicted; the
 remaining 6.2% are environment limits, not counter-evidence. The uniform #77
 calibration (production SCIP) is unchanged: `callers` P99.1 / R49.8,
-`impact`≤2 P98.9 / R34.8, the 0.6–0.8 bucket 44 TP / 0 FP. Caveats: `__all__` is
-not modelled (every public top-level name counts as exported), and the hop cap
-means a chain past eight wildcards still falls back to the 0.60 recovery.
+`impact`≤2 P98.9 / R34.8, the 0.6–0.8 bucket 44 TP / 0 FP. Caveats: a literal
+`__all__` now bounds a wildcard hop and a non-literal one is unknown (#110);
+django's star hubs keep `__all__` consistent, so the measured population is
+unchanged (0 edge and 0 pending row deltas), and the hop cap means a chain past
+eight wildcards still falls back to the 0.60 recovery.
 
 ### Answer tokens vs reading the files (2026-11-20, #87)
 

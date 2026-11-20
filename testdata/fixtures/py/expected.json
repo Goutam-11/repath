@@ -338,5 +338,15 @@
     "src": "app/star_order_use.py:use_order",
     "dst": "app/star_order/second.py:ordered",
     "kind": "CALLS"
+  },
+  {
+    "src": "app/all_use.py:use_listed",
+    "dst": "app/all_pkg/impl.py:all_listed",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/all_unknown_use.py:use_unknown_all",
+    "dst": "app/all_unknown_pkg/impl.py:all_narrow",
+    "kind": "CALLS"
   }
 ]

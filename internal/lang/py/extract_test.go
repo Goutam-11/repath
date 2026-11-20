@@ -457,3 +457,41 @@ def ws():
 		}
 	}
 }
+
+func TestExtractAllLiteral(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{"list", "__all__ = [\"one\", 'two']\n", []string{"one", "two"}},
+		{"tuple", "__all__ = (\"one\",)\n", []string{"one"}},
+		{"empty", "__all__ = []\n", []string{""}},
+		{"concatenation", "__all__ = [\"one\"] + [\"two\"]\n", nil},
+		{"augmented", "__all__ = [\"one\"]\n__all__ += [\"two\"]\n", nil},
+		{"fstring", "name = \"x\"\n__all__ = [f\"{name}\"]\n", nil},
+		{"nested", "if True:\n    __all__ = [\"one\"]\n", nil},
+		{"append", "__all__ = [\"one\"]\n__all__.append(\"two\")\n", nil},
+		{"absent", "x = 1\n", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := New().Extract([]byte(tc.src), Python)
+			var got []string
+			for _, imp := range res.Imports {
+				if imp.Local != "@py.all:" {
+					t.Fatalf("unexpected import %q", imp.Local)
+				}
+				got = append(got, imp.Imported)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("names = %q, want %q", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Fatalf("names = %q, want %q", got, tc.want)
+				}
+			}
+		})
+	}
+}

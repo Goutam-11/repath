@@ -73,6 +73,7 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 		baseNames: make(map[string][]string), params: make(map[string]bool),
 	}
 	w.prewalk(root, "")
+	w.prewalkAll(root)
 	for i := uint32(0); i < root.NamedChildCount(); i++ {
 		w.node(root.NamedChild(i), "", true, false, nil)
 	}
@@ -234,6 +235,116 @@ func (w *walker) prewalkClassAttrs(body sitter.Node, classQName string) {
 			w.types[scopeKey(classQName, "attr."+left.Content(w.src))] = typ
 		}
 	}
+}
+
+// prewalkAll records a module's literal `__all__` as reserved import bindings
+// (issue #110). A wildcard import only binds the names a source module's
+// `__all__` lists; the rows travel in the existing imports dimension, so the
+// schema stays v6. Only a top-level assignment to a list or tuple of plain
+// string constants is literal: a concatenation, a call, an augmented
+// assignment, or an assignment inside an if/try/def makes the value unknown,
+// and then no rows are written (a wildcard keeps exposing every public name,
+// the pre-#110 behaviour).
+func (w *walker) prewalkAll(root sitter.Node) {
+	var names []string
+	line := 0
+	known := false
+	unknown := false
+	var scan func(n sitter.Node)
+	scan = func(n sitter.Node) {
+		if n.IsNull() {
+			return
+		}
+		if n.Type() == "identifier" && n.Content(w.src) == "__all__" {
+			literal := false
+			if parent := n.Parent(); !parent.IsNull() && parent.Type() == "assignment" {
+				left := parent.ChildByFieldName("left")
+				stmt := parent.Parent()
+				topLevel := !stmt.IsNull() && stmt.Type() == "expression_statement" &&
+					!stmt.Parent().IsNull() && stmt.Parent().Type() == "module"
+				if left.StartByte() == n.StartByte() && left.EndByte() == n.EndByte() && topLevel {
+					if list, ok := pyAllList(parent.ChildByFieldName("right"), w.src); ok {
+						names, line, known, literal = list, int(n.StartPoint().Row)+1, true, true
+					}
+				}
+			}
+			if !literal {
+				unknown = true
+			}
+		}
+		for i := uint32(0); i < n.NamedChildCount(); i++ {
+			scan(n.NamedChild(i))
+		}
+	}
+	scan(root)
+	if unknown || !known {
+		return
+	}
+	if len(names) == 0 {
+		// An empty literal `__all__` exports nothing; the empty row is what
+		// distinguishes it from a module that has no `__all__` at all.
+		names = []string{""}
+	}
+	for _, name := range names {
+		w.res.Imports = append(w.res.Imports, Import{
+			Local: "@py.all:", Imported: name, Line: line, Public: true,
+		})
+	}
+}
+
+// pyAllList returns the names of a literal list or tuple of plain string
+// constants. A string with an interpolation (an f-string) or an escape is not
+// treated as a literal; the caller then leaves `__all__` unknown rather than
+// guessing a name the source does not spell.
+func pyAllList(n sitter.Node, src []byte) ([]string, bool) {
+	if n.IsNull() || (n.Type() != "list" && n.Type() != "tuple") {
+		return nil, false
+	}
+	names := make([]string, 0, n.NamedChildCount())
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		if child.Type() != "string" {
+			return nil, false
+		}
+		name, ok := pyAllLiteral(child.Content(src))
+		if !ok {
+			return nil, false
+		}
+		names = append(names, name)
+	}
+	return names, true
+}
+
+// pyAllLiteral decodes a single quoted Python string constant. Prefixes r/u are
+// accepted; bytes and escapes are not, because either could change the name.
+func pyAllLiteral(raw string) (string, bool) {
+	i := 0
+	for i < len(raw) && (raw[i] == 'r' || raw[i] == 'R' || raw[i] == 'u' || raw[i] == 'U') {
+		i++
+	}
+	if i >= len(raw) || (raw[i] != '"' && raw[i] != '\'') {
+		return "", false
+	}
+	quote := raw[i]
+	if i+2 < len(raw) && raw[i+1] == quote && raw[i+2] == quote {
+		body := raw[i+3:]
+		closing := string([]byte{quote, quote, quote})
+		if !strings.HasSuffix(body, closing) {
+			return "", false
+		}
+		return body[:len(body)-3], !strings.Contains(body, "\\")
+	}
+	body := raw[i+1:]
+	if !strings.HasSuffix(body, string(quote)) {
+		return "", false
+	}
+	body = body[:len(body)-1]
+	// An escape or an embedded quote (implicit concatenation) could change
+	// the name; a substring we cannot read exactly leaves __all__ unknown.
+	if strings.Contains(body, "\\") || strings.ContainsAny(body, "\"'") {
+		return "", false
+	}
+	return body, true
 }
 
 func (w *walker) children(n sitter.Node, enclosing string, inClass bool) {

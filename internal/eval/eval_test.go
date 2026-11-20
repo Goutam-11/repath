@@ -326,6 +326,55 @@ func TestPythonUniqueNameStaysBelowFloor(t *testing.T) {
 	}
 }
 
+// TestPythonAllNarrowsWildcardExport pins #110. A literal __all__ on the
+// source module bounds `from x import *`: a name it omits stays pending (and is
+// not recovered by the 0.60 unique-name retry), a name it lists resolves at
+// py.import.star, and a non-literal __all__ leaves the wildcard unchanged.
+func TestPythonAllNarrowsWildcardExport(t *testing.T) {
+	_, st, _ := indexFixture(t, "py")
+
+	edges, err := st.Edges(context.Background(), 0.35)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+	want := map[string]bool{
+		"app/all_use.py:use_listed -> app/all_pkg/impl.py:all_listed CALLS":                      false,
+		"app/all_unknown_use.py:use_unknown_all -> app/all_unknown_pkg/impl.py:all_narrow CALLS": false,
+	}
+	for _, e := range edges {
+		key := edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)
+		if _, ok := want[key]; !ok {
+			if e.DstQName == "all_hidden" {
+				t.Errorf("excluded name resolved anyway: %s = %s at %v", key, e.Rule, e.Confidence)
+			}
+			continue
+		}
+		want[key] = true
+		if e.Rule != "py.import.star" || e.Confidence != 0.80 {
+			t.Errorf("%s = %s at %v, want py.import.star at 0.80", key, e.Rule, e.Confidence)
+		}
+	}
+	for key, seen := range want {
+		if !seen {
+			t.Errorf("missing wildcard edge %q", key)
+		}
+	}
+
+	pending, err := st.Pending(context.Background())
+	if err != nil {
+		t.Fatalf("read pending: %v", err)
+	}
+	hidden := 0
+	for _, row := range pending {
+		if row.Name == "all_hidden" {
+			hidden++
+		}
+	}
+	if hidden != 1 {
+		t.Errorf("pending all_hidden rows = %d, want 1 (a literal __all__ omits it)", hidden)
+	}
+}
+
 // TestPythonRuleIDs pins the Python ladder: every new rule id must be reachable
 // from the fixture, and a Python file must never produce a ts.* rule.
 func TestPythonRuleIDs(t *testing.T) {
