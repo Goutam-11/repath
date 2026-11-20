@@ -32,8 +32,8 @@ the default 0.5 floor, and `--min-confidence 0.4` keeps every guess visible. The
 pinned Kibana `security/packages` audit found 30 of 61 such edges crossing a
 package boundary, while at least 11 of the 31 same-package edges were prop
 callbacks, test-local helpers, or a same-file local misattributed by arity, so
-same-package co-location was not a usable signal. Python and Rust keep 0.60
-until their own calibration (#77).
+same-package co-location was not a usable signal. Rust keeps 0.60 until its own
+calibration (#77). Python's rung is split by import provenance (#97).
 
 Bare member calls (`obj.add()` with no typed receiver) are not guessed at all:
 they stay unresolved, and `ts.method.unique` / `ts.method.ambiguous` were
@@ -59,7 +59,7 @@ removed from this ladder because no code path ever emitted them.
 | `py.typed.inherited` | 0.80 | a typed receiver whose method lives on a base class |
 | `py.import.star` | 0.80 | `from .util import *`, then a bare resolvable name |
 | `py.typed.method.global` | 0.70 | the receiver type is known and exactly one `Type.method` exists |
-| `py.global.unique` | 0.60 | exactly one symbol with that name in the repo |
+| `py.global.unique` | 0.60 / 0.40 | exactly one symbol with that name; 0.60 when the pending retry has an import binding (a star-re-export recovery), 0.40 for a bare name-only guess, which is excluded from default answers (#97) |
 | `py.global.ambiguous` | 0.40 | 2–5 candidates; one edge per candidate, filtered by default |
 
 ### Rust
@@ -112,6 +112,24 @@ names one of its candidates; that is an adapter-only pass with its own
 guardrails, never tree-sitter resolver behavior. Adapter rules are prefixed
 `scip.<lang>.*` or `lsp.<lang>.*`. See
 [`docs/adapters.md`](adapters.md#ambiguous-replacement).
+
+A bare Python identifier with one repo-wide declaration is split by provenance
+(#97). The full-tree django SCIP classified all 1,020 `py.global.unique` edges:
+952 had a persisted import binding — the import resolved to a module whose export
+lookup missed a `from x import *` re-export — and **951 were compiler-correct
+(99.9%)**, so that recovery keeps **0.60**. The other 68 had no import binding and
+only **2 were correct (3.1%)**: a callback parameter guessed as `Signal.send`, a
+builtin `Warning`, a function-local import, an attribute read as a bare name. An
+unprovenanced guess is therefore **0.40**, outside default answers but visible
+with `--min-confidence 0.4`; the gate removes 63 false positives from default
+answers and costs 2 correct ones.
+
+Production-only SCIP scope was not the right population: its 47 in-scope edges
+were 21 TP / 26 FP (44.7%), because the star-re-export recoveries live mostly in
+the test tree. All 47 crossed a directory, so a same-package co-location gate
+would have retained none of the 21 correct edges. The `requests` corpus
+contributes no measurable edge: its SCIP document set covers `src/requests/`
+only and all 143 rung edges live in `tests/`/`ext/`.
 
 A Python call whose target is a class is stored as `REFERENCES`, the analogue of
 `new` in TypeScript; the rule still names how the class was found. Decorator
@@ -298,6 +316,14 @@ than unresolved.
 `from x import *` is weaker because only a wildcard ties the name to the file:
 it resolves at 0.80. Bindings are applied in file order, so when several star
 imports define the same name the last one wins, matching Python execution.
+
+A star re-export is **not** followed when another file imports a name through it:
+`from pkg import x` where `pkg/__init__.py` does `from .impl import *` misses the
+export lookup and goes pending (Django's `django/db/models/__init__.py` is the
+common real-repo case). The cold/full pending retry recovers such a name at 0.60
+only when the referring file has the import binding; without that provenance the
+rung is a bare guess at 0.40 (#97). Following star re-exports explicitly is a
+known resolver gap, not a policy.
 
 ## Known gaps
 

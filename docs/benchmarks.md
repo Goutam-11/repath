@@ -1154,7 +1154,11 @@ the adapter uses, and treats the compiler as ground truth:
   `requests.scip` covers `src/` only, so test-file callers are excluded and
   counted, not scored as false positives);
 - **60 targets** with an attributable caller are sampled deterministically: sort
-  by target path then SCIP symbol and take evenly spaced entries;
+  by target path then SCIP symbol and take evenly spaced entries. An optional
+  **rule cohort** (`REPATH_ACCURACY_RULE=<rule>`) replaces that sample with every
+  attributable target receiving the rule, and an exhaustive edge-level count of
+  the rule (TP/FP over every emitted edge, split by import provenance) is
+  recorded as `rule_calibration` (#97);
 - precision = TP / actual, recall = TP / expected, micro-averaged over the
   sample. The same sample is measured **before** the adapter and after
   `ApplySCIPAll` on the same store, plus a **0.4-floor phase before the adapter**
@@ -1177,10 +1181,10 @@ the comparison.
 | SCIP references / definitions | 6,734 / 1,485 | 53,694 / 14,878 | 157,794 / 52,884 |
 | Attributable references | 502 | 6,093 | 20,052 |
 | Candidate / sampled targets | 187 / 60 | 1,007 / 60 | 6,046 / 60 |
-| `callers` tree-sitter | P **95.7%**, R **63.4%** (142 expected, 94 actual, 90 TP) | P **97.3%**, R **26.8%** (399 / 110 / 107) | P **98.3%**, R **49.8%** (229 / 116 / 114) |
-| `callers` after adapter | P **95.9%**, R **65.5%** (93 TP) | P **97.7%**, R **32.3%** (129 TP) | P **98.5%**, R **57.6%** (132 TP) |
-| `impact`≤2 tree-sitter | P **91.7%**, R **36.3%** (457 / 181 / 166) | P **89.1%**, R **33.9%** (864 / 329 / 293) | P **97.9%**, R **34.9%** (541 / 193 / 189) |
-| `impact`≤2 after adapter | P **92.5%**, R **40.7%** (186 TP) | P **90.1%**, R **38.9%** (336 TP) | P **98.4%**, R **44.7%** (242 TP) |
+| `callers` tree-sitter | P **95.7%**, R **63.4%** (142 expected, 94 actual, 90 TP) | P **97.3%**, R **26.8%** (399 / 110 / 107) | P **99.1%**, R **49.8%** (229 / 115 / 114) |
+| `callers` after adapter | P **95.9%**, R **65.5%** (93 TP) | P **97.7%**, R **32.3%** (129 TP) | P **99.2%**, R **57.6%** (132 TP) |
+| `impact`≤2 tree-sitter | P **91.7%**, R **36.3%** (457 / 181 / 166) | P **89.1%**, R **33.9%** (864 / 329 / 293) | P **98.9%**, R **34.8%** (541 / 190 / 188) |
+| `impact`≤2 after adapter | P **92.5%**, R **40.7%** (186 TP) | P **90.1%**, R **38.9%** (336 TP) | P **99.2%**, R **44.5%** (241 TP) |
 
 **Per rule** (tree-sitter callers; rules with no false positive in the sample are
 collapsed into "other"):
@@ -1196,7 +1200,6 @@ collapsed into "other"):
 | `rayon` | `rs.generic.bound` | 44 / 2 | 95.7% |
 | `rayon` | other rules | 14 / 0 | 100.0% |
 | `django` | `py.this.method` | 21 / 1 | 95.5% |
-| `django` | `py.global.unique` | 0 / 1 | 0.0% |
 | `django` | other rules | 93 / 0 | 100.0% |
 
 **Per confidence bucket** (callers; the 0.4 row comes from the pre-adapter
@@ -1204,9 +1207,9 @@ collapsed into "other"):
 
 | Bucket | `requests` | `rayon` | `django` |
 | --- | --- | --- | --- |
-| 0.4 | — | 2 / 0 (100.0%) | — |
+| 0.4 | — | 2 / 0 (100.0%) | 0 / 1 (0.0%) |
 | 0.5 | — | — | — |
-| 0.6–0.8 | 21 / 2 (91.3%) | 96 / 3 (97.0%) | 44 / 1 (97.8%) |
+| 0.6–0.8 | 21 / 2 (91.3%) | 96 / 3 (97.0%) | 44 / 0 (100.0%) |
 | 0.9+ | 69 / 2 (97.2%) | 11 / 0 (100.0%) | 70 / 1 (98.6%) |
 
 The uniform sample can miss every target the adapter repaired, so the test also
@@ -1230,12 +1233,14 @@ Reading the numbers:
   missing references are type-only uses, annotations, generic-bound/trait
   dispatch, and macro-generated calls; that is the documented resolution
   ceiling measured as a number instead of described.
-- **The calibration points at concrete rungs.** `py.global.unique` was wrong in
-  the one django sample it covered (0 TP / 1 FP) — the Python analogue of the
-  #82 defect, left in place because #77 is measurement-only. `rs.local` and
-  `rs.generic.bound` carry almost all rayon caller edges (93 of 106 TP) at
-  98.0% / 95.7%; the 0.40 bucket was correct in its two sampled rayon edges.
-  The 0.6–0.8 and 0.9+ buckets are both above 90% precision on every corpus.
+- **The calibration points at concrete rungs.** #77 found `py.global.unique`
+  wrong in the one django sample it covered (0 TP / 1 FP); #97 measured the whole
+  rung and split it by import provenance (§Global unique-name provenance), which
+  is why the django 0.6–0.8 bucket improved from 44 / 1 to 44 / 0 and the FP now
+  sits in the 0.4 bucket. `rs.local` and `rs.generic.bound` carry almost all
+  rayon caller edges (93 of 106 TP) at 98.0% / 95.7%; the 0.40 bucket was correct
+  in its two sampled rayon edges. The 0.6–0.8 and 0.9+ buckets are both above 90%
+  precision on every corpus.
 - **The harness itself needed a correction.** Before #77 the truth builder
   skipped every reference whose enclosing symbol was not a function/method.
   That excluded class bases while the graph emitted `EXTENDS` edges, so correct
@@ -1263,6 +1268,52 @@ graph covers only the SCIP document set; `impact` depth 2 compares a compiler
 graph built from attributable references only, so it is a sampled approximation,
 not a proof. The three runs take about 0.5 s (`requests`), 1.5 s (`rayon`), and
 15 s (`django`) and never run in CI.
+
+### Global unique-name provenance (2026-11-20, #97)
+
+`py.global.unique` was the last rung above the default floor whose precision had
+never been measured over its whole population. #77 sampled 60 targets and caught
+one false positive; the rule-filtered cohort
+(`REPATH_ACCURACY_RULE=py.global.unique`, `REPATH_ACCURACY_MIN_CONFIDENCE=0.4`)
+classifies every emitted edge instead. Production-only SCIP scope is the wrong
+population for this rung: 973 of the 1,020 edges have an endpoint outside the 909
+production documents, so they are counted as out-of-scope rather than scored. The
+full-tree producer (`django-57-full.scip`, 2,941 documents, 613,467 references,
+103,923 attributable) scores all of them.
+
+| Scope | Emitted edges | In scope | TP / FP | Precision |
+| --- | --- | --- | --- | --- |
+| django production SCIP (909 docs) | 1,020 | 47 | 21 / 26 | 44.7% |
+| django full tree (2,941 docs) | 1,020 | 1,017 | 953 / 64 | 93.7% |
+| `requests` (`src/` SCIP, 19 docs) | 143 | 0 | — | not measurable |
+
+The full-tree split by the target name's **import provenance** is decisive:
+
+| Provenance | Edges | TP / FP | Precision | Emitted at |
+| --- | --- | --- | --- | --- |
+| file-level import binding (star-re-export recovery) | 952 | 951 / 1 | 99.9% | **0.60** |
+| no import binding (bare name-only guess) | 68 | 2 / 63 | 3.1% | **0.40** |
+
+A pending retry whose name has an import binding means the import resolved to a
+module but the export lookup missed a `from x import *` re-export (Django's
+`django/db/models/__init__.py` is the common case); the unique-name link is a
+recovery and stays at 0.60. Without that provenance the rung is the same
+name-only guess #82 demoted: a callback parameter read as `Signal.send`, the
+builtin `Warning` read as a project class, a function-local import, an attribute
+read as a bare name. Demoting the whole rung, as the issue first proposed, would
+have hidden 951 correct edges to remove 63 wrong ones; a same-package gate was
+not the signal (all 47 production-scope edges crossed a directory). On the
+production scope the split is 21 / 0 at 0.60 and 0 / 26 at 0.40, so default
+`impact`/`callers` answers keep every correct production edge.
+
+The change is confidence-only: edge and pending **row sets are unchanged**, and
+cold / incremental / second-`--full` dumps are identical including confidence
+(verified on `requests`: 1,044 edges, 510 pending). Fixtures pin both shapes
+(`app/unique_fp.py` callback parameter, `app/star_use.py` star-re-export
+recovery), and the uniform django sample improved from P98.3% to P99.1%
+(`callers`) and P97.9% to P98.9% (`impact`≤2) without a resolver change beyond
+the rung. `rs.global.unique` is untouched: its rayon `impact`≤2 calibration was
+64 TP / 0 FP.
 
 ### Failure modes
 

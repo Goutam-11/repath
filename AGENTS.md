@@ -178,7 +178,13 @@ the database.
   another module, and generic element types (`list[Service]`), stay untyped.
 - **Python re-exports are followed through the imports table.** `py.import.reexport`
   covers `__init__.py` and ordinary modules such as `requests.compat`; a chain
-  ending at the standard library is external, not pending.
+  ending at the standard library is external, not pending. Explicit re-exports
+  are followed, but a **star re-export** (`from .impl import *` in
+  `pkg/__init__.py`) is not, so `from pkg import x` misses the export lookup and
+  goes pending. The pending retry recovers it at 0.60 only when the referring
+  file has an import binding for the name; without that provenance the
+  `py.global.unique` guess is 0.40 (#97, measured 951/1 vs 2/63). Following star
+  re-exports is a known gap, not a policy.
 - **TypeScript barrels, workspaces, and dynamic imports are bounded inputs.**
   `export * from` and `export { a } from` are persisted as public import
   bindings and followed at ≤8 hops with a visited set; a declaration beats a

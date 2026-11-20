@@ -33,6 +33,13 @@ func TestResolvePendingUsesLanguageRuleIDs(t *testing.T) {
 	writeFile(t, root, "Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
 	writeFile(t, root, "src/lib.rs", "pub fn rs_helper() -> i32 {\n    1\n}\n\npub struct RsStruct;\n")
 	writeFile(t, root, "use.ts", "export function ts_helper() { return 1; }\n")
+	// Python provenance: pkg/__init__.py star-imports the name, so a direct
+	// `from pkg import py_helper` misses the export lookup, while a bare call
+	// has no import binding at all.
+	writeFile(t, root, "pkg/__init__.py", "from .impl import *\n")
+	writeFile(t, root, "pkg/impl.py", "def py_helper() -> int:\n    return 1\n")
+	writeFile(t, root, "py_import.py", "from pkg import py_helper\n\n\ndef run_imported() -> int:\n    return py_helper()\n")
+	writeFile(t, root, "py_free.py", "def run_bare() -> int:\n    return py_helper()\n")
 
 	ctx := context.Background()
 	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
@@ -94,6 +101,35 @@ func TestResolvePendingUsesLanguageRuleIDs(t *testing.T) {
 	// forward ladder, so it stays below the default 0.5 floor.
 	if r.Confidence != 0.40 {
 		t.Fatalf("typescript retry confidence = %v, want 0.40", r.Confidence)
+	}
+
+	importedID, ok, err := st.FileByPath(ctx, "py_import.py")
+	if err != nil || !ok {
+		t.Fatalf("file id for py_import.py: ok=%v err=%v", ok, err)
+	}
+	freeID, ok, err := st.FileByPath(ctx, "py_free.py")
+	if err != nil || !ok {
+		t.Fatalf("file id for py_free.py: ok=%v err=%v", ok, err)
+	}
+	pyx, err := resolve.Build(ctx, st, root, nil)
+	if err != nil {
+		t.Fatalf("python resolve build: %v", err)
+	}
+	r, found = pyx.ResolvePending(importedID, "call", "py_helper")
+	if !found || r.Rule != "py.global.unique" {
+		t.Fatalf("python import-provenance retry = %+v found=%v", r, found)
+	}
+	// #97: importing the name is the provenance that keeps the recovery at 0.60.
+	if r.Confidence != 0.60 {
+		t.Fatalf("python import-provenance retry confidence = %v, want 0.60", r.Confidence)
+	}
+	r, found = pyx.ResolvePending(freeID, "call", "py_helper")
+	if !found || r.Rule != "py.global.unique" {
+		t.Fatalf("python bare retry = %+v found=%v", r, found)
+	}
+	// No import binding: a bare name-only guess, below the default floor.
+	if r.Confidence != 0.40 {
+		t.Fatalf("python bare retry confidence = %v, want 0.40", r.Confidence)
 	}
 }
 
