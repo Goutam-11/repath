@@ -195,7 +195,11 @@ the database.
   order (last wins, Python's rule), the walk is capped at eight hops and
   cycle-safe, and a wildcard hop is `py.import.star` at 0.80 (#102; on django
   6,561 of 6,992 star edges were runtime-confirmed by Python's own import
-  machinery, none contradicted). `__all__` is not modelled. The pending retry
+  machinery, none contradicted). A literal `__all__` (a top-level list or tuple
+  of string constants) bounds a wildcard hop: a name it omits stays pending, and
+  the 0.60 recovery refuses to re-add it; a non-literal `__all__` is unknown and
+  keeps the pre-#110 behaviour; Python's default underscore filter is not
+  applied (#110). The pending retry
   still recovers a name the export walk cannot see (a deprecated `__getattr__`
   re-export, a chain past the cap) at 0.60 only when the referring file has an
   import binding for the name; without that provenance the `py.global.unique`

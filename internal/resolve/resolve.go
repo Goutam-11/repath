@@ -82,6 +82,10 @@ type Index struct {
 	// last-wins imports map would silently drop all but the last.
 	reexports     map[int64]map[string]facts.Import
 	starReexports map[int64][]facts.Import
+	// pyAll is a module's literal `__all__`, read from reserved import rows
+	// (issue #110). A file with no entry has no literal `__all__` (or a
+	// non-literal one), so a wildcard keeps exposing every public name.
+	pyAll map[int64]map[string]bool
 
 	// Workspace packages from package.json `workspaces` (local manifests only).
 	// The map is built on the first non-relative specifier a TypeScript file
@@ -138,6 +142,7 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 		imports:       make(map[int64]map[string]facts.Import),
 		reexports:     make(map[int64]map[string]facts.Import),
 		starReexports: make(map[int64][]facts.Import),
+		pyAll:         make(map[int64]map[string]bool),
 		crates:        crates,
 		crateByName:   rustCratesByName(crates),
 		aliases:       LoadAliases(root),
@@ -205,6 +210,13 @@ func Build(ctx context.Context, st *store.Store, root string, importsFor map[int
 // `from x import y` / `pub use` also create a local name, but a TypeScript
 // `export { y } from "./x"` does not, so its row feeds only the barrel tables.
 func (ix *Index) addImport(imp store.ImportRow) {
+	if strings.HasPrefix(imp.Local, "@py.all:") {
+		if ix.pyAll[imp.FileID] == nil {
+			ix.pyAll[imp.FileID] = make(map[string]bool)
+		}
+		ix.pyAll[imp.FileID][imp.Imported] = true
+		return
+	}
 	binding := facts.Import{
 		Local: imp.Local, Imported: imp.Imported, Source: imp.Source,
 		Line: imp.Line, Public: imp.Public,
@@ -1065,6 +1077,9 @@ func (ix *Index) pyByStar(fromFile int64, fromPath string, ref facts.Ref) (Resol
 		if target == 0 {
 			continue
 		}
+		if !ix.pyAllowsStar(target, ref.Name) {
+			continue
+		}
 		if n, lookup := ix.pyExport(target, ref.Name, map[int64]bool{}, 0); lookup.found() {
 			return pyTarget(ref, n, 0.80, "py.import.star"), true
 		}
@@ -1358,6 +1373,47 @@ const maxPyExportHops = 8
 // beats a named re-export beats a star re-export, mirroring the TypeScript
 // barrel policy: `from .impl import *` in a package __init__ (#102) is followed
 // like `export * from`, and the walk reports the weakest hop it crossed.
+// pyAllowsStar reports whether a wildcard import of fileID binds name. A
+// module with a literal `__all__` exposes only the names it lists; a module
+// without one (or with a non-literal assignment, which the extractor leaves
+// unrecorded) exposes every public name, as it did before #110.
+func (ix *Index) pyAllowsStar(fileID int64, name string) bool {
+	// importsOf loads a file's rows, including the reserved `__all__` ones.
+	ix.importsOf(fileID)
+	allowed, ok := ix.pyAll[fileID]
+	if !ok {
+		return true
+	}
+	return allowed[name]
+}
+
+// pyAllExcludes reports whether a literal __all__ on the export path names what
+// the wildcard would otherwise expose. When it does, the name is not importable
+// from the module at all, so the 0.60 unique-name recovery must not add it back
+// (#110). The walk mirrors pyExport: the module's own __all__, then its star
+// re-exports, bounded and cycle-safe.
+func (ix *Index) pyAllExcludes(fileID int64, name string, seen map[int64]bool, depth int) bool {
+	if fileID == 0 || depth > maxPyExportHops || seen[fileID] {
+		return false
+	}
+	seen[fileID] = true
+	ix.importsOf(fileID)
+	if allowed, ok := ix.pyAll[fileID]; ok && !allowed[name] {
+		return true
+	}
+	fromPath := ix.paths[fileID]
+	for _, imp := range ix.starReexports[fileID] {
+		target := ix.resolvePyModule(fromPath, imp.Source)
+		if target == 0 {
+			continue
+		}
+		if ix.pyAllExcludes(target, name, seen, depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
 func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool, depth int) (store.NodeRow, exportLookup) {
 	if fileID == 0 || depth > maxPyExportHops || seen[fileID] {
 		return store.NodeRow{}, exportMissing
@@ -1408,6 +1464,11 @@ func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool, depth 
 			if !isRelative(imp.Source) {
 				external = true
 			}
+			continue
+		}
+		if !ix.pyAllowsStar(target, name) {
+			// The source module's literal __all__ omits the name, so Python
+			// would not bind it through this wildcard.
 			continue
 		}
 		n, lookup := ix.pyExport(target, name, seen, depth+1)
@@ -1646,7 +1707,13 @@ func (ix *Index) ResolvePending(fileID int64, kind, name string) (Resolution, bo
 	switch ix.language(fileID) {
 	case "python":
 		confidence := 0.40
-		if _, imported := ix.importsOf(fileID)[name]; imported {
+		if binding, imported := ix.importsOf(fileID)[name]; imported && binding.Imported != "*" {
+			// A literal __all__ that omits the name closes the export walk: the
+			// import cannot provide it, so do not re-add it by unique name.
+			target := ix.resolvePyModule(ix.paths[fileID], binding.Source)
+			if ix.pyAllExcludes(target, binding.Imported, map[int64]bool{}, 0) {
+				return Resolution{}, false
+			}
 			confidence = 0.60
 		}
 		r = ix.byUniquePython(ref, ix.global[name], confidence)

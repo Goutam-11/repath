@@ -57,7 +57,7 @@ removed from this ladder because no code path ever emitted them.
 | `py.typed.method` | 0.85 | `service.total()` where `service: Service`, `service = Service(...)`, or a same-file factory returns `Service` |
 | `py.local` | 0.85 | a symbol in the same file, unique |
 | `py.typed.inherited` | 0.80 | a typed receiver whose method lives on a base class |
-| `py.import.star` | 0.80 | `from .util import *`, or a name a package `__init__.py` star-re-exports (`from pkg import Name`, `pkg.Name`) — any wildcard hop in the export chain (#102) |
+| `py.import.star` | 0.80 | `from .util import *`, or a name a package `__init__.py` star-re-exports (`from pkg import Name`, `pkg.Name`) — any wildcard hop in the export chain (#102); a literal `__all__` on the source narrows it (#110) |
 | `py.typed.method.global` | 0.70 | the receiver type is known and exactly one `Type.method` exists |
 | `py.global.unique` | 0.60 / 0.40 | exactly one symbol with that name; 0.60 when the pending retry has an import binding (a star-re-export recovery), 0.40 for a bare name-only guess, which is excluded from default answers (#97) |
 | `py.global.ambiguous` | 0.40 | 2–5 candidates; one edge per candidate, filtered by default |
@@ -335,9 +335,14 @@ capped at eight hops and is cycle-safe through a visited set, and a chain ending
 at the standard library or a dependency is external rather than unresolved. A
 wildcard hop reports `py.import.star` at 0.80 whatever it found downstream,
 because the wildcard is the weakest link in the chain; a named re-export keeps
-`py.import.reexport` at 0.95. `__all__` is not modelled, so every public
-top-level name of the source counts as exported — the codebase saying
-`from pkg import x` is the evidence that the name is importable.
+`py.import.reexport` at 0.95. A literal `__all__` (a top-level list or tuple of
+string constants) narrows the wildcard to the names it lists (#110): a name the
+list omits is not bound by `from x import *`, so the reference stays pending
+and the 0.60 unique-name recovery does not re-add it. A non-literal `__all__`
+(a concatenation, a call, an augmented assignment, or one inside a conditional)
+is unknown and keeps the pre-#110 behaviour — every public top-level name of the
+source counts as exported, and the codebase saying `from pkg import x` is the
+evidence that the name is importable.
 
 On `django` @ `f24f38c` this moved 942 star-re-export recoveries from
 `py.global.unique` 0.60 to `py.import.star` 0.80 on the same source and target
@@ -452,11 +457,14 @@ is in [`docs/benchmarks.md`](benchmarks.md#star-re-exports-2026-11-20-102).
   aliases an external module (`import http.cookiejar as cookielib`).
 - **`sys.path`, `PYTHONPATH`, and arbitrary layouts.** Only root, `src/`, and
   `lib/` are searched; namespace packages without `__init__.py` are not.
-- **`__all__` and underscore visibility.** `__all__` is not consulted, so a
-  wildcard hop exposes every public top-level name of the source and an
-  underscore name is still importable. Wildcard precedence *is* modelled for
-  direct star imports and star re-exports: bindings apply in file order, so the
-  last wildcard wins, matching Python execution.
+- **`__all__` and underscore visibility.** A literal `__all__` (a top-level
+  list or tuple of string constants) bounds a wildcard hop, and a name it omits
+  stays pending rather than being recovered by the unique-name guess (#110). A
+  non-literal `__all__` is unknown and exposes every public top-level name, and
+  an underscore name is still importable even without one: the model does not
+  apply Python's default underscore filter. Wildcard precedence *is* modelled
+  for direct star imports and star re-exports: bindings apply in file order, so
+  the last wildcard wins, matching Python execution.
 - **Dynamic constructs.** `__import__`, `getattr`, metaclass-generated methods,
   and conditional imports (last import wins) are outside the static model.
 - **Entrypoint marker.** `if __name__ == "__main__"` is stored as the
