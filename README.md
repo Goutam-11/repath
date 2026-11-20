@@ -63,6 +63,7 @@ make build
 ./bin/repath status --json             # builds .repath/index.db on first run
 ./bin/repath impact <symbol>           # transitive blast radius
 ./bin/repath impact <handler> --min-confidence 0.4  # include cross-language HTTP links
+./bin/repath impact --diff origin/main  # union blast radius for a change set
 ./bin/repath path <from> <to>          # how one symbol reaches another
 ./bin/repath map                       # ranked overview: modules, cycles, hubs
 ./bin/repath callers <symbol>          # who calls this

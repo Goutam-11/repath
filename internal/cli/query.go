@@ -17,8 +17,15 @@ func impactCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%v\n\n%s", err, usage)
 		return 2
 	}
+	if opts.diff {
+		if len(positional) != 0 {
+			fmt.Fprintf(stderr, "impact --diff takes no target; pass a base ref or nothing\n\n%s", usage)
+			return 2
+		}
+		return impactDiffCmd(opts, stdout, stderr)
+	}
 	if len(positional) != 1 {
-		fmt.Fprintf(stderr, "impact needs exactly one symbol or file:line\n\n%s", usage)
+		fmt.Fprintf(stderr, "impact needs exactly one symbol or file:line (or --diff [base])\n\n%s", usage)
 		return 2
 	}
 

@@ -24,6 +24,7 @@ Usage:
   repath find    <symbol> [--root DIR] [--json] [--min-confidence N]
   repath callers <symbol> [--root DIR] [--json] [--min-confidence N]
   repath impact  <symbol|file:line> [--depth N] [--limit N] [--json]
+  repath impact  --diff [base] [--depth N] [--limit N] [--json]
   repath tests   <symbol|file:line> [--depth N] [--limit N] [--json]
   repath tests   --diff [base] [--depth N] [--limit N] [--json]
   repath path    <from> <to> [--max-depth N] [--json]
@@ -47,7 +48,7 @@ Commands:
   status   report index state, refreshing it first
   find     symbol card: location, kind, caller and callee counts
   callers  who calls this symbol
-  impact   transitive blast radius of a change
+  impact   transitive blast radius of a change (--diff: union over a git change set)
   tests    test files that structurally reach a changed target
   path     how one symbol reaches another
   map      ranked overview: modules, cycles, hot symbols
