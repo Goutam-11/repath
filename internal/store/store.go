@@ -365,54 +365,6 @@ func (s *Store) FileHashesByPaths(ctx context.Context, paths []string) (map[stri
 	return out, nil
 }
 
-// NodeSpan is a symbol id and its line span, used to find the enclosing symbol
-// for several pending references in one query.
-type NodeSpan struct {
-	ID        int64
-	StartLine int
-	EndLine   int
-}
-
-// NodeSpansByFiles loads the spans of every symbol in the given files, ordered
-// smallest span first. The pending retry used to issue one point query per
-// matched reference.
-func (s *Store) NodeSpansByFiles(ctx context.Context, fileIDs []int64) (map[int64][]NodeSpan, error) {
-	out := make(map[int64][]NodeSpan, len(fileIDs))
-	for start := 0; start < len(fileIDs); start += maxParams {
-		end := start + maxParams
-		if end > len(fileIDs) {
-			end = len(fileIDs)
-		}
-		batch := fileIDs[start:end]
-		args := make([]any, len(batch))
-		for i, id := range batch {
-			args[i] = id
-		}
-		rows, err := s.db.QueryContext(ctx,
-			`SELECT file_id, id, start_line, end_line FROM nodes
-			 WHERE file_id IN (`+placeholders(len(batch))+`)
-			 ORDER BY file_id, (end_line - start_line) ASC`, args...)
-		if err != nil {
-			return nil, err
-		}
-		for rows.Next() {
-			var fileID int64
-			var span NodeSpan
-			if err := rows.Scan(&fileID, &span.ID, &span.StartLine, &span.EndLine); err != nil {
-				rows.Close()
-				return nil, err
-			}
-			out[fileID] = append(out[fileID], span)
-		}
-		if err := rows.Err(); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		rows.Close()
-	}
-	return out, nil
-}
-
 // FileMap returns the current file rows keyed by repo-relative path.
 func (s *Store) FileMap(ctx context.Context) (map[string]FileState, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, path, hash, mtime, parse_ok FROM files`)

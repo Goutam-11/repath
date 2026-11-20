@@ -324,6 +324,122 @@ func TestColdRunCompletesPendingRetry(t *testing.T) {
 	}
 }
 
+// TestRetryAttachesToTrueEnclosingSymbol pins issue #106. A qname can be
+// defined more than once in one file (two nested classes with the same name):
+// both occurrences share one node id, and the persisted span covers only the
+// first. Recovering a later occurrence's pending reference from that span
+// attaches it to the surrounding method; the retry must use the same
+// ref.Enclosing the forward walk would have used.
+func TestRetryAttachesToTrueEnclosingSymbol(t *testing.T) {
+	t.Run("cold", func(t *testing.T) {
+		dir := newGitRepo(t)
+		// impl exists but does not export helper, so the import binding misses
+		// and both calls stay pending until the cold retry links the unique
+		// global name (with the binding, at 0.60).
+		writeSource(t, dir, "pkg/__init__.py", "")
+		writeSource(t, dir, "pkg/impl.py", "marker = 1\n")
+		writeSource(t, dir, "pkg/defs.py", "def helper():\n    return 1\n")
+		writeSource(t, dir, "pkg/use.py", `from .impl import helper
+
+class TestX:
+    def test_a(self):
+        class Inner:
+            first = helper()
+
+        marker = 1
+
+        class Inner:
+            second = helper()
+`)
+		commitAll(t, dir, "seed")
+
+		runIndex(t, dir)
+		assertRetrySource(t, dir, "helper", "TestX.test_a.Inner", 0.60)
+	})
+
+	t.Run("incremental", func(t *testing.T) {
+		dir := newGitRepo(t)
+		writeSource(t, dir, "pkg/__init__.py", "")
+		writeSource(t, dir, "pkg/test_x.py", `class TestX:
+    def test_a(self):
+        class Inner:
+            first = ChoiceField()
+
+        marker = 1
+
+        class Inner:
+            second = ChoiceField()
+`)
+		commitAll(t, dir, "seed")
+
+		runIndex(t, dir)
+		// No definition exists yet, so both references are pending.
+		assertPendingOnly(t, dir, "ChoiceField", 2)
+
+		// An untracked definition keeps the run incremental (a new commit
+		// changes HEAD and forces full discovery) and makes the name unique.
+		writeSource(t, dir, "pkg/fields.py", "class ChoiceField:\n    pass\n")
+		runIndex(t, dir)
+
+		assertRetrySource(t, dir, "ChoiceField", "TestX.test_a.Inner", 0.40)
+	})
+}
+
+func assertPendingOnly(t *testing.T, dir, name string, want int) {
+	t.Helper()
+	st := openIndex(t, dir)
+	defer st.Close()
+	rows, err := st.Pending(context.Background())
+	if err != nil {
+		t.Fatalf("pending: %v", err)
+	}
+	got := 0
+	for _, row := range rows {
+		if row.Name == name {
+			got++
+		}
+	}
+	if got != want {
+		t.Fatalf("pending rows named %s = %d, want %d", name, got, want)
+	}
+}
+
+// assertRetrySource checks that every recovered edge to dst has the expected
+// source. Both nested-class occurrences map to the same qname, so the two
+// recovered references collapse into a single edge row; the pre-#106 span
+// lookup produced a second row whose source was the enclosing method.
+func assertRetrySource(t *testing.T, dir, dst, wantSrc string, wantConfidence float64) {
+	t.Helper()
+	st := openIndex(t, dir)
+	defer st.Close()
+	edges, err := st.Edges(context.Background(), 0.35)
+	if err != nil {
+		t.Fatalf("edges: %v", err)
+	}
+	var got []store.EdgeDetail
+	for _, edge := range edges {
+		if edge.DstQName == dst && edge.Rule == "py.global.unique" {
+			got = append(got, edge)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("recovered edges to %s = %+v, want exactly one", dst, got)
+	}
+	if got[0].SrcQName != wantSrc {
+		t.Fatalf("recovered edge src = %q, want %q", got[0].SrcQName, wantSrc)
+	}
+	if got[0].Confidence != wantConfidence {
+		t.Fatalf("recovered edge confidence = %v, want %v", got[0].Confidence, wantConfidence)
+	}
+	pending, err := st.CountPending(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 {
+		t.Fatalf("pending = %d, want 0 after the retry", pending)
+	}
+}
+
 func TestIncrementalFallsBackWhenHeadChanges(t *testing.T) {
 	dir := newGitRepo(t)
 	writeSource(t, dir, "a.ts", "export function a() { return 1; }\n")

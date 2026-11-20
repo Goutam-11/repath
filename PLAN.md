@@ -537,6 +537,11 @@ Invariants:
 - Re-resolution is bounded by the resolver's unique-name set and the
   `pending_name` index, never a full repo scan. A cold run completes the retry
   it can prove, so cold and warmed indexes agree.
+- A retried reference keeps the source the forward walk gave it: the retry
+  re-derives the extractor's enclosing qname (the packed references of a file
+  resolved by this run, or a re-extraction for an unchanged file) instead of
+  using the smallest node span, which is ambiguous when one qname is defined
+  more than once in a file (#106).
 - Deleting a file deletes its nodes, edges (both directions), and pending rows.
 
 ## 10. Performance budget

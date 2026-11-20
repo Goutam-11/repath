@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -374,15 +375,43 @@ func runSources(ctx context.Context, st *store.Store, root string, indexed map[s
 	return out, nil
 }
 
-// enclosingIn returns the smallest symbol span that contains line. slices are
-// ordered by span size by NodeSpansByFiles, so the first hit wins.
-func enclosingIn(spans []store.NodeSpan, line int) (int64, bool) {
-	for _, span := range spans {
-		if span.StartLine <= line && span.EndLine >= line {
-			return span.ID, true
+// retryKey identifies a reference well enough to recover the source symbol the
+// forward walk attached it to. ResolvePending depends only on the file, kind,
+// and name, so rows sharing a key resolve to the same target; only their
+// enclosing symbol can differ.
+type retryKey struct {
+	line int
+	name string
+	form string
+	kind string
+}
+
+// retrySources maps each reference key to the distinct symbols the forward
+// resolution used as its source. A set is enough: every row with the same key
+// resolves to the same target, so the recovered edges are that target crossed
+// with the sources (and duplicate edges collapse on their primary key).
+func retrySources(refs []facts.Ref, ids map[string]int64) map[retryKey][]int64 {
+	out := make(map[retryKey][]int64, len(refs))
+	for _, ref := range refs {
+		src, ok := ids[ref.Enclosing]
+		if !ok {
+			// The reference has no containing symbol (top level) and the
+			// forward walk skipped it; it has no source to attach.
+			continue
+		}
+		key := retryKey{line: ref.Line, name: ref.Name, form: ref.Form, kind: ref.Kind}
+		dup := false
+		for _, have := range out[key] {
+			if have == src {
+				dup = true
+				break
+			}
+		}
+		if !dup {
+			out[key] = append(out[key], src)
 		}
 	}
-	return 0, false
+	return out
 }
 
 // resolveChanges turns references into edges for the files just written, then
@@ -572,35 +601,103 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		matches = append(matches, retryMatch{pending: p, result: r})
 	}
 
-	spanFiles := make([]int64, 0, len(matches))
-	seenSpanFile := make(map[int64]bool, len(matches))
-	for _, m := range matches {
-		if !seenSpanFile[m.pending.FileID] {
-			seenSpanFile[m.pending.FileID] = true
-			spanFiles = append(spanFiles, m.pending.FileID)
-		}
+	if len(matches) == 0 {
+		return nil
 	}
-	spans, err := st.NodeSpansByFiles(ctx, spanFiles)
-	if err != nil {
-		return err
+
+	// A pending row carries the reference's line, not the enclosing symbol the
+	// extractor assigned it, so the source has to be recovered the way the
+	// forward walk found it (ref.Enclosing), not from the node spans: a qname
+	// can be defined more than once in one file (two nested classes with the
+	// same name share a node id, but each body is its own occurrence) and the
+	// persisted span covers only the first occurrence. A span lookup then
+	// attaches a later occurrence's reference to the ancestor method (#106).
+	//
+	// The references of a file re-resolved by this run are still packed, so a
+	// cold or full retry decodes them; an unchanged file at the centre of an
+	// incremental retry is re-extracted. Matches are grouped per file so one
+	// decode or extraction serves every recovered row in it.
+	writtenByID := make(map[int64]*outcome, len(written))
+	for _, o := range written {
+		writtenByID[o.fileID] = o
 	}
+	var filePaths map[int64]string
+	var extractor *lang.Extractor
 
 	var retried []store.Edge
 	var matched []store.PendingRef
+	byFile := make(map[int64][]retryMatch, len(matches))
+	retryFileIDs := make([]int64, 0, len(matches))
 	for _, m := range matches {
-		src, ok := enclosingIn(spans[m.pending.FileID], m.pending.Line)
-		if !ok || src == m.result.Dst {
-			continue
+		if _, seen := byFile[m.pending.FileID]; !seen {
+			retryFileIDs = append(retryFileIDs, m.pending.FileID)
 		}
-		kind := edgeKind(m.pending.Kind)
-		if m.result.Kind != "" {
-			kind = m.result.Kind
+		byFile[m.pending.FileID] = append(byFile[m.pending.FileID], m)
+	}
+	for _, fileID := range retryFileIDs {
+		ids := idsByFile[fileID]
+		if ids == nil {
+			if ids, err = st.NodeIDsByFile(ctx, fileID); err != nil {
+				return err
+			}
 		}
-		retried = append(retried, store.Edge{
-			Src: src, Dst: m.result.Dst, Kind: kind,
-			Confidence: m.result.Confidence, Rule: m.result.Rule, Line: m.pending.Line,
-		})
-		matched = append(matched, m.pending)
+		var refs []facts.Ref
+		if o, ok := writtenByID[fileID]; ok {
+			if refs, err = facts.UnpackRefs(o.packedRefs); err != nil {
+				return fmt.Errorf("decode refs for %s: %w", o.src.Path, err)
+			}
+		} else {
+			if filePaths == nil {
+				files, err := st.FileMap(ctx)
+				if err != nil {
+					return err
+				}
+				filePaths = make(map[int64]string, len(files))
+				for path, state := range files {
+					filePaths[state.ID] = path
+				}
+			}
+			path, ok := filePaths[fileID]
+			if !ok {
+				continue // the file vanished; leave its rows pending
+			}
+			dialect, _, ok := lang.For(path)
+			if !ok {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(root, path))
+			if err != nil {
+				continue // unreadable now: stay pending rather than guess
+			}
+			if extractor == nil {
+				extractor = lang.NewExtractor()
+			}
+			refs = extractor.Extract(data, dialect).Refs
+		}
+
+		sources := retrySources(refs, ids)
+		for _, m := range byFile[fileID] {
+			key := retryKey{line: m.pending.Line, name: m.pending.Name, form: m.pending.Form, kind: m.pending.Kind}
+			srcs := sources[key]
+			if len(srcs) == 0 {
+				// No true enclosure to attach to; a later run can retry it.
+				continue
+			}
+			kind := edgeKind(m.pending.Kind)
+			if m.result.Kind != "" {
+				kind = m.result.Kind
+			}
+			for _, src := range srcs {
+				if src == m.result.Dst {
+					continue
+				}
+				retried = append(retried, store.Edge{
+					Src: src, Dst: m.result.Dst, Kind: kind,
+					Confidence: m.result.Confidence, Rule: m.result.Rule, Line: m.pending.Line,
+				})
+			}
+			matched = append(matched, m.pending)
+		}
 	}
 	if err := st.DeletePendingBatch(ctx, matched); err != nil {
 		return err

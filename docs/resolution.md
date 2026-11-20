@@ -104,7 +104,13 @@ struct or enum (tuple-struct call, struct literal) is `REFERENCES`; a call to an
 associated function is `CALLS`.
 
 Zero candidates → the reference goes to the `pending` queue, where a later run
-retries it if the symbol appears. More than five candidates → dropped, because
+retries it if the symbol appears. A retried edge attaches to the same enclosing
+symbol the forward walk used (the extractor's `ref.Enclosing`), not to the
+smallest node span: one qname can be defined more than once in a file (two
+nested classes with the same name share a node id), and the persisted span
+covers only the first occurrence, so a span lookup would attach a later
+occurrence's reference to the ancestor method (#106). A row whose file no longer
+yields that reference stays pending. More than five candidates → dropped, because
 one ambiguous name (`map`, `get`) would otherwise create hundreds of edges.
 The optional compiler adapters (SCIP, or the opt-in LSP facts file) may later
 replace an entire ambiguous group with one exact `0.99` edge when the compiler
