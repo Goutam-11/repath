@@ -1,35 +1,35 @@
 {
   "schema": 1,
-  "generated_at": "2026-11-20T05:37:25+00:00",
+  "generated_at": "2026-11-20T17:17:54+00:00",
   "generated_by": "scripts/bench-corpora.sh",
-  "repath_commit": "3282a3b5662bba2d855609529e5f5acd2a1f23d6",
-  "repath_version": "3282a3b",
+  "repath_commit": "598290a2b19c3323eb398482344cecb4d55f9324",
+  "repath_version": "v1.3.0-1-g598290a",
   "host": {
     "hostname": "fedora",
     "platform": "Linux x86_64",
     "kernel": "7.2.11-200.fc44.x86_64",
     "cpu_model": "AMD Ryzen 5 5600H with Radeon Graphics",
     "cpu_logical": 12,
-    "ram_bytes": 7677784064,
+    "ram_bytes": 7677788160,
     "loadavg_1_5_15": [
-      4.77,
-      3.23,
-      2.31
+      2.4,
+      1.96,
+      1.76
     ],
     "loadavg_before": [
-      2.53,
-      2.54,
-      2.0
+      1.47,
+      1.68,
+      1.63
     ],
     "loadavg_after": [
-      4.77,
-      3.23,
-      2.31
+      2.62,
+      2.07,
+      1.78
     ],
     "python": "3.14.8"
   },
   "tools": {
-    "go": "go version go1.27.0 linux/amd64",
+    "go": null,
     "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
     "python": "Python 3.14.8",
     "node": "v24.18.0",
@@ -45,64 +45,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 4326.257,
-          "min": 4224.618,
-          "max": 4592.015
+          "median": 4681.932,
+          "min": 4625.347,
+          "max": 7789.757
         },
         "peak_rss_bytes": {
-          "median": 276439040,
-          "min": 267026432,
-          "max": 283758592
+          "median": 280846336,
+          "min": 264593408,
+          "max": 287694848
         },
         "incremental_ms": {
-          "median": 256.112,
-          "min": 243.453,
-          "max": 272.224
+          "median": 252.65,
+          "min": 246.853,
+          "max": 354.747
         },
         "impact_p50_ms": {
-          "median": 12.28,
-          "min": 12.079,
-          "max": 12.649
+          "median": 11.902,
+          "min": 10.789,
+          "max": 14.683
         },
         "impact_p95_ms": {
-          "median": 13.348,
-          "min": 12.761,
-          "max": 15.765
+          "median": 14.771,
+          "min": 13.33,
+          "max": 17.955
         },
         "callers_p50_ms": {
-          "median": 10.338,
-          "min": 10.12,
-          "max": 10.455
+          "median": 9.886,
+          "min": 9.384,
+          "max": 12.869
         },
         "callers_p95_ms": {
-          "median": 11.326,
-          "min": 11.252,
-          "max": 11.72
+          "median": 11.259,
+          "min": 10.631,
+          "max": 15.307
         },
         "path_p50_ms": {
-          "median": 19.481,
-          "min": 19.235,
-          "max": 20.224
+          "median": 19.319,
+          "min": 16.798,
+          "max": 24.358
         },
         "path_p95_ms": {
-          "median": 27.09,
-          "min": 27.065,
-          "max": 27.346
+          "median": 26.493,
+          "min": 24.677,
+          "max": 33.7
         },
         "map_p50_ms": {
-          "median": 161.759,
-          "min": 152.806,
-          "max": 175.047
+          "median": 171.972,
+          "min": 170.277,
+          "max": 172.284
         },
         "map_p95_ms": {
-          "median": 167.722,
-          "min": 155.25,
-          "max": 198.808
+          "median": 177.895,
+          "min": 176.416,
+          "max": 181.134
         },
         "check_ms": {
-          "median": 513.267,
-          "min": 508.962,
-          "max": 535.997
+          "median": 560.327,
+          "min": 538.874,
+          "max": 565.731
         },
         "check_findings": {
           "median": 200,
@@ -110,49 +110,49 @@
           "max": 200
         },
         "artifact_bytes": {
-          "median": 23629824,
-          "min": 23625728,
-          "max": 23629824
+          "median": 23851008,
+          "min": 23846912,
+          "max": 23851008
         },
         "artifact_export_ms": {
-          "median": 159.471,
-          "min": 144.198,
-          "max": 179.305
+          "median": 147.53,
+          "min": 143.267,
+          "max": 149.266
         },
         "artifact_pull_ms": {
-          "median": 16.327,
-          "min": 14.837,
-          "max": 16.447
+          "median": 14.555,
+          "min": 14.153,
+          "max": 14.942
         },
         "artifact_zstd_bytes": {
-          "median": 6181009,
-          "min": 6173215,
-          "max": 6181344
+          "median": 6213176,
+          "min": 6209751,
+          "max": 6234999
         },
         "artifact_zstd_export_ms": {
-          "median": 230.392,
-          "min": 227.824,
-          "max": 243.773
+          "median": 235.179,
+          "min": 230.608,
+          "max": 236.34
         },
         "artifact_zstd_pull_ms": {
-          "median": 40.357,
-          "min": 38.652,
-          "max": 50.43
+          "median": 42.002,
+          "min": 41.965,
+          "max": 43.424
         },
         "artifact_ratio": {
-          "median": 26.159077613104525,
-          "min": 26.12467617194271,
-          "max": 26.162194875010837
+          "median": 26.054425830900033,
+          "min": 26.035591451732355,
+          "max": 26.14144861298944
         },
         "adapter_wall_ms": {
-          "median": 5284.024,
-          "min": 5170.519,
-          "max": 5416.828
+          "median": 5254.624,
+          "min": 5085.632,
+          "max": 5296.411
         },
         "adapter_matched": {
-          "median": 1262,
-          "min": 1262,
-          "max": 1262
+          "median": 1105,
+          "min": 1105,
+          "max": 1105
         },
         "adapter_replaced": {
           "median": 15,
@@ -165,34 +165,34 @@
           "max": 32
         },
         "adapter_edges": {
-          "median": 1025,
-          "min": 1025,
-          "max": 1025
+          "median": 874,
+          "min": 874,
+          "max": 874
         },
         "adapter_conflicts": {
-          "median": 13,
-          "min": 13,
-          "max": 13
+          "median": 14,
+          "min": 14,
+          "max": 14
         },
         "adapter_unresolved_before": {
-          "median": 92533,
-          "min": 92533,
-          "max": 92533
+          "median": 83359,
+          "min": 83359,
+          "max": 83359
         },
         "adapter_unresolved_after": {
-          "median": 91271,
-          "min": 91271,
-          "max": 91271
+          "median": 82254,
+          "min": 82254,
+          "max": 82254
         },
         "adapter_edges_before": {
-          "median": 56800,
-          "min": 56800,
-          "max": 56800
+          "median": 63537,
+          "min": 63537,
+          "max": 63537
         },
         "adapter_edges_after": {
-          "median": 57793,
-          "min": 57793,
-          "max": 57793
+          "median": 64379,
+          "min": 64379,
+          "max": 64379
         }
       },
       "structure": {
@@ -204,24 +204,24 @@
           "method": 29999
         },
         "edges": {
-          "CALLS": 28208,
-          "EXTENDS": 8690,
-          "REFERENCES": 19902
+          "CALLS": 28913,
+          "EXTENDS": 9296,
+          "REFERENCES": 25328
         },
-        "edges_total": 56800,
+        "edges_total": 63537,
         "ambiguous": 1570,
-        "ambiguity_rate": 0.027640845070422537,
-        "unresolved": 92533,
-        "unresolved_rate": 0.6196420081294824,
+        "ambiguity_rate": 0.0247100114893684,
+        "unresolved": 83359,
+        "unresolved_rate": 0.5674695022328723,
         "unresolved_by_reason": {
-          "member-scope": 48085,
-          "missing-definition": 40407,
+          "member-scope": 40732,
+          "missing-definition": 40403,
           "parse-failure": 0,
-          "scope-gap": 4041
+          "scope-gap": 2224
         },
         "unresolved_by_lang": {
           "javascript": 1130,
-          "python": 91403
+          "python": 82229
         },
         "parse_failures": 3,
         "entrypoints": 18443,
@@ -235,28 +235,28 @@
         "name": "scip-python",
         "definitions": 52884,
         "references": 157794,
-        "matched": 1262,
+        "matched": 1105,
         "replaced": 15,
         "replaced_edges": 32,
-        "edges": 1025,
-        "conflicts": 13,
+        "edges": 874,
+        "conflicts": 14,
         "skipped": 142241,
-        "unmatched": 31300,
-        "wall_ms": 5284.024,
-        "unresolved_before": 92533,
-        "unresolved_after": 91271,
-        "edges_before": 56800,
-        "edges_after": 57793,
+        "unmatched": 31457,
+        "wall_ms": 5254.624,
+        "unresolved_before": 83359,
+        "unresolved_after": 82254,
+        "edges_before": 63537,
+        "edges_after": 64379,
         "new_edges_by_source": {
-          "production": 962,
+          "production": 811,
           "test_path": 63,
           "test_entrypoint": 0
         },
         "new_edges_by_rule": {
-          "call": 114,
-          "method": 901,
+          "call": 24,
+          "method": 850,
           "new": 0,
-          "reference": 10
+          "reference": 0
         }
       },
       "accuracy": {
@@ -295,7 +295,7 @@
           "impact_true_positives": 188,
           "impact_precision": 0.9894736842105263,
           "impact_recall": 0.34750462107208874,
-          "impact_out_of_scope": 309,
+          "impact_out_of_scope": 310,
           "impact_truncated": 0,
           "callers_calibration": {
             "rules": [
@@ -456,7 +456,7 @@
           "impact_true_positives": 241,
           "impact_precision": 0.9917695473251029,
           "impact_recall": 0.4454713493530499,
-          "impact_out_of_scope": 336,
+          "impact_out_of_scope": 339,
           "impact_truncated": 0,
           "callers_calibration": {
             "rules": [
@@ -594,13 +594,13 @@
               },
               {
                 "key": "py.typed.method",
-                "true_positives": 10,
+                "true_positives": 9,
                 "false_positives": 0,
                 "precision": 1
               },
               {
                 "key": "scip.py.method",
-                "true_positives": 27,
+                "true_positives": 28,
                 "false_positives": 0,
                 "precision": 1
               }
@@ -608,15 +608,15 @@
             "buckets": [
               {
                 "key": "0.6-0.8",
-                "true_positives": 82,
+                "true_positives": 81,
                 "false_positives": 1,
-                "precision": 0.9879518072289156
+                "precision": 0.9878048780487805
               },
               {
                 "key": "0.9+",
-                "true_positives": 159,
+                "true_positives": 160,
                 "false_positives": 1,
-                "precision": 0.99375
+                "precision": 0.9937888198757764
               }
             ]
           }
@@ -635,7 +635,7 @@
           "impact_true_positives": 189,
           "impact_precision": 0.9792746113989638,
           "impact_recall": 0.34935304990757854,
-          "impact_out_of_scope": 315,
+          "impact_out_of_scope": 316,
           "impact_truncated": 0,
           "callers_calibration": {
             "rules": [
@@ -806,16 +806,16 @@
             ]
           }
         },
-        "adapter_touched_targets": 439,
+        "adapter_touched_targets": 393,
         "adapter_touched_before": {
           "phase": "adapter-targets tree-sitter",
-          "samples": 439,
-          "expected_callers": 2812,
-          "actual_callers": 722,
-          "true_positives": 718,
-          "precision": 0.9944598337950139,
-          "recall": 0.2553342816500711,
-          "out_of_scope_actual": 6393,
+          "samples": 393,
+          "expected_callers": 2059,
+          "actual_callers": 556,
+          "true_positives": 550,
+          "precision": 0.9892086330935251,
+          "recall": 0.26711996114618747,
+          "out_of_scope_actual": 4032,
           "impact_expected": 0,
           "impact_actual": 0,
           "impact_true_positives": 0,
@@ -826,19 +826,19 @@
         },
         "adapter_touched_after": {
           "phase": "adapter-targets after-adapter",
-          "samples": 439,
-          "expected_callers": 2812,
-          "actual_callers": 1747,
-          "true_positives": 1743,
-          "precision": 0.9977103606182026,
-          "recall": 0.6198435277382646,
-          "out_of_scope_actual": 6393,
-          "impact_expected": 7004,
-          "impact_actual": 3386,
-          "impact_true_positives": 3322,
-          "impact_precision": 0.9810986414648553,
-          "impact_recall": 0.47430039977155913,
-          "impact_out_of_scope": 13338,
+          "samples": 393,
+          "expected_callers": 2059,
+          "actual_callers": 1430,
+          "true_positives": 1424,
+          "precision": 0.9958041958041958,
+          "recall": 0.6915978630403108,
+          "out_of_scope_actual": 4032,
+          "impact_expected": 5079,
+          "impact_actual": 2798,
+          "impact_true_positives": 2729,
+          "impact_precision": 0.9753395282344531,
+          "impact_recall": 0.53731049419177,
+          "impact_out_of_scope": 12260,
           "impact_truncated": 1,
           "callers_calibration": {
             "rules": [
@@ -855,12 +855,6 @@
                 "precision": 1
               },
               {
-                "key": "py.global.unique",
-                "true_positives": 1,
-                "false_positives": 0,
-                "precision": 1
-              },
-              {
                 "key": "py.import.alias",
                 "true_positives": 1,
                 "false_positives": 0,
@@ -868,45 +862,51 @@
               },
               {
                 "key": "py.import.module",
-                "true_positives": 21,
+                "true_positives": 7,
                 "false_positives": 0,
                 "precision": 1
               },
               {
                 "key": "py.import.named",
-                "true_positives": 66,
+                "true_positives": 41,
                 "false_positives": 1,
-                "precision": 0.9850746268656716
+                "precision": 0.9761904761904762
               },
               {
                 "key": "py.import.reexport",
-                "true_positives": 46,
+                "true_positives": 29,
                 "false_positives": 0,
                 "precision": 1
               },
               {
+                "key": "py.import.star",
+                "true_positives": 8,
+                "false_positives": 2,
+                "precision": 0.8
+              },
+              {
                 "key": "py.local",
-                "true_positives": 45,
+                "true_positives": 29,
                 "false_positives": 0,
                 "precision": 1
               },
               {
                 "key": "py.self.inherited",
-                "true_positives": 126,
+                "true_positives": 89,
                 "false_positives": 0,
                 "precision": 1
               },
               {
                 "key": "py.self.super",
-                "true_positives": 127,
+                "true_positives": 77,
                 "false_positives": 0,
                 "precision": 1
               },
               {
                 "key": "py.this.method",
-                "true_positives": 222,
+                "true_positives": 206,
                 "false_positives": 1,
-                "precision": 0.9955156950672646
+                "precision": 0.9951690821256038
               },
               {
                 "key": "py.typed.inherited",
@@ -928,19 +928,13 @@
               },
               {
                 "key": "scip.py.call",
-                "true_positives": 114,
+                "true_positives": 24,
                 "false_positives": 0,
                 "precision": 1
               },
               {
                 "key": "scip.py.method",
-                "true_positives": 901,
-                "false_positives": 0,
-                "precision": 1
-              },
-              {
-                "key": "scip.py.reference",
-                "true_positives": 10,
+                "true_positives": 850,
                 "false_positives": 0,
                 "precision": 1
               }
@@ -948,15 +942,15 @@
             "buckets": [
               {
                 "key": "0.6-0.8",
-                "true_positives": 361,
-                "false_positives": 2,
-                "precision": 0.9944903581267218
+                "true_positives": 265,
+                "false_positives": 4,
+                "precision": 0.9851301115241635
               },
               {
                 "key": "0.9+",
-                "true_positives": 1382,
+                "true_positives": 1159,
                 "false_positives": 2,
-                "precision": 0.9985549132947977
+                "precision": 0.9982773471145564
               }
             ]
           },
@@ -975,12 +969,6 @@
                 "precision": 1
               },
               {
-                "key": "py.global.unique",
-                "true_positives": 14,
-                "false_positives": 0,
-                "precision": 1
-              },
-              {
                 "key": "py.import.alias",
                 "true_positives": 9,
                 "false_positives": 2,
@@ -988,27 +976,33 @@
               },
               {
                 "key": "py.import.module",
-                "true_positives": 42,
+                "true_positives": 21,
                 "false_positives": 0,
                 "precision": 1
               },
               {
                 "key": "py.import.named",
-                "true_positives": 258,
-                "false_positives": 36,
-                "precision": 0.8775510204081632
+                "true_positives": 189,
+                "false_positives": 35,
+                "precision": 0.84375
               },
               {
                 "key": "py.import.reexport",
-                "true_positives": 121,
+                "true_positives": 109,
                 "false_positives": 20,
-                "precision": 0.8581560283687943
+                "precision": 0.8449612403100775
+              },
+              {
+                "key": "py.import.star",
+                "true_positives": 10,
+                "false_positives": 2,
+                "precision": 0.8333333333333334
               },
               {
                 "key": "py.local",
-                "true_positives": 207,
+                "true_positives": 106,
                 "false_positives": 1,
-                "precision": 0.9951923076923077
+                "precision": 0.9906542056074766
               },
               {
                 "key": "py.property.alias",
@@ -1018,21 +1012,21 @@
               },
               {
                 "key": "py.self.inherited",
-                "true_positives": 213,
-                "false_positives": 0,
-                "precision": 1
+                "true_positives": 184,
+                "false_positives": 1,
+                "precision": 0.9945945945945946
               },
               {
                 "key": "py.self.super",
-                "true_positives": 315,
-                "false_positives": 0,
-                "precision": 1
+                "true_positives": 238,
+                "false_positives": 3,
+                "precision": 0.9875518672199171
               },
               {
                 "key": "py.this.method",
-                "true_positives": 711,
+                "true_positives": 665,
                 "false_positives": 3,
-                "precision": 0.9957983193277311
+                "precision": 0.9955089820359282
               },
               {
                 "key": "py.typed.inherited",
@@ -1042,9 +1036,9 @@
               },
               {
                 "key": "py.typed.method",
-                "true_positives": 56,
+                "true_positives": 54,
                 "false_positives": 1,
-                "precision": 0.9824561403508771
+                "precision": 0.9818181818181818
               },
               {
                 "key": "py.typed.method.global",
@@ -1054,19 +1048,13 @@
               },
               {
                 "key": "scip.py.call",
-                "true_positives": 165,
+                "true_positives": 32,
                 "false_positives": 0,
                 "precision": 1
               },
               {
                 "key": "scip.py.method",
-                "true_positives": 1148,
-                "false_positives": 0,
-                "precision": 1
-              },
-              {
-                "key": "scip.py.reference",
-                "true_positives": 20,
+                "true_positives": 1069,
                 "false_positives": 0,
                 "precision": 1
               }
@@ -1074,15 +1062,15 @@
             "buckets": [
               {
                 "key": "0.6-0.8",
-                "true_positives": 838,
-                "false_positives": 3,
-                "precision": 0.9964328180737217
+                "true_positives": 625,
+                "false_positives": 9,
+                "precision": 0.9858044164037855
               },
               {
                 "key": "0.9+",
-                "true_positives": 2484,
-                "false_positives": 61,
-                "precision": 0.9760314341846759
+                "true_positives": 2104,
+                "false_positives": 60,
+                "precision": 0.9722735674676525
               }
             ]
           }
@@ -1094,8 +1082,8 @@
           "check_admin_app <- SimpleAdminConfig.ready (django/contrib/admin/apps.py:15) [false-negative/tree-sitter]",
           "AdminSite.i18n_javascript <- AdminSite.get_urls (django/contrib/admin/sites.py:258) [false-negative/tree-sitter]",
           "user_passes_test.decorator._view_wrapper <- user_passes_test.decorator (django/contrib/auth/decorators.py:22) [false-negative/tree-sitter]",
-          "OracleGISSchemaEditor.__init__ <- OracleGISSchemaEditor.column_sql (django/contrib/gis/db/backends/oracle/schema.py:48) [false-negative/tree-sitter]",
           "OracleGISSchemaEditor.__init__ <- OracleGISSchemaEditor.run_geometry_sql (django/contrib/gis/db/backends/oracle/schema.py:96) [false-negative/tree-sitter]",
+          "OracleGISSchemaEditor.__init__ <- OracleGISSchemaEditor.column_sql (django/contrib/gis/db/backends/oracle/schema.py:48) [false-negative/tree-sitter]",
           "OFTReal.value <- LayerMapping.verify_ogr_field (django/contrib/gis/utils/layermapping.py:390) [false-negative/tree-sitter]",
           "GDALBand.datatype <- GDALBand.nodata_value (django/contrib/gis/gdal/raster/band.py:160) [false-positive/tree-sitter/py.this.method]"
         ]
@@ -1109,64 +1097,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 298.734,
-          "min": 292.373,
-          "max": 325.638
+          "median": 436.607,
+          "min": 402.478,
+          "max": 442.817
         },
         "peak_rss_bytes": {
-          "median": 69197824,
-          "min": 66879488,
-          "max": 69492736
+          "median": 70496256,
+          "min": 69906432,
+          "max": 71528448
         },
         "incremental_ms": {
-          "median": 32.474,
-          "min": 31.765,
-          "max": 34.631
+          "median": 49.163,
+          "min": 49.076,
+          "max": 53.601
         },
         "impact_p50_ms": {
-          "median": 0.986,
-          "min": 0.914,
-          "max": 1.05
+          "median": 1.57,
+          "min": 1.504,
+          "max": 1.614
         },
         "impact_p95_ms": {
-          "median": 1.497,
-          "min": 1.361,
-          "max": 1.997
+          "median": 2.328,
+          "min": 2.09,
+          "max": 2.467
         },
         "callers_p50_ms": {
-          "median": 0.551,
-          "min": 0.547,
-          "max": 0.552
+          "median": 0.934,
+          "min": 0.867,
+          "max": 1.009
         },
         "callers_p95_ms": {
-          "median": 0.842,
-          "min": 0.754,
-          "max": 0.977
+          "median": 1.364,
+          "min": 1.314,
+          "max": 1.559
         },
         "path_p50_ms": {
-          "median": 1.505,
-          "min": 1.493,
-          "max": 1.623
+          "median": 2.656,
+          "min": 2.383,
+          "max": 2.689
         },
         "path_p95_ms": {
-          "median": 19.63,
-          "min": 19.42,
-          "max": 21.455
+          "median": 30.898,
+          "min": 28.316,
+          "max": 33.057
         },
         "map_p50_ms": {
-          "median": 7.144,
-          "min": 7.092,
-          "max": 7.578
+          "median": 10.29,
+          "min": 9.909,
+          "max": 16.38
         },
         "map_p95_ms": {
-          "median": 7.967,
-          "min": 7.961,
-          "max": 8.389
+          "median": 11.334,
+          "min": 10.879,
+          "max": 17.597
         },
         "check_ms": {
-          "median": 28.655,
-          "min": 26.714,
-          "max": 34.765
+          "median": 35.635,
+          "min": 35.514,
+          "max": 38.485
         },
         "check_findings": {
           "median": 200,
@@ -1179,39 +1167,39 @@
           "max": 1134592
         },
         "artifact_export_ms": {
-          "median": 9.17,
-          "min": 8.877,
-          "max": 9.7
+          "median": 12.786,
+          "min": 11.587,
+          "max": 13.148
         },
         "artifact_pull_ms": {
-          "median": 3.125,
-          "min": 2.935,
-          "max": 3.434
+          "median": 3.98,
+          "min": 3.65,
+          "max": 4.047
         },
         "artifact_zstd_bytes": {
-          "median": 325813,
-          "min": 325450,
-          "max": 326176
+          "median": 325351,
+          "min": 325248,
+          "max": 325711
         },
         "artifact_zstd_export_ms": {
-          "median": 15.413,
-          "min": 14.645,
-          "max": 15.9
+          "median": 29.233,
+          "min": 18.614,
+          "max": 32.17
         },
         "artifact_zstd_pull_ms": {
-          "median": 5.424,
-          "min": 4.932,
-          "max": 5.514
+          "median": 7.03,
+          "min": 6.763,
+          "max": 7.659
         },
         "artifact_ratio": {
-          "median": 28.716313881994584,
-          "min": 28.684320002256317,
-          "max": 28.748307761732853
+          "median": 28.675594398691334,
+          "min": 28.666516245487365,
+          "max": 28.707323866200362
         },
         "adapter_wall_ms": {
-          "median": 548.558,
-          "min": 542.984,
-          "max": 593.186
+          "median": 599.744,
+          "min": 585.441,
+          "max": 617.472
         },
         "adapter_matched": {
           "median": 128,
@@ -1314,7 +1302,7 @@
         "conflicts": 9,
         "skipped": 63242,
         "unmatched": 10221,
-        "wall_ms": 548.558,
+        "wall_ms": 599.744,
         "unresolved_before": 4126,
         "unresolved_after": 3998,
         "edges_before": 2990,
@@ -1341,64 +1329,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 102.892,
-          "min": 102.415,
-          "max": 105.898
+          "median": 125.739,
+          "min": 117.2,
+          "max": 156.317
         },
         "peak_rss_bytes": {
-          "median": 34721792,
-          "min": 34496512,
-          "max": 34865152
+          "median": 34430976,
+          "min": 34037760,
+          "max": 35229696
         },
         "incremental_ms": {
-          "median": 29.068,
-          "min": 28.601,
-          "max": 32.063
+          "median": 37.605,
+          "min": 33.708,
+          "max": 40.857
         },
         "impact_p50_ms": {
-          "median": 0.821,
-          "min": 0.805,
-          "max": 0.837
+          "median": 0.915,
+          "min": 0.885,
+          "max": 0.963
         },
         "impact_p95_ms": {
-          "median": 1.433,
-          "min": 1.206,
-          "max": 1.493
+          "median": 1.72,
+          "min": 1.565,
+          "max": 1.916
         },
         "callers_p50_ms": {
-          "median": 0.308,
-          "min": 0.293,
-          "max": 0.316
+          "median": 0.372,
+          "min": 0.37,
+          "max": 0.385
         },
         "callers_p95_ms": {
-          "median": 0.535,
-          "min": 0.529,
-          "max": 0.569
+          "median": 0.657,
+          "min": 0.639,
+          "max": 0.933
         },
         "path_p50_ms": {
-          "median": 1.763,
-          "min": 1.754,
-          "max": 1.945
+          "median": 2.267,
+          "min": 2.144,
+          "max": 2.492
         },
         "path_p95_ms": {
-          "median": 5.193,
-          "min": 4.441,
-          "max": 5.287
+          "median": 5.772,
+          "min": 5.653,
+          "max": 6.11
         },
         "map_p50_ms": {
-          "median": 2.273,
-          "min": 2.268,
-          "max": 2.409
+          "median": 3.013,
+          "min": 2.721,
+          "max": 3.33
         },
         "map_p95_ms": {
-          "median": 2.748,
-          "min": 2.527,
-          "max": 3.599
+          "median": 3.412,
+          "min": 3.13,
+          "max": 4.014
         },
         "check_ms": {
-          "median": 6.265,
-          "min": 6.145,
-          "max": 7.08
+          "median": 7.367,
+          "min": 6.929,
+          "max": 7.699
         },
         "check_findings": {
           "median": 14,
@@ -1406,44 +1394,44 @@
           "max": 14
         },
         "artifact_bytes": {
-          "median": 487424,
+          "median": 491520,
           "min": 487424,
-          "max": 487424
+          "max": 491520
         },
         "artifact_export_ms": {
-          "median": 4.144,
-          "min": 3.9,
-          "max": 4.275
+          "median": 5.004,
+          "min": 4.869,
+          "max": 6.147
         },
         "artifact_pull_ms": {
-          "median": 2.686,
-          "min": 2.652,
-          "max": 2.836
+          "median": 3.126,
+          "min": 2.928,
+          "max": 3.857
         },
         "artifact_zstd_bytes": {
-          "median": 107474,
-          "min": 107232,
-          "max": 107784
+          "median": 107601,
+          "min": 107237,
+          "max": 107638
         },
         "artifact_zstd_export_ms": {
-          "median": 8.213,
-          "min": 7.529,
-          "max": 8.526
+          "median": 10.033,
+          "min": 9.963,
+          "max": 10.335
         },
         "artifact_zstd_pull_ms": {
-          "median": 4.511,
-          "min": 3.656,
-          "max": 4.535
+          "median": 4.829,
+          "min": 4.299,
+          "max": 5.13
         },
         "artifact_ratio": {
-          "median": 22.049386160714285,
-          "min": 21.999737394957982,
-          "max": 22.11298581932773
+          "median": 21.8914794921875,
+          "min": 21.817423502604168,
+          "max": 22.08303243172269
         },
         "adapter_wall_ms": {
-          "median": 118.771,
-          "min": 118.251,
-          "max": 119.905
+          "median": 151.787,
+          "min": 144.917,
+          "max": 154.001
         },
         "adapter_matched": {
           "median": 8,
@@ -1537,7 +1525,7 @@
         "conflicts": 0,
         "skipped": 6305,
         "unmatched": 957,
-        "wall_ms": 118.771,
+        "wall_ms": 151.787,
         "unresolved_before": 510,
         "unresolved_after": 502,
         "edges_before": 1044,
@@ -2154,16 +2142,16 @@
           }
         },
         "disagreements": [
-          "DataKwargs <- put (src/requests/api.py:137) [false-negative/tree-sitter]",
-          "DataKwargs <- Session.patch (src/requests/sessions.py:728) [false-negative/tree-sitter]",
           "DataKwargs <- Session.put (src/requests/sessions.py:714) [false-negative/tree-sitter]",
+          "DataKwargs <- Session.patch (src/requests/sessions.py:728) [false-negative/tree-sitter]",
+          "DataKwargs <- put (src/requests/api.py:137) [false-negative/tree-sitter]",
           "DataKwargs <- patch (src/requests/api.py:154) [false-negative/tree-sitter]",
-          "RequestKwargs <- options (src/requests/api.py:90) [false-negative/tree-sitter]",
-          "RequestKwargs <- Session.delete (src/requests/sessions.py:742) [false-negative/tree-sitter]",
+          "RequestKwargs <- request (src/requests/api.py:24) [false-negative/tree-sitter]",
           "RequestKwargs <- Session.options (src/requests/sessions.py:673) [false-negative/tree-sitter]",
           "RequestKwargs <- delete (src/requests/api.py:171) [false-negative/tree-sitter]",
-          "RequestKwargs <- request (src/requests/api.py:24) [false-negative/tree-sitter]",
-          "RequestKwargs <- Session.head (src/requests/sessions.py:684) [false-negative/tree-sitter]"
+          "RequestKwargs <- Session.delete (src/requests/sessions.py:742) [false-negative/tree-sitter]",
+          "RequestKwargs <- Session.head (src/requests/sessions.py:684) [false-negative/tree-sitter]",
+          "RequestKwargs <- head (src/requests/api.py:102) [false-negative/tree-sitter]"
         ]
       }
     },
@@ -2175,64 +2163,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 269.174,
-          "min": 267.876,
-          "max": 275.39
+          "median": 405.242,
+          "min": 376.893,
+          "max": 433.401
         },
         "peak_rss_bytes": {
-          "median": 47316992,
-          "min": 47292416,
-          "max": 48140288
+          "median": 48574464,
+          "min": 47824896,
+          "max": 48857088
         },
         "incremental_ms": {
-          "median": 35.439,
-          "min": 35.103,
-          "max": 35.645
+          "median": 49.067,
+          "min": 48.573,
+          "max": 57.712
         },
         "impact_p50_ms": {
-          "median": 0.996,
-          "min": 0.972,
-          "max": 1.047
+          "median": 1.398,
+          "min": 1.397,
+          "max": 1.817
         },
         "impact_p95_ms": {
-          "median": 1.662,
-          "min": 1.651,
-          "max": 1.903
+          "median": 2.969,
+          "min": 2.539,
+          "max": 2.991
         },
         "callers_p50_ms": {
-          "median": 0.675,
-          "min": 0.667,
-          "max": 0.71
+          "median": 0.993,
+          "min": 0.987,
+          "max": 1.202
         },
         "callers_p95_ms": {
-          "median": 0.909,
-          "min": 0.853,
-          "max": 1.145
+          "median": 1.336,
+          "min": 1.236,
+          "max": 1.757
         },
         "path_p50_ms": {
-          "median": 1.583,
-          "min": 1.497,
-          "max": 1.612
+          "median": 2.379,
+          "min": 2.184,
+          "max": 2.739
         },
         "path_p95_ms": {
-          "median": 5.633,
-          "min": 5.031,
-          "max": 6.13
+          "median": 8.289,
+          "min": 7.784,
+          "max": 10.81
         },
         "map_p50_ms": {
-          "median": 7.694,
-          "min": 7.669,
-          "max": 8.323
+          "median": 11.038,
+          "min": 10.489,
+          "max": 11.171
         },
         "map_p95_ms": {
-          "median": 8.549,
-          "min": 8.279,
-          "max": 8.762
+          "median": 12.308,
+          "min": 11.505,
+          "max": 13.32
         },
         "check_ms": {
-          "median": 22.519,
-          "min": 21.336,
-          "max": 26.148
+          "median": 29.925,
+          "min": 27.582,
+          "max": 30.569
         },
         "check_findings": {
           "median": 200,
@@ -2245,39 +2233,39 @@
           "max": 1028096
         },
         "artifact_export_ms": {
-          "median": 9.062,
-          "min": 8.292,
-          "max": 9.576
+          "median": 11.7,
+          "min": 11.251,
+          "max": 13.085
         },
         "artifact_pull_ms": {
-          "median": 3.025,
-          "min": 2.879,
-          "max": 3.08
+          "median": 3.866,
+          "min": 3.517,
+          "max": 3.951
         },
         "artifact_zstd_bytes": {
-          "median": 299537,
-          "min": 298668,
-          "max": 300486
+          "median": 299023,
+          "min": 298904,
+          "max": 300001
         },
         "artifact_zstd_export_ms": {
-          "median": 16.058,
-          "min": 14.966,
-          "max": 16.846
+          "median": 18.993,
+          "min": 18.724,
+          "max": 20.461
         },
         "artifact_zstd_pull_ms": {
-          "median": 4.872,
-          "min": 4.826,
-          "max": 5.515
+          "median": 6.428,
+          "min": 6.147,
+          "max": 6.723
         },
         "artifact_ratio": {
-          "median": 29.166796875,
-          "min": 29.13511967753984,
-          "max": 29.22742623256972
+          "median": 29.180251649651396,
+          "min": 29.07354955179283,
+          "max": 29.20146484375
         },
         "adapter_wall_ms": {
-          "median": 567.896,
-          "min": 549.905,
-          "max": 629.73
+          "median": 648.062,
+          "min": 641.009,
+          "max": 652.016
         },
         "adapter_matched": {
           "median": 238,
@@ -2375,7 +2363,7 @@
         "conflicts": 4,
         "skipped": 55898,
         "unmatched": 9988,
-        "wall_ms": 567.896,
+        "wall_ms": 648.062,
         "unresolved_before": 1394,
         "unresolved_after": 1156,
         "edges_before": 2517,
@@ -3304,16 +3292,16 @@
           }
         },
         "disagreements": [
-          "BroadcastContext <- spawn_broadcast_in (rayon-core/src/broadcast/mod.rs:131) [false-negative/tree-sitter]",
+          "BroadcastContext <- ThreadPool.spawn_broadcast (rayon-core/src/thread_pool/mod.rs:366) [false-negative/tree-sitter]",
+          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
+          "BroadcastContext <- ScopeBroadcast.inject (rayon-core/src/scope/mod.rs:835) [false-negative/tree-sitter]",
           "BroadcastContext <- ScopeFifo.spawn_broadcast (rayon-core/src/scope/mod.rs:633) [false-negative/tree-sitter]",
+          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]",
+          "BroadcastContext <- Scope.spawn_broadcast (rayon-core/src/scope/mod.rs:582) [false-negative/tree-sitter]",
           "BroadcastContext <- BroadcastContext.index (rayon-core/src/broadcast/mod.rs:65) [false-negative/tree-sitter]",
           "BroadcastContext <- BroadcastContext.num_threads (rayon-core/src/broadcast/mod.rs:77) [false-negative/tree-sitter]",
-          "BroadcastContext <- Scope.spawn_broadcast (rayon-core/src/scope/mod.rs:582) [false-negative/tree-sitter]",
-          "BroadcastContext <- ThreadPool.spawn_broadcast (rayon-core/src/thread_pool/mod.rs:366) [false-negative/tree-sitter]",
-          "BroadcastContext <- ThreadPool.broadcast (rayon-core/src/thread_pool/mod.rs:187) [false-negative/tree-sitter]",
-          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]",
-          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
-          "BroadcastContext <- spawn_broadcast (rayon-core/src/broadcast/mod.rs:37) [false-negative/tree-sitter]"
+          "BroadcastContext <- broadcast_in (rayon-core/src/broadcast/mod.rs:98) [false-negative/tree-sitter]",
+          "BroadcastContext <- ThreadPool.broadcast (rayon-core/src/thread_pool/mod.rs:187) [false-negative/tree-sitter]"
         ]
       }
     }
