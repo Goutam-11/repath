@@ -22,7 +22,9 @@ builds:
       - -trimpath
     ldflags:
       - -s -w
-      - -X github.com/Goutam-11/repath/internal/cli.version={{ .Version }}
+      # The tag carries the conventional `v`; `.Version` is the tag without it,
+      # so prefix it here and `repath --version` matches the release exactly.
+      - -X github.com/Goutam-11/repath/internal/cli.version=v{{ .Version }}
     goos:
       - linux
     goarch:

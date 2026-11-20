@@ -4,16 +4,17 @@ repath is one binary over SQLite. Building it needs Go 1.27+ **and a C
 toolchain**: tree-sitter runs through cgo (PLAN §3 decision 15), so there is no
 pure-Go build. Linux amd64 and arm64 are the release targets.
 
-No release is tagged yet ([#81](https://github.com/Goutam-11/repath/issues/81)
-tracks the first one, approval-gated). The release path below is the intended
-flow; build from source until an archive exists.
+The first tagged release is **v1.3.0** (2026-11-20): Linux amd64/arm64
+archives, SHA-256 checksums, and a source archive on the
+[GitHub releases page](https://github.com/Goutam-11/repath/releases/tag/v1.3.0).
+`repath --version` prints the tag (`v1.3.0`).
 
-## From a release (once tagged)
+## From a release
 
 Download the archive and checksums from the [GitHub releases page](https://github.com/Goutam-11/repath/releases):
 
 ```sh
-version=X.Y.Z   # release version WITHOUT the leading v (GoReleaser .Version)
+version=1.3.0    # release version WITHOUT the leading v (GoReleaser .Version)
 tag="v${version}"
 arch=amd64       # amd64 or arm64
 base="https://github.com/Goutam-11/repath/releases/download/${tag}"
@@ -23,7 +24,7 @@ curl -LO "${base}/checksums.txt"
 sha256sum --check --ignore-missing checksums.txt
 tar -xzf "repath_${version}_linux_${arch}.tar.gz"
 sudo install -m 0755 repath /usr/local/bin/repath
-repath --version
+repath --version          # v1.3.0
 ```
 
 `checksums.txt` is SHA-256 over every archive and the source archive. The binary
@@ -31,7 +32,8 @@ is dynamically linked (cgo); a minimal container needs glibc.
 
 ## From source
 
-This is the only install path until the first release is tagged.
+The release archives are the supported install path; building from source from
+a checkout (or a future `v*`-tagged commit) works the same way.
 
 ```sh
 git clone https://github.com/Goutam-11/repath
