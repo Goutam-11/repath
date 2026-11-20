@@ -45,6 +45,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath find <symbol>                 # card: callers/callees
 ./bin/repath callers <symbol>              # one-hop reverse edges
 ./bin/repath impact x --min-confidence 0.9 # import/this/local edges only
+./bin/repath impact --diff origin/main     # union blast radius for a git change set
 ./bin/repath mcp                           # stdio JSON-RPC, six tools
 ./bin/repath serve --addr 127.0.0.1:0      # read-only HTTP, six answers
 ./bin/repath index --artifact out/         # export an artifact + manifest
@@ -140,8 +141,8 @@ the database.
 - Exit codes are contract: `0` ok, `1` internal, `2` usage, `3` not found,
   `4` ambiguous. `check` alone adds `5` for findings at or above `--fail-on`;
   never reuse it elsewhere.
-- `gofmt` scope is `./cmd ./internal` on purpose: the local tool cache under
-  `.cache/` must stay out of the formatter.
+- `gofmt` scope is `./cmd ./internal ./skills` on purpose: the local tool cache
+  under `.cache/` must stay out of the formatter.
 - Fixture expectations (`testdata/fixtures/*/expected.json`) and the eval gate
   are part of any resolution change. Never loosen a gate to make a PR pass.
 
@@ -391,7 +392,9 @@ the database.
   say so. The classifier is `internal/testpath.IsTest`, shared with `check`; do
   not copy it. `--diff [base]` discovers changed files once through
   `index.ChangedFiles` (one `git diff --name-status -z` implementation), then
-  reuses the per-file `query.Tests` walker; do not add a second diff engine.
+  reuses the per-file `query.Tests` walker; `impact --diff` uses the same
+  `index.ChangedFiles` finder with the per-file `query.Impact` walker and carries
+  `changed_file`; do not add a second diff engine.
   Each link carries `changed_file`; a changed test file is included as
   `testpath.changed` at 1.00/depth 0; deleted/non-indexed paths go to
   `diff.skipped`. Base order is explicit, `origin/main`, `main`, `HEAD`; bad
