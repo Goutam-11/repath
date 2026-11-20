@@ -1365,13 +1365,36 @@ budgets green.
 (`REPATH_ACCURACY_RULE=py.import.star`, 2,941 documents, min-confidence 0.5)
 counts 6,992 edges, all in scope: **3,093 TP / 3,899 FP (44.2%)**, split by
 import provenance into **2,248 / 9 (99.6%)** for the `from pkg import Name`
-references and **845 / 3,890 (17.8%)** for module members. The member number is
-a **producer artifact, not a resolver error**: for `django/contrib/admin/models.py:76`
-(`object_repr = models.CharField(...)`) scip-python 0.6.8 emits a
-reference to `` `django.db.models.fields`/DateTimeField# `` — the wrong class —
-and the same symbol for every `models.X` in that class (lines 75/78/79/83).
-Its attribute resolution through a star-reexporting package is not a usable
-ground truth.
+references and **845 / 3,890 (17.8%)** for module members.
+
+The split is the calibration rule (#105): the **identifier slice is
+SCIP-attributable**; the **member slice (`pkg.Name`) is not** with
+`scip-python` 0.6.8, because the producer mis-resolves a wildcard package's
+attributes. For `django/contrib/admin/models.py:78`
+(`object_repr = models.CharField(...)`) it emits
+`` `django.db.models.fields`/DateTimeField# `` — the wrong class — and the same
+symbol for `models.TextField`/`PositiveSmallIntegerField` on lines 75, 79, and
+83 of the same class body. Reproduce the wrong occurrence with
+`.cache/scipgen` (`scip_pb2`): print the occurrences for that document and look
+for `DateTimeField#` on those lines. Its attribute resolution through a
+star-reexporting package is not a usable ground truth, and 0.6.8 is still the
+latest published `@sourcegraph/scip-python` (checked 2026-11-20), so no newer
+producer can be tested yet.
+
+Never score a Python member slice from this producer: use the
+**runtime-audit harness** committed for #105 instead of a session-local script:
+
+```sh
+python3 scripts/audit-python-star.py \
+  --root .cache/django-60 --db .cache/django-60/.repath/index.db \
+  --json .cache/audit-star.json
+```
+
+It is opt-in evidence and needs neither CI nor a SCIP producer; the only
+requirement is a Python interpreter that can import the corpus (the audit above
+used the pinned Python 3.12.15 + `asgiref` 3.13.0 venv). A module the
+interpreter cannot import (GDAL, psycopg2, settings) is counted as
+`import-error`/unverifiable, never as a false positive.
 
 The member slice was therefore verified against **Python's own import
 machinery** (Python 3.12.15 + `asgiref` 3.13.0): for every star edge the audit
