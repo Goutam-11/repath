@@ -391,7 +391,7 @@ func (ix *Index) resolveTS(fromFile int64, fromPath string, ref facts.Ref, impor
 		}
 	}
 
-	return ix.byUnique(ref.Name, ref.Arity, ix.global[ref.Name], "ts.global")
+	return ix.byUnique(ref.Name, ref.Arity, ix.global[ref.Name], "ts.global", tsUniqueConfidence)
 }
 
 // resolvePython is the Python ladder. Import bindings are exact (1.00), module
@@ -1488,13 +1488,24 @@ func (ix *Index) byUniquePython(ref facts.Ref, candidates []store.NodeRow) Resol
 	return Resolution{Confidence: 0.40, Rule: "py.global.ambiguous", Candidates: ids, Found: true, Kind: kind}
 }
 
-func (ix *Index) byUnique(name string, arity int, candidates []store.NodeRow, rulePrefix string) Resolution {
+// tsUniqueConfidence is the ladder rung for a bare TypeScript identifier with
+// exactly one repo-wide declaration and no import, scope, or receiver-type
+// evidence. A name-only guess stays below the default 0.5 floor: on the pinned
+// Kibana security subtree 30 of 61 such edges crossed a package boundary, and
+// at least 11 of the 31 same-package edges were prop callbacks, test-local
+// helpers, or a same-file local misattributed by arity. Co-location therefore
+// does not separate correct from wrong (#82). The edge is still emitted and
+// visible with --min-confidence 0.4; Python and Rust keep 0.60 until #77
+// calibrates those ladders.
+const tsUniqueConfidence = 0.40
+
+func (ix *Index) byUnique(name string, arity int, candidates []store.NodeRow, rulePrefix string, confidence float64) Resolution {
 	picked := pick(candidates, arity)
 	switch len(picked) {
 	case 0:
 		return Resolution{}
 	case 1:
-		return Resolution{Dst: picked[0].ID, Confidence: 0.60, Rule: rulePrefix + ".unique", Found: true}
+		return Resolution{Dst: picked[0].ID, Confidence: confidence, Rule: rulePrefix + ".unique", Found: true}
 	}
 	if len(picked) > maxCandidates {
 		return Resolution{}
@@ -1572,9 +1583,9 @@ func (ix *Index) ResolvePending(fileID int64, kind, name string) (Resolution, bo
 	case "python":
 		r = ix.byUniquePython(ref, ix.global[name])
 	case "rust":
-		r = ix.byUnique(name, 0, ix.global[name], "rs.global")
+		r = ix.byUnique(name, 0, ix.global[name], "rs.global", 0.60)
 	default:
-		r = ix.byUnique(name, 0, ix.global[name], "ts.global")
+		r = ix.byUnique(name, 0, ix.global[name], "ts.global", tsUniqueConfidence)
 	}
 	if r.Found && len(r.Candidates) == 0 {
 		return r, true

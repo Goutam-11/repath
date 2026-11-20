@@ -213,6 +213,56 @@ func TestAmbiguousEdgesAreLowConfidence(t *testing.T) {
 	}
 }
 
+// TestTypeScriptUniqueNameStaysBelowFloor pins #82. A bare TypeScript
+// identifier with exactly one repo-wide declaration and no import, scope, or
+// receiver-type evidence is a name-only guess. The Kibana audit found the
+// same-package signal did not separate correct guesses from prop callbacks and
+// test-local helpers, so the rung is 0.40: visible with --min-confidence 0.4,
+// never part of default answers. Both fixture shapes are pinned: a prop
+// callback whose target lives in another file, and a correct same-package
+// helper (which loses default visibility too, the accepted trade-off).
+func TestTypeScriptUniqueNameStaysBelowFloor(t *testing.T) {
+	_, st, _ := indexFixture(t, "ts")
+
+	low, err := st.Edges(context.Background(), 0.35)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+	want := map[string]bool{
+		"src/button.ts:Button -> src/clipboard.ts:Clipboard.onClick CALLS":     false,
+		"src/global-use.ts:callUnique -> src/global-def.ts:uniqueByName CALLS": false,
+	}
+	for _, e := range low {
+		if e.Rule != "ts.global.unique" {
+			continue
+		}
+		key := edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)
+		if _, ok := want[key]; !ok {
+			continue
+		}
+		want[key] = true
+		if e.Confidence != 0.40 {
+			t.Errorf("%s confidence = %v, want 0.40", key, e.Confidence)
+		}
+	}
+	for key, seen := range want {
+		if !seen {
+			t.Errorf("missing ts.global.unique edge %q at 0.35", key)
+		}
+	}
+
+	high, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("read default edges: %v", err)
+	}
+	for _, e := range high {
+		if e.Rule == "ts.global.unique" {
+			t.Errorf("name-only edge entered default answers: %s -> %s (%.2f)",
+				e.SrcQName, e.DstQName, e.Confidence)
+		}
+	}
+}
+
 // TestPythonRuleIDs pins the Python ladder: every new rule id must be reachable
 // from the fixture, and a Python file must never produce a ts.* rule.
 func TestPythonRuleIDs(t *testing.T) {
