@@ -68,6 +68,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 make bench-real REPATH_BENCH_ROOT=...       # opt-in real-repo evidence (not CI)
 make bench-real-langs REPATH_BENCH_PY_ROOT=... REPATH_BENCH_RS_ROOT=...  # Python/Rust evidence
 make bench-corpora                          # reproducible corpus matrix + accuracy (opt-in)
+make bench-tokens REPATH_TOKENS_CORPORA=...  # answer tokens vs reading the named files (opt-in)
 make release-snapshot                       # goreleaser current-platform snapshot
 ```
 
@@ -391,6 +392,16 @@ the database.
   cold RSS instead of 1.09 GiB (#75). A new `facts.Ref` field must be added to
   the codec and its round-trip test in the same change; do not return to
   retaining `[]facts.Ref` until resolution (1.17M refs ≈ 258 MiB on Kibana).
+- **`make bench-tokens` is opt-in evidence, not a gate.** `TestAnswerTokens`
+  (`REPATH_TOKENS=1`, `REPATH_TOKENS_CORPORA="name=path[,name=path|scope]"`)
+  indexes each corpus into a temporary store and compares the JSON answer bytes
+  with the bytes of the files the answer names, using one estimator on both
+  sides (`ceil(bytes/4)`). It never writes into a corpus, never runs in CI, and
+  skips when the corpora are absent. The documented bias: answers are location
+  lists, the file side is whole-file text, so the ratio is "what an agent skips",
+  not "what the answer explains"; the `map` row is the JSON payload while
+  `--max-tokens` bounds the text renderer. See `docs/benchmarks.md`
+  §Answer tokens vs reading the files.
 - **`make perf` is opt-in.** `TestPerf10k` and `TestPerf50k` skip without
   `REPATH_PERF=1`; `make perf` runs each in its own process so the Linux VmHWM
   reading belongs to that tree. It is evidence, not a CI gate (timings are
