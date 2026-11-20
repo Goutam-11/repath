@@ -103,8 +103,14 @@ shows attributes that mean something for that mode.
   kinds, confidences, and rule ids only.
 - **No layout.** GraphML/DOT consumers own the drawing; repath writes no SVG,
   HTML, or Obsidian vault.
-- **No artifact input yet.** `export` reads the local index; to export from an
-  artifact run `repath pull <dir>` first. (`index --artifact` is the SQLite
-  snapshot, a different transport.)
+- **Artifacts are read in place.** `export --graphml|--dot --artifact DIR|FILE`
+  and `map --md --artifact DIR|FILE` open the artifact's SQLite snapshot
+  read-only through `store.OpenReadOnly`; nothing is pulled into `.repath/` and
+  nothing is written beside the artifact (a zstd artifact is decoded to a
+  temporary file). The manifest and the database's own `schema_version` must
+  both match the binary's schema, or the command refuses with exit `1`; a
+  missing artifact is exit `3`. The output is byte-identical to exporting the
+  live index. (`index --artifact` writes the snapshot; that is a different
+  direction.)
 - **No `--json` or `--md` on `export`**, and `--graphml`/`--dot` are mutually
   exclusive; both are usage exit `2`. `export` never returns `3`/`4`/`5`.

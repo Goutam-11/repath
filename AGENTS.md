@@ -45,6 +45,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath map --max-tokens 1200         # PageRank, modules, cycles
 ./bin/repath map --md --out docs/repath-map # committable markdown bundle (index.md + one page per module)
 ./bin/repath export --graphml --out g.graphml  # full symbol graph for Gephi/yEd/Obsidian
+./bin/repath export --dot --artifact out/     # read a local artifact without pulling it
 ./bin/repath export --dot --modules         # module-level graph for Graphviz
 ./bin/repath find <symbol>                 # card: callers/callees
 ./bin/repath callers <symbol>              # one-hop reverse edges
@@ -449,8 +450,11 @@ the database.
   text). Both are byte-identical across runs (sorted modules/symbols/edges), and
   `map --md` bounds the whole bundle with `--max-tokens` while admitting when the
   structural pages alone exceed it. Do not add HTML, SVG, a layout engine, or an
-  Obsidian-vault writer; do not make `export` read artifacts directly (pull
-  first) without a plan change. See `docs/export.md`.
+  Obsidian-vault writer. `export` and `map --md` read a **local artifact** in
+  place with `--artifact DIR|FILE` (`store.OpenReadOnly`, no pull, no writes
+  beside it; a stale manifest or database schema is exit 1, a missing artifact
+  exit 3), and the output is byte-identical to the live index. See
+  `docs/export.md`.
 - **Entrypoints are a dimension, not nodes.** The `entrypoints` table (schema
   v6) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
   `rs.main` to existing symbols. Do not turn them into a node kind or let
