@@ -2,14 +2,18 @@
 
 repath is one binary over SQLite. Building it needs Go 1.27+ **and a C
 toolchain**: tree-sitter runs through cgo (PLAN §3 decision 15), so there is no
-pure-Go build. Linux amd64 and arm64 are the v1.2 release targets.
+pure-Go build. Linux amd64 and arm64 are the release targets.
 
-## From a release (recommended)
+No release is tagged yet ([#81](https://github.com/Goutam-11/repath/issues/81)
+tracks the first one, approval-gated). The release path below is the intended
+flow; build from source until an archive exists.
+
+## From a release (once tagged)
 
 Download the archive and checksums from the [GitHub releases page](https://github.com/Goutam-11/repath/releases):
 
 ```sh
-version=1.2.0    # release version WITHOUT the leading v (GoReleaser .Version)
+version=X.Y.Z   # release version WITHOUT the leading v (GoReleaser .Version)
 tag="v${version}"
 arch=amd64       # amd64 or arm64
 base="https://github.com/Goutam-11/repath/releases/download/${tag}"
@@ -26,6 +30,8 @@ repath --version
 is dynamically linked (cgo); a minimal container needs glibc.
 
 ## From source
+
+This is the only install path until the first release is tagged.
 
 ```sh
 git clone https://github.com/Goutam-11/repath
