@@ -23,10 +23,21 @@ nothing better was available.
 | `ts.local` | 0.85 | a symbol in the same file, unique (arity disambiguates) |
 | `ts.typed.method.reexport` | 0.80 | the receiver type was imported through a barrel or workspace entry, so the class is resolved first and its method looked up in the defining file |
 | `ts.typed.method.global` | 0.70 | receiver type known and exactly one `Type.method` exists in the repo |
-| `ts.global.unique` | 0.60 | exactly one symbol with that name in the repo |
-| `ts.method.unique` | 0.60 | `obj.add()` where exactly one method is named `add` |
+| `ts.global.unique` | 0.40 | exactly one symbol with that name in the repo; a name-only guess, so it is excluded from default answers (#82) |
 | `ts.global.ambiguous` | 0.40 | 2–5 candidates; one edge per candidate, default queries filter it |
-| `ts.method.ambiguous` | 0.40 | same, for member calls |
+
+A bare TypeScript identifier with one repo-wide declaration is the weakest rung:
+it has no import, scope, or receiver-type evidence. It stays at **0.40**, below
+the default 0.5 floor, and `--min-confidence 0.4` keeps every guess visible. The
+pinned Kibana `security/packages` audit found 30 of 61 such edges crossing a
+package boundary, while at least 11 of the 31 same-package edges were prop
+callbacks, test-local helpers, or a same-file local misattributed by arity, so
+same-package co-location was not a usable signal. Python and Rust keep 0.60
+until their own calibration (#77).
+
+Bare member calls (`obj.add()` with no typed receiver) are not guessed at all:
+they stay unresolved, and `ts.method.unique` / `ts.method.ambiguous` were
+removed from this ladder because no code path ever emitted them.
 
 ### Python
 

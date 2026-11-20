@@ -288,7 +288,9 @@ func TestColdRunCompletesPendingRetry(t *testing.T) {
 
 	st := openIndex(t, dir)
 	defer st.Close()
-	edges, err := st.Edges(context.Background(), 0.5)
+	// #82: the unique-name retry is a name-only TypeScript guess at 0.40, so it
+	// is visible with --min-confidence 0.4 and absent from default answers.
+	edges, err := st.Edges(context.Background(), 0.35)
 	if err != nil {
 		t.Fatalf("edges: %v", err)
 	}
@@ -296,10 +298,22 @@ func TestColdRunCompletesPendingRetry(t *testing.T) {
 	for _, edge := range edges {
 		if edge.Rule == "ts.global.unique" && edge.SrcQName == "run" && edge.DstQName == "helper" {
 			found = true
+			if edge.Confidence != 0.40 {
+				t.Fatalf("retry confidence = %v, want 0.40", edge.Confidence)
+			}
 		}
 	}
 	if !found {
 		t.Fatalf("cold index did not complete the pending retry: %+v", edges)
+	}
+	defaultEdges, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("default edges: %v", err)
+	}
+	for _, edge := range defaultEdges {
+		if edge.Rule == "ts.global.unique" {
+			t.Fatalf("name-only retry edge cleared the default floor: %+v", edge)
+		}
 	}
 	pending, err := st.CountPending(context.Background())
 	if err != nil {

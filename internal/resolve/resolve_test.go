@@ -90,6 +90,11 @@ func TestResolvePendingUsesLanguageRuleIDs(t *testing.T) {
 	if r.Rule != "ts.global.unique" {
 		t.Fatalf("typescript retry rule = %q, want ts.global.unique", r.Rule)
 	}
+	// #82: a TypeScript bare-name retry is the same name-only guess as the
+	// forward ladder, so it stays below the default 0.5 floor.
+	if r.Confidence != 0.40 {
+		t.Fatalf("typescript retry confidence = %v, want 0.40", r.Confidence)
+	}
 }
 
 // TestPythonInheritanceThroughUnchangedFile pins the incremental half of the

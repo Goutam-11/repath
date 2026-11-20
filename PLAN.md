@@ -50,8 +50,10 @@ and call recall against compiler truth (F1 0.86/0.95 vs our 0.79/0.89 on
 `requests`/`django`), and loses on answer identity (three nodes share the label
 `.request()`), transparency (dropped references are never counted) and speed (29×
 slower cold index on `django`). The same measurement found a defect of ours:
-`ts.global.unique` at 0.60 sits above the default floor and was wrong in 6 of 10
-sampled edges. The measurements, the eight things worth taking (agent
+`ts.global.unique` at 0.60 sat above the default floor and was wrong in 6 of 10
+sampled edges; #82 demoted the TypeScript rung to 0.40 once the same-package
+co-location gate still retained prop callbacks and test-local helpers. The
+measurements, the eight things worth taking (agent
 installer, token-savings benchmark, `impact --diff`, `map --md`, `--scope`,
 cross-repo merge, GraphML export, resolver passes), and what not to copy are in
 [`docs/competitive/graphify.md`](docs/competitive/graphify.md).
@@ -297,9 +299,17 @@ imports, exports). Resolution then walks a ladder:
 | 1 | Exact via explicit import / alias | 1.00 | `import { cart } from './cart'` |
 | 2 | Relative path or `self::` / `super::` | 0.90 | `use super::store::{Store}` |
 | 3 | Same-module unique match | 0.85 | sibling `def helper()` |
-| 4 | Unique global name, no import | 0.60 | bare `parse()` |
+| 4 | Unique global name, no import | 0.60 (Python, Rust) / **0.40** (TypeScript) | bare `parse()` |
 | 5 | Ambiguous — several candidates | 0.40 | DI, `getattr`, macro-generated |
 | 6 | No candidate | dropped | counted in `status`, never silent |
+
+A bare TypeScript identifier with exactly one repo-wide declaration carries no
+import, scope, or receiver-type evidence, so it stays at **0.40** (#82): the
+pinned Kibana `security/packages` audit found 30 of 61 such edges crossing a
+package boundary, and at least 11 of the 31 same-package edges were prop
+callbacks, test-local helpers, or a same-file local misattributed by arity, so
+co-location was not a usable gate. `--min-confidence 0.4` still exposes every
+guess. Python and Rust keep 0.60 until #77 calibrates their ladders.
 
 `--min-confidence` defaults to `0.5`. It is the completeness/precision dial and
 the threshold used by the eval harness, so "accuracy" is a measured curve rather
