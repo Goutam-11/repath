@@ -2,6 +2,6 @@ from .star_pkg import star_helper
 
 
 def use_star() -> int:
-    # The package __init__ star-imports this name, so the direct import lookup
-    # misses and the cold-run retry recovers it from its import provenance.
+    # The package __init__ star-imports this name, so the export lookup follows
+    # one wildcard hop instead of leaving it for the pending retry (#102).
     return star_helper(1)

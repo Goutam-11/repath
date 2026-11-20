@@ -263,13 +263,15 @@ func TestTypeScriptUniqueNameStaysBelowFloor(t *testing.T) {
 	}
 }
 
-// TestPythonUniqueNameStaysBelowFloor pins #97. The rung is split by
-// provenance: a pending retry with a persisted import binding is a star-re-export
-// recovery (99.9% precise on django) and stays at 0.60, while a bare name with no
+// TestPythonUniqueNameStaysBelowFloor pins #97 and #102. The rung is split by
+// provenance: a pending retry with a persisted import binding is a recovery
+// that was 99.9% precise on django and stays at 0.60, while a bare name with no
 // import binding was 3.1% precise and moves to 0.40. The two guess shapes are
 // pinned here (a local callback parameter whose name matches the unique
 // Signal.send, and a correctly named cross-module call that the compiler cannot
-// confirm) and the fixture declares the recovered shape at 0.60.
+// confirm). #102 moved the star-re-export shape off this rung entirely: the
+// fixture now resolves it through the import walk at `py.import.star`, so no
+// default-answer edge in the fixture depends on the 0.60 recovery any more.
 func TestPythonUniqueNameStaysBelowFloor(t *testing.T) {
 	_, st, _ := indexFixture(t, "py")
 
@@ -304,24 +306,23 @@ func TestPythonUniqueNameStaysBelowFloor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read default edges: %v", err)
 	}
-	recovered := "app/star_use.py:use_star -> app/star_pkg/impl.py:star_helper CALLS"
-	seenRecovered := false
+	starred := "app/star_use.py:use_star -> app/star_pkg/impl.py:star_helper CALLS"
+	seenStarred := false
 	for _, e := range high {
-		if e.Rule != "py.global.unique" {
-			continue
-		}
 		key := edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)
-		if key == recovered {
-			seenRecovered = true
-			if e.Confidence != 0.60 {
-				t.Errorf("import-provenance retry %s confidence = %v, want 0.60", key, e.Confidence)
-			}
-			continue
+		if e.Rule == "py.global.unique" {
+			t.Errorf("name-only edge entered default answers: %s (%.2f)", key, e.Confidence)
 		}
-		t.Errorf("name-only edge entered default answers: %s (%.2f)", key, e.Confidence)
+		if key == starred {
+			seenStarred = true
+			// #102: the star re-export is followed by the import walk now.
+			if e.Rule != "py.import.star" || e.Confidence != 0.80 {
+				t.Errorf("%s = %s at %v, want py.import.star at 0.80", key, e.Rule, e.Confidence)
+			}
+		}
 	}
-	if !seenRecovered {
-		t.Errorf("missing import-provenance py.global.unique edge %q at 0.5", recovered)
+	if !seenStarred {
+		t.Errorf("missing star-re-export edge %q at 0.5", starred)
 	}
 }
 
@@ -340,20 +341,23 @@ func TestPythonRuleIDs(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"app/util.py:parse -> app/util.py:clamp CALLS":                       "py.local",
-		"app/service.py:Service -> app/models.py:Base EXTENDS":               "py.import.named",
-		"app/service.py:Service -> app/decorators.py:logged REFERENCES":      "py.import.named",
-		"app/worker.py:measure -> app/util.py:parse CALLS":                   "py.import.alias",
-		"app/worker.py:measure -> app/util.py:clamp CALLS":                   "py.module.relative",
-		"app/module_use.py:measure -> app/util.py:clamp CALLS":               "py.import.module",
-		"app/module_use.py:measure_plain -> app/util.py:clamp CALLS":         "py.import.module",
-		"app/star.py:bounded -> app/util.py:clamp CALLS":                     "py.import.star",
-		"app/reexports_use.py:start -> app/service.py:Service REFERENCES":    "py.import.reexport",
-		"app/compat_use.py:cap -> app/util.py:clamp CALLS":                   "py.import.reexport",
-		"app/service.py:Service.label -> app/service.py:Service.total CALLS": "py.this.method",
-		"app/service.py:build -> app/service.py:Service.total CALLS":         "py.typed.method",
-		"app/service.py:make -> app/service.py:Service.create CALLS":         "py.class.method",
-		"app/star_use.py:use_star -> app/star_pkg/impl.py:star_helper CALLS": "py.global.unique",
+		"app/util.py:parse -> app/util.py:clamp CALLS":                                 "py.local",
+		"app/service.py:Service -> app/models.py:Base EXTENDS":                         "py.import.named",
+		"app/service.py:Service -> app/decorators.py:logged REFERENCES":                "py.import.named",
+		"app/worker.py:measure -> app/util.py:parse CALLS":                             "py.import.alias",
+		"app/worker.py:measure -> app/util.py:clamp CALLS":                             "py.module.relative",
+		"app/module_use.py:measure -> app/util.py:clamp CALLS":                         "py.import.module",
+		"app/module_use.py:measure_plain -> app/util.py:clamp CALLS":                   "py.import.module",
+		"app/star.py:bounded -> app/util.py:clamp CALLS":                               "py.import.star",
+		"app/star_use.py:use_star -> app/star_pkg/impl.py:star_helper CALLS":           "py.import.star",
+		"app/star_chain_use.py:use_chain -> app/star_chain/leaf.py:chain_helper CALLS": "py.import.star",
+		"app/star_cycle_use.py:use_cycle -> app/star_cycle/beta.py:cycle_helper CALLS": "py.import.star",
+		"app/star_order_use.py:use_order -> app/star_order/second.py:ordered CALLS":    "py.import.star",
+		"app/reexports_use.py:start -> app/service.py:Service REFERENCES":              "py.import.reexport",
+		"app/compat_use.py:cap -> app/util.py:clamp CALLS":                             "py.import.reexport",
+		"app/service.py:Service.label -> app/service.py:Service.total CALLS":           "py.this.method",
+		"app/service.py:build -> app/service.py:Service.total CALLS":                   "py.typed.method",
+		"app/service.py:make -> app/service.py:Service.create CALLS":                   "py.class.method",
 
 		// #54: inheritance, super(), typed receivers, and decorators.
 		"app/mro.py:Diamond.go -> app/mro.py:Root.ping CALLS":                                 "py.self.inherited",

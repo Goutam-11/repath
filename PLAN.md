@@ -321,6 +321,16 @@ an import binding were 2 TP / 63 FP (3.1%), so a bare name-only guess is
 visible. Rust keeps 0.60: its `impact≤2` calibration was 64 TP / 0 FP, so it has
 no evidence of the same defect.
 
+Following the wildcard re-export itself (#102) moves those recoveries onto the
+import ladder: on the same django tree 942 edges keep their source and target and
+become `py.import.star` at **0.80**, one stays at 0.60 (a deprecated
+`__getattr__` re-export), and 6,040 references that were pending resolve through
+the same walk — 6,561 of the 6,992 star edges are confirmed by Python's own
+import machinery, none contradicted (§Star re-exports in
+[`docs/benchmarks.md`](docs/benchmarks.md#star-re-exports-2026-11-20-102)). The
+0.60/0.40 provenance gate is unchanged; it now covers what the static export walk
+cannot see rather than every wildcard.
+
 `--min-confidence` defaults to `0.5`. It is the completeness/precision dial and
 the threshold used by the eval harness, so "accuracy" is a measured curve rather
 than a claim.
@@ -331,8 +341,8 @@ Per-language rules that must exist before that language ships:
   functions assigned to `const`, class methods, interface/type declarations,
   `tsconfig` `paths` aliases (`@/*`), CommonJS `require`, dynamic `import()`.
 - **Python:** absolute and relative imports (`from . import x`, `from ..pkg`),
-  module and `__init__.py` re-exports (including stdlib shims such as
-  `requests.compat`), decorators recorded as reference edges, class and
+  module and `__init__.py` re-exports (named and wildcard, bounded at eight hops
+  and cycle-safe), decorators recorded as reference edges, class and
   classmethod receivers, `self`/`cls` calls, and `Constructor()` receiver typing.
   The `if __name__ == "__main__"` marker is emitted as `py.main` when a
   module-level `main()` exists (v1.1 entrypoints; see `docs/flows.md`).

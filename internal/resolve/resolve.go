@@ -1026,10 +1026,14 @@ func (ix *Index) pyByImport(fromPath string, binding facts.Import, ref facts.Ref
 		return Resolution{External: true}
 	}
 
-	n, lookup := ix.pyExport(target, binding.Imported, map[int64]bool{})
+	n, lookup := ix.pyExport(target, binding.Imported, map[int64]bool{}, 0)
 	switch lookup {
 	case exportExternal:
 		return Resolution{External: true}
+	case exportFoundStar:
+		// A `from x import *` hop is the weakest import link (#102): the
+		// name was exported, but only a wildcard tied it to the module.
+		return pyTarget(ref, n, 0.80, "py.import.star")
 	case exportFound, exportFoundReexport:
 		switch {
 		case lookup == exportFoundReexport:
@@ -1061,7 +1065,7 @@ func (ix *Index) pyByStar(fromFile int64, fromPath string, ref facts.Ref) (Resol
 		if target == 0 {
 			continue
 		}
-		if n, lookup := ix.pyExport(target, ref.Name, map[int64]bool{}); lookup == exportFound || lookup == exportFoundReexport {
+		if n, lookup := ix.pyExport(target, ref.Name, map[int64]bool{}, 0); lookup.found() {
 			return pyTarget(ref, n, 0.80, "py.import.star"), true
 		}
 	}
@@ -1129,8 +1133,8 @@ func (ix *Index) pyByClassMember(fromFile int64, fromPath string, ref facts.Ref,
 		return Resolution{External: true}, true
 	}
 
-	classNode, lookup := ix.pyExport(target, binding.Imported, map[int64]bool{})
-	if lookup != exportFound && lookup != exportFoundReexport {
+	classNode, lookup := ix.pyExport(target, binding.Imported, map[int64]bool{}, 0)
+	if !lookup.found() {
 		return Resolution{}, false
 	}
 	if classNode.Kind != "class" {
@@ -1153,10 +1157,12 @@ func (ix *Index) pyModuleMember(fromPath string, ref facts.Ref, spec string) (Re
 		}
 		return Resolution{External: true}, true
 	}
-	n, lookup := ix.pyExport(target, ref.Name, map[int64]bool{})
+	n, lookup := ix.pyExport(target, ref.Name, map[int64]bool{}, 0)
 	switch lookup {
 	case exportExternal:
 		return Resolution{External: true}, true
+	case exportFoundStar:
+		return pyTarget(ref, n, 0.80, "py.import.star"), true
 	case exportFound, exportFoundReexport:
 		switch {
 		case lookup == exportFoundReexport:
@@ -1209,7 +1215,7 @@ func (ix *Index) pyByTypedMethod(fromFile int64, fromPath string, ref facts.Ref,
 					return pyTarget(ref, n, 0.85, "py.typed.method")
 				}
 			}
-			if classNode, lookup := ix.pyExport(target, ref.ReceiverType, map[int64]bool{}); lookup == exportFound || lookup == exportFoundReexport {
+			if classNode, lookup := ix.pyExport(target, ref.ReceiverType, map[int64]bool{}, 0); lookup.found() {
 				if classNode.Kind == "class" {
 					if r, ok := ix.pyTypedOn(classNode, ref); ok {
 						return r
@@ -1328,14 +1334,32 @@ const (
 	exportMissing exportLookup = iota
 	exportFound
 	exportFoundReexport
+	// exportFoundStar is a hit whose chain crossed a `from x import *` hop. The
+	// name is exported, but only a wildcard connected it to the module, so the
+	// caller must report the star rung instead of the exact import one.
+	exportFoundStar
 	exportExternal
 )
 
+// found reports whether the lookup found a local symbol, directly or through a
+// re-export, rather than missing or ending outside the repo.
+func (l exportLookup) found() bool {
+	return l == exportFound || l == exportFoundReexport || l == exportFoundStar
+}
+
+// maxPyExportHops bounds a Python re-export chain. Real packages are one or two
+// hops deep; the cap keeps a pathological or cyclic wildcard chain bounded, and
+// the seen set makes a cycle terminate instead of repeating.
+const maxPyExportHops = 8
+
 // pyExport finds an importable name in a module. A module re-exports names it
 // imports, which is how `requests.compat` provides stdlib names and how
-// `from pkg import Name` works through a package __init__.py.
-func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool) (store.NodeRow, exportLookup) {
-	if seen[fileID] {
+// `from pkg import Name` works through a package __init__.py. A declaration
+// beats a named re-export beats a star re-export, mirroring the TypeScript
+// barrel policy: `from .impl import *` in a package __init__ (#102) is followed
+// like `export * from`, and the walk reports the weakest hop it crossed.
+func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool, depth int) (store.NodeRow, exportLookup) {
+	if fileID == 0 || depth > maxPyExportHops || seen[fileID] {
 		return store.NodeRow{}, exportMissing
 	}
 	seen[fileID] = true
@@ -1359,13 +1383,43 @@ func (ix *Index) pyExport(fileID int64, name string, seen map[int64]bool) (store
 			}
 			continue
 		}
-		n, lookup := ix.pyExport(target, imp.Imported, seen)
+		n, lookup := ix.pyExport(target, imp.Imported, seen, depth+1)
 		switch lookup {
 		case exportFound, exportFoundReexport:
 			return n, exportFoundReexport
+		case exportFoundStar:
+			// A wildcard anywhere in the chain is the weaker link.
+			return n, exportFoundStar
 		case exportExternal:
 			external = true
 		}
+	}
+	// A star re-export makes every public name of the source module visible on
+	// this one, so it can still find a name the named bindings above did not.
+	// Python binds wildcard imports in source order, so the last star that
+	// exports the name wins; the walk keeps scanning after a hit for that
+	// reason, which is also why the seen set is shared (a second visit to the
+	// same file cannot find a different node).
+	var starHit store.NodeRow
+	starFound := false
+	for _, imp := range ix.starReexports[fileID] {
+		target := ix.resolvePyModule(fromPath, imp.Source)
+		if target == 0 {
+			if !isRelative(imp.Source) {
+				external = true
+			}
+			continue
+		}
+		n, lookup := ix.pyExport(target, name, seen, depth+1)
+		switch lookup {
+		case exportFound, exportFoundReexport, exportFoundStar:
+			starHit, starFound = n, true
+		case exportExternal:
+			external = true
+		}
+	}
+	if starFound {
+		return starHit, exportFoundStar
 	}
 	if external {
 		return store.NodeRow{}, exportExternal
