@@ -1,0 +1,61 @@
+#!/bin/sh
+# Refuse a bare <username>@users.noreply.github.com address in the identity or in
+# the message. GitHub resolves that legacy form to whichever account owns the
+# username, so it can credit a commit to a stranger; only <numeric-id>+<login>
+# maps to a specific account. Installed by `make hooks`.
+#
+# Bypass deliberately with `git commit --no-verify`.
+
+set -eu
+
+msg_file=${1:-}
+if [ -z "$msg_file" ] || [ ! -f "$msg_file" ]; then
+	echo "commit-msg: expected a message file argument" >&2
+	exit 2
+fi
+
+bad='[A-Za-z0-9._+-]+@users\.noreply\.github\.com'
+safe='^[0-9]+\+[A-Za-z0-9._-]+@users\.noreply\.github\.com$'
+
+fail() {
+	cat >&2 <<'EOF'
+commit-msg: refusing a bare users.noreply.github.com address.
+
+GitHub maps <username>@users.noreply.github.com to whichever account owns that
+username, so a bare form can credit this commit to someone else. Use the
+ID-prefixed address instead, e.g.:
+
+    Goutam Kumar Sharma <159244984+Goutam-11@users.noreply.github.com>
+
+or a verified address such as <goutamkumar.sharmq@gmail.com>.
+
+Bypass only if you mean it: git commit --no-verify
+EOF
+	printf 'offending value: %s\n' "$1" >&2
+	exit 1
+}
+
+email_of() {
+	printf '%s\n' "$1" | sed -n 's/.*<\([^>]*\)>.*/\1/p'
+}
+
+check_identity() {
+	who=$1
+	email=$2
+	case $email in
+	*@users.noreply.github.com)
+		printf '%s\n' "$email" | grep -Eq "$safe" || fail "$who identity <$email>"
+		;;
+	esac
+}
+
+check_identity author "$(email_of "$(git var GIT_AUTHOR_IDENT)")"
+check_identity committer "$(email_of "$(git var GIT_COMMITTER_IDENT)")"
+
+# Search the whole message, not just Co-authored-by trailers: a bare noreply
+# anywhere in the text still renders as a profile link on GitHub.
+for addr in $(grep -Eio "$bad" "$msg_file" | sort -u); do
+	printf '%s\n' "$addr" | grep -Eq "$safe" || fail "$addr"
+done
+
+exit 0

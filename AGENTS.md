@@ -34,6 +34,7 @@ same PR with the reason. Silent drift is the one thing this repo does not allow.
 make build      # bin/repath
 make check      # gofmt + vet + tests — the PR gate
 make test
+make hooks      # install the commit-msg identity guard (once per clone)
 make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 
 ./bin/repath status --json                 # indexes lazily, prints counts

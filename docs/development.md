@@ -58,7 +58,16 @@ make check   # gofmt + vet + tests
 make test    # tests only
 make fmt     # gofmt -w
 make perf    # opt-in 10k + 50k synthetic budgets (cold, RSS, incremental, queries, check, artifact)
+make hooks   # install the commit-msg identity guard (once per clone)
 ```
+
+Run `make hooks` once per clone. It points `core.hooksPath` at `.githooks/`, whose
+`commit-msg` refuses a bare `<username>@users.noreply.github.com` address in the
+identity or anywhere in the message: GitHub resolves that form to whichever
+account owns the username, so a commit can be credited to a stranger. Use the
+ID-prefixed form (`<id>+<login>@users.noreply.github.com`) or a verified address.
+`git commit --no-verify` bypasses it deliberately. The guard's cases are part of
+`make check` via `scripts/test-commit-msg-hook.sh`.
 
 `make perf` is deliberately outside `make check`: it generates 10,000 and
 50,000 files and takes about half a minute. It is the reproducible source of the
