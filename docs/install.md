@@ -64,6 +64,39 @@ CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
 The release workflow does the same with GoReleaser; the arm64 override is in
 `.goreleaser.yaml`. There is no static pure-Go build to fall back to.
 
+## Install the agent skill
+
+repath ships one [Agent Skill](https://agentskills.io) at
+[`skills/repath/SKILL.md`](../skills/repath/SKILL.md), embedded into the binary.
+`repath install` copies it into the user-scope skill directory of one agent, or
+all of them; no repo checkout, network, or config file is involved:
+
+```sh
+repath install --platform claude
+repath install --all
+repath install --all --force        # replace a file you edited
+```
+
+| `--platform` | Writes | Read by |
+| --- | --- | --- |
+| `claude` | `~/.claude/skills/repath/SKILL.md` | Claude Code personal skills |
+| `codex` | `~/.agents/skills/repath/SKILL.md` | Codex user skills (`$HOME/.agents/skills`), also the cross-agent location |
+| `cursor` | `~/.cursor/skills/repath/SKILL.md` | Cursor user skills |
+| `gemini` | `~/.gemini/skills/repath/SKILL.md` | Gemini CLI user skills |
+| `vscode` | `~/.copilot/skills/repath/SKILL.md` | GitHub Copilot user skills |
+
+The command defaults to `claude`. A second run with the same content is a no-op;
+an existing file with different content is reported and left alone unless
+`--force` is passed. `repath uninstall` (same `--platform`/`--all` flags) removes
+only `.../repath/SKILL.md` and the now-empty `repath/` directory; a missing file
+is success. `repath uninstall --purge` additionally deletes `.repath/` under
+`--root` (default: the current repo). It is never implied.
+
+Paths follow each vendor's documented user-scope skill directory (checked
+2026-11-20). An unknown platform is a usage error (exit `2`) that prints the
+supported list. The tests run against a temporary `HOME` and never touch a real
+agent directory; `--json` on either command returns the exact paths and actions.
+
 ## Runtime
 
 ```sh

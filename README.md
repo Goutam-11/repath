@@ -79,10 +79,16 @@ make build
 ./bin/repath flows <entrypoint>        # forward execution paths
 ./bin/repath tests <symbol|file:line>  # affected test files (structural)
 ./bin/repath tests --diff origin/main  # affected test files for a change set
+./bin/repath install --all             # copy the agent skill into agent config dirs
+./bin/repath uninstall --platform claude  # remove only the file we wrote
 ```
 
 An agent with a shell should prefer the CLI; [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
-is the ~300-token cheat sheet. Shell-less clients use the MCP adapter; see
+is the ~300-token cheat sheet. `repath install --all` copies it into the
+user-scope skill directories of Claude Code, Codex, Cursor, Gemini CLI, and
+GitHub Copilot; `uninstall` removes only our file, and `--purge` is the explicit
+way to delete `.repath/`. The paths are in
+[`docs/install.md`](docs/install.md#install-the-agent-skill). Shell-less clients use the MCP adapter; see
 [`docs/mcp.md`](docs/mcp.md) for the transport, six tools, and envelope.
 Sharing, the manifest, and the schema gate are in
 [`docs/sharing.md`](docs/sharing.md); worktree seeding, locks, and LRU are in

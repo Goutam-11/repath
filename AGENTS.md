@@ -58,6 +58,8 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath flows <entrypoint>            # forward execution paths
 ./bin/repath tests <symbol|file:line>      # structurally affected test files
 ./bin/repath tests --diff origin/main      # affected tests for a git change set
+./bin/repath install --all                 # copy the embedded agent skill into user config dirs
+./bin/repath uninstall --platform claude   # remove only the file we wrote
 make bench-real REPATH_BENCH_ROOT=...       # opt-in real-repo evidence (not CI)
 make bench-real-langs REPATH_BENCH_PY_ROOT=... REPATH_BENCH_RS_ROOT=...  # Python/Rust evidence
 make bench-corpora                          # reproducible corpus matrix + accuracy (opt-in)
@@ -77,6 +79,8 @@ export GOCACHE=$PWD/.cache/go-build GOPATH=$PWD/.cache/gopath \
 
 ```
 cmd/repath        entrypoint only
+skills            embedded Agent Skill (skills/repath/SKILL.md)
+internal/agentskill user-scope skill install/uninstall (pure file copy)
 internal/cli      commands, text renderers, JSON, exit codes
 internal/index    discovery, hashing, batching, module detection, orchestration, xlang pass
 internal/lang     path → dialect; lang/{tsx,py,rs} extract symbols + refs + imports
