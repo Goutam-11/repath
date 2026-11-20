@@ -451,7 +451,10 @@ func (ix *Index) resolvePython(fromFile int64, fromPath string, ref facts.Ref) R
 		}
 	}
 
-	return ix.byUniquePython(ref, ix.global[ref.Name])
+	// A bare name with one repo-wide definition and no import, scope, or
+	// receiver evidence is the weakest rung (#97): 3.1% precision in the django
+	// sample, so it stays below the default floor.
+	return ix.byUniquePython(ref, ix.global[ref.Name], 0.40)
 }
 
 // maxMRODepth bounds the Python inheritance walk. Real hierarchies are shallow,
@@ -1462,13 +1465,13 @@ func pyTarget(ref facts.Ref, n store.NodeRow, confidence float64, rule string) R
 	return r
 }
 
-func (ix *Index) byUniquePython(ref facts.Ref, candidates []store.NodeRow) Resolution {
+func (ix *Index) byUniquePython(ref facts.Ref, candidates []store.NodeRow, confidence float64) Resolution {
 	picked := pick(candidates, ref.Arity)
 	switch len(picked) {
 	case 0:
 		return Resolution{}
 	case 1:
-		return pyTarget(ref, picked[0], 0.60, "py.global.unique")
+		return pyTarget(ref, picked[0], confidence, "py.global.unique")
 	}
 	if len(picked) > maxCandidates {
 		return Resolution{}
@@ -1571,17 +1574,28 @@ func (ix *Index) UniqueNames() []string {
 	return names
 }
 
-// ResolvePending retries a reference that was left pending by an earlier run,
-// when the import context is no longer available. The language comes from the
-// referring file, so Python and Rust names get their own rule ids. Rust uses
-// the plain global ladder rather than byUniqueRust: a retry corrects the rule
-// id, not the edge kind, so a struct or enum target keeps its CALLS kind.
+// ResolvePending retries a reference that was left pending by an earlier run.
+// The language comes from the referring file, so Python and Rust names get
+// their own rule ids. Rust uses the plain global ladder rather than
+// byUniqueRust: a retry corrects the rule id, not the edge kind, so a struct or
+// enum target keeps its CALLS kind.
+//
+// Python is split by provenance (#97). A pending name with a persisted import
+// binding means the import resolved to a module but its export lookup missed
+// (typically a `from x import *` re-export the resolver does not follow); the
+// unique-name link is then a recovery that was 99.9% correct on django and
+// stays at 0.60. A pending name with no import binding is a bare guess that was
+// 3.1% correct, so it is emitted at 0.40 and excluded from default answers.
 func (ix *Index) ResolvePending(fileID int64, kind, name string) (Resolution, bool) {
 	ref := facts.Ref{Kind: kind, Name: name}
 	var r Resolution
 	switch ix.language(fileID) {
 	case "python":
-		r = ix.byUniquePython(ref, ix.global[name])
+		confidence := 0.40
+		if _, imported := ix.importsOf(fileID)[name]; imported {
+			confidence = 0.60
+		}
+		r = ix.byUniquePython(ref, ix.global[name], confidence)
 	case "rust":
 		r = ix.byUnique(name, 0, ix.global[name], "rs.global", 0.60)
 	default:

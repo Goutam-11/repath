@@ -125,11 +125,6 @@
     "kind": "CALLS"
   },
   {
-    "src": "app/unique_use.py:call_global",
-    "dst": "app/util.py:parse",
-    "kind": "CALLS"
-  },
-  {
     "src": "app/module_use.py:measure",
     "dst": "app/util.py:clamp",
     "kind": "CALLS"
@@ -322,6 +317,11 @@
   {
     "src": "app/mro.py:Diamond.go",
     "dst": "app/mro.py:Left.shared",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/star_use.py:use_star",
+    "dst": "app/star_pkg/impl.py:star_helper",
     "kind": "CALLS"
   }
 ]

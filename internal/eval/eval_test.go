@@ -263,6 +263,68 @@ func TestTypeScriptUniqueNameStaysBelowFloor(t *testing.T) {
 	}
 }
 
+// TestPythonUniqueNameStaysBelowFloor pins #97. The rung is split by
+// provenance: a pending retry with a persisted import binding is a star-re-export
+// recovery (99.9% precise on django) and stays at 0.60, while a bare name with no
+// import binding was 3.1% precise and moves to 0.40. The two guess shapes are
+// pinned here (a local callback parameter whose name matches the unique
+// Signal.send, and a correctly named cross-module call that the compiler cannot
+// confirm) and the fixture declares the recovered shape at 0.60.
+func TestPythonUniqueNameStaysBelowFloor(t *testing.T) {
+	_, st, _ := indexFixture(t, "py")
+
+	low, err := st.Edges(context.Background(), 0.35)
+	if err != nil {
+		t.Fatalf("read edges: %v", err)
+	}
+	want := map[string]bool{
+		"app/unique_fp.py:dispatch -> app/signal.py:Signal.send CALLS": false,
+		"app/unique_use.py:call_global -> app/util.py:parse CALLS":     false,
+	}
+	for _, e := range low {
+		if e.Rule != "py.global.unique" {
+			continue
+		}
+		key := edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)
+		if _, ok := want[key]; !ok {
+			continue
+		}
+		want[key] = true
+		if e.Confidence != 0.40 {
+			t.Errorf("%s confidence = %v, want 0.40", key, e.Confidence)
+		}
+	}
+	for key, seen := range want {
+		if !seen {
+			t.Errorf("missing py.global.unique edge %q at 0.35", key)
+		}
+	}
+
+	high, err := st.Edges(context.Background(), 0.5)
+	if err != nil {
+		t.Fatalf("read default edges: %v", err)
+	}
+	recovered := "app/star_use.py:use_star -> app/star_pkg/impl.py:star_helper CALLS"
+	seenRecovered := false
+	for _, e := range high {
+		if e.Rule != "py.global.unique" {
+			continue
+		}
+		key := edgeKey(e.SrcPath, e.SrcQName, e.DstPath, e.DstQName, e.Kind)
+		if key == recovered {
+			seenRecovered = true
+			if e.Confidence != 0.60 {
+				t.Errorf("import-provenance retry %s confidence = %v, want 0.60", key, e.Confidence)
+			}
+			continue
+		}
+		t.Errorf("name-only edge entered default answers: %s (%.2f)", key, e.Confidence)
+	}
+	if !seenRecovered {
+		t.Errorf("missing import-provenance py.global.unique edge %q at 0.5", recovered)
+	}
+}
+
 // TestPythonRuleIDs pins the Python ladder: every new rule id must be reachable
 // from the fixture, and a Python file must never produce a ts.* rule.
 func TestPythonRuleIDs(t *testing.T) {
@@ -291,7 +353,7 @@ func TestPythonRuleIDs(t *testing.T) {
 		"app/service.py:Service.label -> app/service.py:Service.total CALLS": "py.this.method",
 		"app/service.py:build -> app/service.py:Service.total CALLS":         "py.typed.method",
 		"app/service.py:make -> app/service.py:Service.create CALLS":         "py.class.method",
-		"app/unique_use.py:call_global -> app/util.py:parse CALLS":           "py.global.unique",
+		"app/star_use.py:use_star -> app/star_pkg/impl.py:star_helper CALLS": "py.global.unique",
 
 		// #54: inheritance, super(), typed receivers, and decorators.
 		"app/mro.py:Diamond.go -> app/mro.py:Root.ping CALLS":                                 "py.self.inherited",

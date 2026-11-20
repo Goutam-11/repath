@@ -300,7 +300,7 @@ imports, exports). Resolution then walks a ladder:
 | 1 | Exact via explicit import / alias | 1.00 | `import { cart } from './cart'` |
 | 2 | Relative path or `self::` / `super::` | 0.90 | `use super::store::{Store}` |
 | 3 | Same-module unique match | 0.85 | sibling `def helper()` |
-| 4 | Unique global name, no import | 0.60 (Python, Rust) / **0.40** (TypeScript) | bare `parse()` |
+| 4 | Unique global name, no import | 0.60 with import provenance (Python) / 0.60 (Rust) / **0.40** bare (TypeScript, Python) | bare `parse()` |
 | 5 | Ambiguous — several candidates | 0.40 | DI, `getattr`, macro-generated |
 | 6 | No candidate | dropped | counted in `status`, never silent |
 
@@ -310,7 +310,16 @@ pinned Kibana `security/packages` audit found 30 of 61 such edges crossing a
 package boundary, and at least 11 of the 31 same-package edges were prop
 callbacks, test-local helpers, or a same-file local misattributed by arity, so
 co-location was not a usable gate. `--min-confidence 0.4` still exposes every
-guess. Python and Rust keep 0.60 until #77 calibrates their ladders.
+guess.
+
+Python is split by provenance (#97). The full-tree django SCIP measured 1,020
+`py.global.unique` edges: 952 came from a pending retry with a persisted import
+binding (the export lookup missed a `from x import *` re-export) and 951 of those
+were compiler-correct (99.9%), so that recovery stays at **0.60**. The 68 without
+an import binding were 2 TP / 63 FP (3.1%), so a bare name-only guess is
+**0.40** and stays out of default answers while `--min-confidence 0.4` keeps it
+visible. Rust keeps 0.60: its `impact≤2` calibration was 64 TP / 0 FP, so it has
+no evidence of the same defect.
 
 `--min-confidence` defaults to `0.5`. It is the completeness/precision dial and
 the threshold used by the eval harness, so "accuracy" is a measured curve rather
