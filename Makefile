@@ -51,6 +51,13 @@ bench-real:
 # Opt-in Python/Rust evidence (issue #48), never a CI gate. Each corpus runs in
 # its own process so the VmHWM reading belongs to that tree. SCIP is optional;
 # without it the matrix still runs but the adapter before/after pass is skipped.
+# Opt-in token-savings evidence (issue #87), never a CI gate: compare the tokens
+# of the answers with the tokens of the files they name. Set
+# REPATH_TOKENS_CORPORA="requests=.cache/requests,django=.cache/django-60".
+bench-tokens:
+	@test -n "$(REPATH_TOKENS_CORPORA)" || (echo "set REPATH_TOKENS_CORPORA=name=path[,name=path] (see docs/benchmarks.md)"; exit 2)
+	REPATH_TOKENS=1 REPATH_TOKENS_CORPORA="$(REPATH_TOKENS_CORPORA)" go test ./internal/eval -run '^TestAnswerTokens$$' -v -count=1
+
 bench-real-langs:
 	@test -n "$(REPATH_BENCH_PY_ROOT)$(REPATH_BENCH_RS_ROOT)" || (echo "set REPATH_BENCH_PY_ROOT and/or REPATH_BENCH_RS_ROOT (see docs/benchmarks.md)"; exit 2)
 	REPATH_BENCH_LANGS=1 REPATH_BENCH_LANG=python \

@@ -1393,6 +1393,67 @@ calibration (production SCIP) is unchanged: `callers` P99.1 / R49.8,
 not modelled (every public top-level name counts as exported), and the hop cap
 means a chain past eight wildcards still falls back to the 0.60 recovery.
 
+### Answer tokens vs reading the files (2026-11-20, #87)
+
+The claim is that repath answers are pre-traversed and small: an agent that asks
+spends fewer tokens than it would reading the files the answer names. This
+measures it without a model or a tokenizer dependency.
+
+**Method.** For each corpus the opt-in harness (`REPATH_TOKENS=1`,
+`TestAnswerTokens`) indexes into a temporary store and derives a fixed question
+set from the graph itself — no corpus-specific symbol list: `map` at
+`--max-tokens 1200`, `find` and `impact --depth 2 --limit 50` for the top three
+uniquely resolvable symbols, and the shortest `path` over the first edge whose
+endpoints both resolve. The answer side is the JSON payload (the structs the
+CLI/MCP emit); the file side is the summed on-disk bytes of the unique files the
+answer names. Both sides use the same estimator, `ceil(bytes / 4)`, so the ratio
+compares one unit. The whole set is answered three times and the bytes are
+asserted identical (the range is 0 by construction).
+
+| Corpus | Files | Questions | Answer tokens | File tokens | Ratio |
+| --- | --- | --- | --- | --- | --- |
+| `psf/requests` @ `3c7baaa` | 37 | 8 | **12,025** | 169,389 | **14.1x** |
+| `django/django` @ `f24f38c` | 3,051 | 8 | **13,313** | 946,737 | **71.1x** |
+| `elastic/kibana` @ `0551196` | 38,548 | 8 | **22,774** | 469,536 | **20.6x** |
+| all three | 41,636 | 24 | **48,112** | 1,585,662 | **33.0x** |
+
+By question kind (ranges over the three corpora):
+
+| Question | Answer tokens | File tokens | Ratio |
+| --- | --- | --- | --- |
+| `map` (budget 1200) | 3,372–5,190 | 52,321–388,222 | 15.5–111.4x |
+| `find` | 37–64 | 108–17,240 | 1.8–383.1x |
+| `impact --depth 2 --limit 50` (truncated) | 2,686–6,088 | 32,356–169,496 | 11.7–54.0x |
+| `path` | 131–213 | 1,034–81,293 | 7.9–501.8x |
+
+A `find` card is the extreme: four scalar fields (37–64 tokens) answer a
+question about one symbol in a file that can be 17k tokens. `impact` is the
+largest answer because it carries fifty dependents with kind, rule, confidence,
+and line; it is still 12–54x smaller than the files it names, even though the
+answer is truncated and the file side includes every byte of those files.
+
+**What the ratio does not claim.** The file side is whole-file text, including
+content unrelated to the answer, while the answer is a location list with
+ranks, rules, and confidences — so the number measures what an agent skips
+reading, not how much the answer explains. The map row is the JSON payload, not
+the text renderer: `--max-tokens` bounds the renderer's symbol list, and the
+JSON answer for the same symbols is roughly 3–4x the budget because every entry
+serialises seven fields; the answer side is not pretending to be 1,200 tokens.
+The questions are derived deterministically from the graph, not sampled from
+real developer questions, so there is no variance claim — this is one fixed
+set of questions over three pinned trees, and `path` has no ground truth at all.
+
+Reproduce (`~28 s`, Kibana indexing dominates; never in CI):
+
+```sh
+make bench-tokens REPATH_TOKENS_CORPORA="requests=.cache/requests,django=.cache/django-60"
+# add ,kibana=.cache/kibana, or a scope: kibana=.cache/kibana|x-pack/solutions/security/packages
+```
+
+The harness writes an optional JSON report (`REPATH_TOKENS_JSON=<path>`) with
+per-question files, tokens, ratios, and the run-stability flags; the numbers
+above come from `.cache/tokens-2026-11-20.json`.
+
 ### Failure modes
 
 `TestCorporaFailureModes` is hermetic (in-process CLI, no producer, no network)
