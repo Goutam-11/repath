@@ -750,3 +750,27 @@ func boolInt(b bool) int {
 	}
 	return 0
 }
+
+// ResetGraph deletes every indexed row and resolution input while keeping the
+// meta keys. `index --scope` uses it when the requested scope differs from the
+// recorded one: a scoped graph must be rebuilt from scratch, never spliced into
+// rows that describe a different file set.
+func (s *Store) ResetGraph(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// Children first; SQLite does not enforce the file/module links by default,
+	// but deleting in dependency order keeps the statement valid if it ever does.
+	for _, table := range []string{
+		"edges", "pending", "nodes", "imports", "entrypoints", "xlang_anchors",
+		"files", "modules",
+	} {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+table); err != nil {
+			return fmt.Errorf("reset %s: %w", table, err)
+		}
+	}
+	return tx.Commit()
+}

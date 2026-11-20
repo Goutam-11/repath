@@ -37,22 +37,29 @@ var skippedDirs = map[string]bool{
 // Discover lists the files repath can parse. It prefers git so .gitignore rules
 // apply for free, and falls back to a directory walk outside a work tree.
 func Discover(ctx context.Context, root string) ([]Source, error) {
-	return discoverSources(ctx, root, nil)
+	return discoverSources(ctx, root, nil, nil)
+}
+
+// discoverScoped lists the files inside scope, or every file when scope is
+// empty. `--scope` is a discovery filter only: the repository root stays the
+// root for module detection and git-aware invalidation.
+func discoverScoped(ctx context.Context, root string, scope []string) ([]Source, error) {
+	return discoverSources(ctx, root, nil, scope)
 }
 
 // discoverSources lists source files and stats them, except for paths that
 // unchanged reports as clean since the last index. Those are recorded without
 // touching the filesystem: the incremental run is then proportional to the
 // changed files rather than the whole tree.
-func discoverSources(ctx context.Context, root string, unchanged func(rel string) bool) ([]Source, error) {
+func discoverSources(ctx context.Context, root string, unchanged func(rel string) bool, scope []string) ([]Source, error) {
 	paths, _, err := listPathSets(ctx, root, true)
 	if err != nil {
 		return nil, err
 	}
-	return sourcesFromPaths(root, paths, unchanged), nil
+	return sourcesFromPaths(root, paths, unchanged, scope), nil
 }
 
-func sourcesFromPaths(root string, paths []string, unchanged func(rel string) bool) []Source {
+func sourcesFromPaths(root string, paths []string, unchanged func(rel string) bool, scope []string) []Source {
 	seen := make(map[string]bool, len(paths))
 	out := make([]Source, 0, len(paths))
 	for _, rel := range paths {
@@ -61,6 +68,9 @@ func sourcesFromPaths(root string, paths []string, unchanged func(rel string) bo
 		}
 		rel = filepath.ToSlash(rel)
 		if seen[rel] || strings.HasPrefix(rel, ".repath/") {
+			continue
+		}
+		if !underScope(rel, scope) {
 			continue
 		}
 		if _, _, ok := lang.For(rel); !ok {

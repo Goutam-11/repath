@@ -42,6 +42,8 @@ type StatusReport struct {
 	UnresolvedByLang     map[string]int        `json:"unresolved_by_lang,omitempty"`
 	UnresolvedTopNames   []store.PendingBucket `json:"unresolved_top_names,omitempty"`
 	UnresolvedTopModules []store.PendingBucket `json:"unresolved_top_modules,omitempty"`
+	Scope                []string              `json:"scope,omitempty"`
+	ScopeFiles           int                   `json:"scope_files,omitempty"`
 	LastIndexed          string                `json:"last_indexed,omitempty"`
 	GitHead              string                `json:"git_head,omitempty"`
 	CurrentHead          string                `json:"current_head,omitempty"`
@@ -113,6 +115,15 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 		unresolvedRate = float64(unresolved) / float64(totalEdges+unresolved)
 	}
 
+	// The scope is an index property, not a query argument: the refresh above
+	// preserved whatever the index recorded, so this is the scope the counts
+	// describe. ScopeFiles is the count of indexed (in-scope) files.
+	scope := index.ScopeFromMeta(meta)
+	scopeFiles := 0
+	if len(scope) > 0 {
+		scopeFiles = counts.Files
+	}
+
 	currentHead := gitHead(ctx, root)
 	gitHead := meta["git_head"]
 	return StatusReport{
@@ -134,6 +145,8 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 		UnresolvedByLang:     unresolvedSummary.ByLang,
 		UnresolvedTopNames:   unresolvedSummary.TopNames,
 		UnresolvedTopModules: unresolvedSummary.TopModules,
+		Scope:                scope,
+		ScopeFiles:           scopeFiles,
 		LastIndexed:          meta["indexed_at"],
 		GitHead:              gitHead,
 		CurrentHead:          currentHead,

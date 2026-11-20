@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -61,6 +63,9 @@ func statusCmd(args []string, stdout, stderr io.Writer) int {
 func printStatus(out io.Writer, r statusReport) {
 	fmt.Fprintf(out, "repath %s · %s\n", r.Version, r.Root)
 	fmt.Fprintf(out, "%d files · %d nodes · %d parse failures\n", r.Files, r.Nodes, r.ParseFailures)
+	if len(r.Scope) > 0 {
+		fmt.Fprintf(out, "scope %s (%d files)\n", strings.Join(r.Scope, ", "), r.ScopeFiles)
+	}
 
 	kinds := make([]string, 0, len(r.NodesByKind))
 	for kind := range r.NodesByKind {
@@ -151,15 +156,38 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	scope, err := index.CleanScope(opts.scope)
+	if err != nil {
+		fmt.Fprintf(stderr, "%v\n\n%s", err, usage)
+		return 2
+	}
+	var scoped []string
+	if len(scope) > 0 {
+		for _, item := range scope {
+			info, statErr := os.Stat(filepath.Join(root, filepath.FromSlash(item)))
+			if statErr != nil || !info.IsDir() {
+				fmt.Fprintf(stderr, "--scope %q is not a directory in this repository\n\n%s", item, usage)
+				return 2
+			}
+		}
+		scoped = scope
+	}
+
 	ctx := context.Background()
-	st, err := query.Open(ctx, root, true)
+	st, err := query.OpenScoped(ctx, root, true, scoped)
 	if err != nil {
 		fmt.Fprintf(stderr, "%v\n", err)
 		return 1
 	}
 	defer st.Close()
 
-	result, err := index.Run(ctx, st.Store, root, index.Options{Full: opts.full})
+	// Without --scope the command asks for the whole repository: an index that
+	// was built with a scope is rebuilt rather than served under a new label.
+	result, err := index.Run(ctx, st.Store, root, index.Options{
+		Full:      opts.full,
+		Scope:     scoped,
+		WholeRepo: len(scoped) == 0,
+	})
 	if err != nil {
 		fmt.Fprintf(stderr, "index: %v\n", err)
 		return 1
@@ -186,6 +214,7 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 			Nodes         int                    `json:"nodes"`
 			ParseFailures int                    `json:"parse_failures"`
 			DurationMS    int64                  `json:"duration_ms"`
+			Scope         []string               `json:"scope,omitempty"`
 			Artifact      *artifact.ExportResult `json:"artifact,omitempty"`
 		}{
 			Root:          root,
@@ -196,6 +225,7 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 			Nodes:         result.Nodes,
 			ParseFailures: result.ParseFailures,
 			DurationMS:    result.Duration.Milliseconds(),
+			Scope:         scoped,
 			Artifact:      exported,
 		}
 		if err := writeJSON(stdout, payload); err != nil {
@@ -208,6 +238,9 @@ func indexCmd(args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "indexed %d files (+%d ~%d -%d), %d nodes, %d parse failures in %dms\n",
 		result.Files, result.Indexed, result.Unchanged, result.Deleted,
 		result.Nodes, result.ParseFailures, result.Duration.Milliseconds())
+	if len(scoped) > 0 {
+		fmt.Fprintf(stdout, "scope %s (%d files)\n", strings.Join(scoped, ", "), result.Files)
+	}
 	if exported != nil {
 		fmt.Fprintf(stdout, "artifact %s + %s (schema v%d · %d files · %d nodes · %d edges)\n",
 			exported.DBPath, exported.ManifestPath, exported.Manifest.SchemaVersion,

@@ -344,3 +344,69 @@ func TestPullCompressedFromURL(t *testing.T) {
 		t.Fatalf("pulled manifest = %+v", pulled)
 	}
 }
+
+// TestScopedArtifactRecordsScope pins the #86 manifest contract: an artifact
+// built with --scope records that scope, pull preserves it in the seeded index,
+// and a manifest that disagrees with its database is refused instead of mixed.
+func TestScopedArtifactRecordsScope(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	writeFile(t, root, "a/x.ts", "export function ax(): number { return 1; }\n")
+	writeFile(t, root, "b/y.ts", "export function by(): number { return 2; }\n")
+
+	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := index.Run(ctx, st, root, index.Options{Scope: []string{"a"}}); err != nil {
+		t.Fatalf("scoped index: %v", err)
+	}
+	outDir := t.TempDir()
+	exported, err := ExportWithOptions(ctx, st, root, outDir, "test-version", Options{})
+	st.Close()
+	if err != nil {
+		t.Fatalf("export: %v", err)
+	}
+	if len(exported.Manifest.Scope) != 1 || exported.Manifest.Scope[0] != "a" {
+		t.Fatalf("manifest scope = %v, want [a]", exported.Manifest.Scope)
+	}
+
+	// Pull into an empty directory: the snapshot (and its scope) is preserved.
+	other := t.TempDir()
+	manifest, err := Pull(ctx, outDir, other, "test-version")
+	if err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if len(manifest.Scope) != 1 || manifest.Scope[0] != "a" {
+		t.Fatalf("pulled manifest scope = %v, want [a]", manifest.Scope)
+	}
+	seeded, err := store.Open(ctx, filepath.Join(other, ".repath", "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, err := seeded.Meta(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seeded.Close()
+	if got := index.ScopeFromMeta(meta); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("seeded index scope = %v, want [a]", got)
+	}
+
+	// A manifest that claims a different scope than its database is refused.
+	tampered, err := ReadManifest(filepath.Join(outDir, ManifestName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered.Scope = []string{"b"}
+	if err := writeManifest(filepath.Join(outDir, ManifestName), tampered); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Pull(ctx, outDir, t.TempDir(), "test-version"); err == nil ||
+		!strings.Contains(err.Error(), "does not match") {
+		t.Fatalf("mismatched manifest scope was accepted (err = %v)", err)
+	}
+}
