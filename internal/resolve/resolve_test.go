@@ -33,9 +33,10 @@ func TestResolvePendingUsesLanguageRuleIDs(t *testing.T) {
 	writeFile(t, root, "Cargo.toml", "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"2021\"\n")
 	writeFile(t, root, "src/lib.rs", "pub fn rs_helper() -> i32 {\n    1\n}\n\npub struct RsStruct;\n")
 	writeFile(t, root, "use.ts", "export function ts_helper() { return 1; }\n")
-	// Python provenance: pkg/__init__.py star-imports the name, so a direct
-	// `from pkg import py_helper` misses the export lookup, while a bare call
-	// has no import binding at all.
+	// Python provenance: the referring file has a persisted import binding for
+	// py_helper, which is what keeps a pending retry at 0.60 (#97). The retry is
+	// called directly because the forward ladder now follows the star re-export
+	// itself (#102); this pins the retry rule, not the shape that produced it.
 	writeFile(t, root, "pkg/__init__.py", "from .impl import *\n")
 	writeFile(t, root, "pkg/impl.py", "def py_helper() -> int:\n    return 1\n")
 	writeFile(t, root, "py_import.py", "from pkg import py_helper\n\n\ndef run_imported() -> int:\n    return py_helper()\n")
@@ -130,6 +131,36 @@ func TestResolvePendingUsesLanguageRuleIDs(t *testing.T) {
 	// No import binding: a bare name-only guess, below the default floor.
 	if r.Confidence != 0.40 {
 		t.Fatalf("python bare retry confidence = %v, want 0.40", r.Confidence)
+	}
+}
+
+// TestPythonStarReexportDepthIsBounded pins #102's chain cap: eight wildcard
+// hops resolve at the star rung, nine stop and leave the reference to the
+// documented import-provenance recovery at 0.60, exactly like the TypeScript
+// barrel cap.
+func TestPythonStarReexportDepthIsBounded(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "impl.py", "def helper() -> int:\n    return 1\n")
+	for hop := 1; hop <= 9; hop++ {
+		source := ".impl"
+		if hop > 1 {
+			source = fmt.Sprintf(".hop%d", hop-1)
+		}
+		writeFile(t, root, fmt.Sprintf("hop%d.py", hop), fmt.Sprintf("from %s import *\n", source))
+	}
+	writeFile(t, root, "use8.py", "from hop8 import helper\n\n\ndef via_eight() -> int:\n    return helper()\n")
+	writeFile(t, root, "use9.py", "from hop9 import helper\n\n\ndef via_nine() -> int:\n    return helper()\n")
+
+	st := indexRepo(t, root)
+	got := pythonEdges(t, st)
+
+	if rule := got["via_eight|helper"]; rule != "py.import.star" {
+		t.Fatalf("eight-hop star chain rule = %q, want py.import.star (all: %v)", rule, got)
+	}
+	// Nine hops exceed maxPyExportHops, so the forward walk stops; the pending
+	// retry still links the unique name because the file imported it.
+	if rule := got["via_nine|helper"]; rule != "py.global.unique" {
+		t.Fatalf("nine-hop star chain rule = %q, want the 0.60 recovery (all: %v)", rule, got)
 	}
 }
 

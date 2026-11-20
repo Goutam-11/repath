@@ -184,12 +184,17 @@ the database.
 - **Python re-exports are followed through the imports table.** `py.import.reexport`
   covers `__init__.py` and ordinary modules such as `requests.compat`; a chain
   ending at the standard library is external, not pending. Explicit re-exports
-  are followed, but a **star re-export** (`from .impl import *` in
-  `pkg/__init__.py`) is not, so `from pkg import x` misses the export lookup and
-  goes pending. The pending retry recovers it at 0.60 only when the referring
-  file has an import binding for the name; without that provenance the
-  `py.global.unique` guess is 0.40 (#97, measured 951/1 vs 2/63). Following star
-  re-exports is a known gap, not a policy.
+  and **wildcard re-exports** (`from .impl import *` in `pkg/__init__.py`) are both
+  followed, for `from pkg import Name` and for module members (`pkg.Name`): a
+  declaration beats a named re-export beats a wildcard, wildcards apply in file
+  order (last wins, Python's rule), the walk is capped at eight hops and
+  cycle-safe, and a wildcard hop is `py.import.star` at 0.80 (#102; on django
+  6,561 of 6,992 star edges were runtime-confirmed by Python's own import
+  machinery, none contradicted). `__all__` is not modelled. The pending retry
+  still recovers a name the export walk cannot see (a deprecated `__getattr__`
+  re-export, a chain past the cap) at 0.60 only when the referring file has an
+  import binding for the name; without that provenance the `py.global.unique`
+  guess is 0.40 (#97). Do not re-add a name-only guess above 0.5.
 - **TypeScript barrels, workspaces, and dynamic imports are bounded inputs.**
   `export * from` and `export { a } from` are persisted as public import
   bindings and followed at ≤8 hops with a visited set; a declaration beats a

@@ -1134,6 +1134,13 @@ The Django row shows why the reason buckets are a pointer, not a diagnosis:
 3 files fail to parse but contribute no pending rows, so `parse-failure` is 0
 while 105,319 references are still classified by the other three buckets.
 
+> **#102 moved the Django structure.** Following `from x import *` re-exports
+> raised the tree-sitter graph to **63,537 edges / 83,359 pending** on the same
+> tree (see §Star re-exports below). The matrix and the checked-in
+> `bench/baseline.json` are the pre-#102 checkpoint; the next
+> `make bench-corpora` prints the deltas, and only an explicit
+> `--update-baseline` re-pins them on a main commit.
+
 ### Ground-truth accuracy
 
 `TestSCIPAccuracy` (opt-in, `REPATH_ACCURACY=1`) rebuilds the cold graph in a
@@ -1314,6 +1321,77 @@ recovery), and the uniform django sample improved from P98.3% to P99.1%
 (`callers`) and P97.9% to P98.9% (`impact`≤2) without a resolver change beyond
 the rung. `rs.global.unique` is untouched: its rayon `impact`≤2 calibration was
 64 TP / 0 FP.
+
+### Star re-exports (2026-11-20, #102)
+
+`pyExport` followed explicit re-exports but skipped wildcard ones, so
+`from pkg import Name` missed the export lookup whenever `pkg/__init__.py` did
+`from .impl import *` and the reference went pending. The pending retry then
+recovered it at `py.global.unique` 0.60 (§above). #102 follows the wildcard in the
+export walk — for `from pkg import Name` and for module members (`pkg.Name`) —
+with a declaration beating a named re-export beating a wildcard, wildcards
+applied in file order (last wins, Python's rule), an eight-hop cap, a visited
+set, and an external classification for a chain that leaves the repo.
+
+**Structure** (`django` @ `f24f38c`, same 3,051 files / 44,426 nodes / 3 parse
+failures, cold, `make build` branch vs `38ef02d`):
+
+| | Before | After |
+| --- | --- | --- |
+| Edges | 56,800 | **63,537** (+6,737) |
+| Pending | 92,533 | **83,359** (−9,174) |
+| `py.global.unique` 0.60 | 952 | **1** |
+| `py.global.unique` 0.40 | 68 | 68 |
+| `py.import.star` 0.80 | 0 | **6,992** |
+
+The 6,992 star edges are 942 references that keep the same source and target
+(0.60 → 0.80), 6,040 references that were pending in the same file and now
+resolve through the import walk, 4 aliased base classes the unique-name retry
+could never recover (`_BitAnd` → `BitAnd`), and 6 references re-attached to the
+nested class body that really contains them (the retry attached them to the
+enclosing method). The one name left at 0.60 is a deprecated `__getattr__`
+re-export (`django.core.mail.SafeMIMEText`) that no static export walk can see —
+exactly what the recovery rung is for. `requests` is unchanged (1,044 edges /
+510 pending, 143 rung edges at 0.40: it has no wildcard imports).
+
+**Cold / incremental / second-`--full` parity**: identical edge and pending
+**row sets** including rule and confidence (63,537 / 83,359). Timings on a
+load-1.9 host: cold **4.17–4.28 s** (main) vs **4.28–4.43 s** (branch);
+ten-file incremental **0.17–0.35 s** on both (noise-dominated). `make perf`
+50k: cold 10.22 s / 301.6 MiB, `impact` p95 74.6 ms, `map` p95 180.4 ms —
+budgets green.
+
+**Precision.** The `#77` rule cohort over the full-tree SCIP
+(`REPATH_ACCURACY_RULE=py.import.star`, 2,941 documents, min-confidence 0.5)
+counts 6,992 edges, all in scope: **3,093 TP / 3,899 FP (44.2%)**, split by
+import provenance into **2,248 / 9 (99.6%)** for the `from pkg import Name`
+references and **845 / 3,890 (17.8%)** for module members. The member number is
+a **producer artifact, not a resolver error**: for `django/contrib/admin/models.py:76`
+(`object_repr = models.CharField(...)`) scip-python 0.6.8 emits a
+reference to `` `django.db.models.fields`/DateTimeField# `` — the wrong class —
+and the same symbol for every `models.X` in that class (lines 75/78/79/83).
+Its attribute resolution through a star-reexporting package is not a usable
+ground truth.
+
+The member slice was therefore verified against **Python's own import
+machinery** (Python 3.12.15 + `asgiref` 3.13.0): for every star edge the audit
+imports the module the resolver looked the name up in and checks
+`inspect.getsourcefile(getattr(module, name)) ==` the edge's target file.
+
+| Verdict | Edges |
+| --- | --- |
+| confirmed by Python | **6,561** (1,925 `from pkg import Name`, 4,636 `pkg.Name`) |
+| contradicted (wrong target file) | **0** |
+| name not exported by the module | **0** |
+| unverifiable (import raises: GIS needs GDAL, postgres needs psycopg2, serializer settings) | 424 |
+| unverifiable (aliased base `_BitAnd`, one fully-qualified receiver) | 7 |
+
+So 93.8% of the population is runtime-confirmed and none is contradicted; the
+remaining 6.2% are environment limits, not counter-evidence. The uniform #77
+calibration (production SCIP) is unchanged: `callers` P99.1 / R49.8,
+`impact`≤2 P98.9 / R34.8, the 0.6–0.8 bucket 44 TP / 0 FP. Caveats: `__all__` is
+not modelled (every public top-level name counts as exported), and the hop cap
+means a chain past eight wildcards still falls back to the 0.60 recovery.
 
 ### Failure modes
 

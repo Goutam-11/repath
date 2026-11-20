@@ -323,5 +323,20 @@
     "src": "app/star_use.py:use_star",
     "dst": "app/star_pkg/impl.py:star_helper",
     "kind": "CALLS"
+  },
+  {
+    "src": "app/star_chain_use.py:use_chain",
+    "dst": "app/star_chain/leaf.py:chain_helper",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/star_cycle_use.py:use_cycle",
+    "dst": "app/star_cycle/beta.py:cycle_helper",
+    "kind": "CALLS"
+  },
+  {
+    "src": "app/star_order_use.py:use_order",
+    "dst": "app/star_order/second.py:ordered",
+    "kind": "CALLS"
   }
 ]

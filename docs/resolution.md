@@ -57,7 +57,7 @@ removed from this ladder because no code path ever emitted them.
 | `py.typed.method` | 0.85 | `service.total()` where `service: Service`, `service = Service(...)`, or a same-file factory returns `Service` |
 | `py.local` | 0.85 | a symbol in the same file, unique |
 | `py.typed.inherited` | 0.80 | a typed receiver whose method lives on a base class |
-| `py.import.star` | 0.80 | `from .util import *`, then a bare resolvable name |
+| `py.import.star` | 0.80 | `from .util import *`, or a name a package `__init__.py` star-re-exports (`from pkg import Name`, `pkg.Name`) — any wildcard hop in the export chain (#102) |
 | `py.typed.method.global` | 0.70 | the receiver type is known and exactly one `Type.method` exists |
 | `py.global.unique` | 0.60 / 0.40 | exactly one symbol with that name; 0.60 when the pending retry has an import binding (a star-re-export recovery), 0.40 for a bare name-only guess, which is excluded from default answers (#97) |
 | `py.global.ambiguous` | 0.40 | 2–5 candidates; one edge per candidate, filtered by default |
@@ -122,7 +122,12 @@ only **2 were correct (3.1%)**: a callback parameter guessed as `Signal.send`, a
 builtin `Warning`, a function-local import, an attribute read as a bare name. An
 unprovenanced guess is therefore **0.40**, outside default answers but visible
 with `--min-confidence 0.4`; the gate removes 63 false positives from default
-answers and costs 2 correct ones.
+answers and costs 2 correct ones. After #102 followed star re-exports, 942 of the
+952 recoveries move to `py.import.star` at 0.80 on the same source and target,
+nine are re-attached to the nested class body they belong to, and one stays at
+0.60 because it is a deprecated `__getattr__` re-export the static export lookup
+cannot see. The provenance gate itself is unchanged: a bare name with no binding
+is still 0.40.
 
 Production-only SCIP scope was not the right population: its 47 in-scope edges
 were 21 TP / 26 FP (44.7%), because the star-re-export recoveries live mostly in
@@ -313,17 +318,27 @@ a file that was not re-parsed in the current incremental run. A re-export chain
 that ends at the standard library or a dependency is classified external rather
 than unresolved.
 
-`from x import *` is weaker because only a wildcard ties the name to the file:
-it resolves at 0.80. Bindings are applied in file order, so when several star
-imports define the same name the last one wins, matching Python execution.
+`from x import *` is weaker because only a wildcard ties the name to the file. A
+wildcard binding is followed in the referring file (a bare name after
+`from .util import *`) and inside the export lookup, so `from pkg import Name`
+and `pkg.Name` still resolve when `pkg/__init__.py` does `from .impl import *`
+(#102). The walk mirrors Python's semantics and the TypeScript barrel policy: a
+declaration in the module beats a named re-export beats a wildcard re-export,
+several wildcards are applied in file order so the last one wins, a chain is
+capped at eight hops and is cycle-safe through a visited set, and a chain ending
+at the standard library or a dependency is external rather than unresolved. A
+wildcard hop reports `py.import.star` at 0.80 whatever it found downstream,
+because the wildcard is the weakest link in the chain; a named re-export keeps
+`py.import.reexport` at 0.95. `__all__` is not modelled, so every public
+top-level name of the source counts as exported — the codebase saying
+`from pkg import x` is the evidence that the name is importable.
 
-A star re-export is **not** followed when another file imports a name through it:
-`from pkg import x` where `pkg/__init__.py` does `from .impl import *` misses the
-export lookup and goes pending (Django's `django/db/models/__init__.py` is the
-common real-repo case). The cold/full pending retry recovers such a name at 0.60
-only when the referring file has the import binding; without that provenance the
-rung is a bare guess at 0.40 (#97). Following star re-exports explicitly is a
-known resolver gap, not a policy.
+On `django` @ `f24f38c` this moved 942 star-re-export recoveries from
+`py.global.unique` 0.60 to `py.import.star` 0.80 on the same source and target
+and resolved 6,040 references that had been pending (mostly `models.CharField`
+style module members); one name stays at 0.60 because it is a deprecated
+`__getattr__` re-export the static export lookup cannot see. Precision evidence
+is in [`docs/benchmarks.md`](benchmarks.md#star-re-exports-2026-11-20-102).
 
 ## Known gaps
 
@@ -431,9 +446,11 @@ known resolver gap, not a policy.
   aliases an external module (`import http.cookiejar as cookielib`).
 - **`sys.path`, `PYTHONPATH`, and arbitrary layouts.** Only root, `src/`, and
   `lib/` are searched; namespace packages without `__init__.py` are not.
-- **`__all__` and underscore visibility.** `__all__` is not consulted and an
-  underscore name is still importable, matching Python. Wildcard precedence is
-  not modelled.
+- **`__all__` and underscore visibility.** `__all__` is not consulted, so a
+  wildcard hop exposes every public top-level name of the source and an
+  underscore name is still importable. Wildcard precedence *is* modelled for
+  direct star imports and star re-exports: bindings apply in file order, so the
+  last wildcard wins, matching Python execution.
 - **Dynamic constructs.** `__import__`, `getattr`, metaclass-generated methods,
   and conditional imports (last import wins) are outside the static model.
 - **Entrypoint marker.** `if __name__ == "__main__"` is stored as the
