@@ -1,7 +1,7 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X github.com/Goutam-11/repath/internal/cli.version=$(VERSION)
 
-.PHONY: build test vet fmt check clean perf perf-10k perf-50k bench-real bench-real-langs bench-corpora release-snapshot
+.PHONY: build test vet fmt check hooks hooks-check clean perf perf-10k perf-50k bench-real bench-real-langs bench-corpora release-snapshot
 
 build:
 	go build -trimpath -ldflags "$(LDFLAGS)" -o bin/repath ./cmd/repath
@@ -19,6 +19,17 @@ check:
 	test -z "$$(gofmt -l ./cmd ./internal)" || (echo "unformatted files above; run 'make fmt'"; exit 1)
 	go vet ./...
 	go test ./...
+	./scripts/test-commit-msg-hook.sh
+
+# Install the commit-msg guard for this clone (local config, so a fresh clone or
+# machine needs it again). It refuses a bare <username>@users.noreply.github.com
+# identity or trailer, which GitHub can attribute to a different account.
+hooks:
+	git config core.hooksPath .githooks
+	@echo "installed core.hooksPath=.githooks; a refusal is bypassed with --no-verify"
+
+hooks-check:
+	./scripts/test-commit-msg-hook.sh
 
 # Reproducible synthetic budgets (PLAN §10); not part of make check. Each run is
 # a separate process so the Linux VmHWM reading belongs to that tree alone.
