@@ -129,7 +129,7 @@ LOAD_BEFORE=$(cat /proc/loadavg 2>/dev/null || true)
 corpus_spec() {
 	case "$1" in
 	django)
-		echo "python|https://github.com/django/django|f24f38c6b2825f15628c07bf2892f1664eed9361|.cache/django-60|.cache/django-60-prod.scip|0"
+		echo "python|https://github.com/django/django|f24f38c6b2825f15628c07bf2892f1664eed9361|.cache/django-60|.cache/django-60-prod.scip|1"
 		;;
 	hyusk)
 		echo "rust|https://github.com/Goutam-11/hyusk|06bdb2b15fcc0a0f7dc3f2b06e0003dc1731cb82|.cache/hyusk-60|.cache/hyusk-60.scip|0"

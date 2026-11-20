@@ -1102,18 +1102,23 @@ the adapter uses, and treats the compiler as ground truth:
 
 - a **definition occurrence** maps to its enclosing repath node (the adapter's
   `EnclosingNode(fileID, line+1)` mapping);
-- a **reference occurrence** maps to the repath node enclosing its file+line,
-  so the expected callers of a target are the enclosing nodes of its references;
-- **actual** callers are one-hop reverse edges at confidence ≥0.5, restricted to
-  source files the SCIP document set covers (scope-matched: `requests.scip`
-  covers `src/` only, so the 156 test-file callers are excluded and counted, not
-  scored as false positives);
-- 20 targets with an attributable caller are sampled deterministically: sort by
-  target path then SCIP symbol and take evenly spaced entries (175 candidates
-  for `requests`, 1,001 for `rayon`);
+- a **reference occurrence** maps to the repath node enclosing its file+line, so
+  the expected callers of a target are the enclosing nodes of its references.
+  Every reference with an enclosing symbol is attributable, including a
+  class-body reference and a class-base reference (which repath emits as an
+  `EXTENDS` edge). An earlier revision excluded all class-enclosing references
+  and therefore counted correct `EXTENDS` edges as false positives; #77 fixed
+  that measurement bias and the numbers below are the corrected ones;
+- **actual** callers are one-hop reverse edges at the configured confidence
+  floor, restricted to source files the SCIP document set covers (scope-matched:
+  `requests.scip` covers `src/` only, so test-file callers are excluded and
+  counted, not scored as false positives);
+- **60 targets** with an attributable caller are sampled deterministically: sort
+  by target path then SCIP symbol and take evenly spaced entries;
 - precision = TP / actual, recall = TP / expected, micro-averaged over the
   sample. The same sample is measured **before** the adapter and after
-  `ApplySCIPAll` on the same store.
+  `ApplySCIPAll` on the same store, plus a **0.4-floor phase before the adapter**
+  so the low-confidence bucket is populated before ambiguous groups are replaced.
 
 `impact` depth 2 is compared through `graph.Blast` (the walker behind
 `query.Impact`; importing `query` from the adapter test would cycle) against a
@@ -1121,75 +1126,103 @@ depth-2 reverse closure of the compiler graph, with truncated results excluded.
 `path` is **excluded**: SCIP gives definition/reference pairs, not a shortest
 chain, so there is no defensible ground truth for it.
 
-| | `requests` (Python) | `rayon` (Rust) |
-| --- | --- | --- |
-| Sampled / candidate targets | 20 / 175 | 20 / 1,001 |
-| SCIP references / definitions | 6,734 / 1,485 | 53,694 / 14,878 |
-| Attributable references | 440 | 5,670 |
-| `callers` tree-sitter | P **100.0%**, R **33.3%** (35 actual, 105 expected, 35 TP) | P **84.2%**, R **9.4%** (19 actual, 171 expected, 16 TP) |
-| `callers` after adapter | P **100.0%**, R **33.3%** (35 actual, 105 expected, 35 TP) | P **86.4%**, R **11.1%** (22 actual, 171 expected, 19 TP) |
-| `impact`≤2 tree-sitter | P **98.5%**, R **43.1%** (67 actual, 153 expected, 66 TP) | P **96.0%**, R **29.9%** (100 actual, 321 expected, 96 TP) |
-| `impact`≤2 after adapter | P **98.6%**, R **47.1%** (73 actual, 153 expected, 72 TP) | P **96.2%**, R **31.2%** (104 actual, 321 expected, 100 TP) |
+Three pinned corpora are scored: `requests` (19 documents, `src/` scope),
+`rayon` (187 documents, default-feature Rust), and `django` production
+(`django-60-prod.scip`, 909 documents out of the 3,051-file clone). The Django
+producer scope is production-only, so test modules stay outside both sides of
+the comparison.
+
+| | `requests` | `rayon` | `django` (production SCIP) |
+| --- | --- | --- | --- |
+| SCIP references / definitions | 6,734 / 1,485 | 53,694 / 14,878 | 157,794 / 52,884 |
+| Attributable references | 502 | 6,093 | 20,052 |
+| Candidate / sampled targets | 187 / 60 | 1,007 / 60 | 6,046 / 60 |
+| `callers` tree-sitter | P **95.7%**, R **63.4%** (142 expected, 94 actual, 90 TP) | P **97.3%**, R **26.8%** (399 / 110 / 107) | P **98.3%**, R **49.8%** (229 / 116 / 114) |
+| `callers` after adapter | P **95.9%**, R **65.5%** (93 TP) | P **97.7%**, R **32.3%** (129 TP) | P **98.5%**, R **57.6%** (132 TP) |
+| `impact`≤2 tree-sitter | P **91.7%**, R **36.3%** (457 / 181 / 166) | P **89.1%**, R **33.9%** (864 / 329 / 293) | P **97.9%**, R **34.9%** (541 / 193 / 189) |
+| `impact`≤2 after adapter | P **92.5%**, R **40.7%** (186 TP) | P **90.1%**, R **38.9%** (336 TP) | P **98.4%**, R **44.7%** (242 TP) |
+
+**Per rule** (tree-sitter callers; rules with no false positive in the sample are
+collapsed into "other"):
+
+| Corpus | Rule | TP / FP | Precision |
+| --- | --- | --- | --- |
+| `requests` | `py.import.named` | 40 / 1 | 97.6% |
+| `requests` | `py.local` | 16 / 1 | 94.1% |
+| `requests` | `py.typed.method` | 2 / 1 | 66.7% |
+| `requests` | `py.module.relative` | 2 / 1 | 66.7% |
+| `requests` | other rules | 28 / 0 | 100.0% |
+| `rayon` | `rs.local` | 49 / 1 | 98.0% |
+| `rayon` | `rs.generic.bound` | 44 / 2 | 95.7% |
+| `rayon` | other rules | 14 / 0 | 100.0% |
+| `django` | `py.this.method` | 21 / 1 | 95.5% |
+| `django` | `py.global.unique` | 0 / 1 | 0.0% |
+| `django` | other rules | 93 / 0 | 100.0% |
+
+**Per confidence bucket** (callers; the 0.4 row comes from the pre-adapter
+0.4-floor phase, so an empty row means the sample had no such edge):
+
+| Bucket | `requests` | `rayon` | `django` |
+| --- | --- | --- | --- |
+| 0.4 | — | 2 / 0 (100.0%) | — |
+| 0.5 | — | — | — |
+| 0.6–0.8 | 21 / 2 (91.3%) | 96 / 3 (97.0%) | 44 / 1 (97.8%) |
+| 0.9+ | 69 / 2 (97.2%) | 11 / 0 (100.0%) | 70 / 1 (98.6%) |
 
 The uniform sample can miss every target the adapter repaired, so the test also
 reports the **adapter-repaired cohort** separately (targets with at least one
 `scip.py.*`/`scip.rs.*` edge). Its "before" row is a **snapshot of the callers
 taken before `ApplySCIPAll`**, not a post-hoc rule filter: ambiguous-group
 replacement deletes 0.40 candidate rows, so filtering adapter rules after the
-run would no longer reconstruct the pre-adapter graph. The snapshot is why the
-rayon cohort grew from 177 targets / 1,432 expected callers (#48 measurement)
-to 183 / 1,447 — targets whose only pre-adapter edges were replaced ambiguous
-candidates are now in the cohort.
+run would no longer reconstruct the pre-adapter graph.
 
-| Adapter-repaired cohort | `requests` | `rayon` |
-| --- | --- | --- |
-| Targets | 14 | 183 |
-| Expected callers | 27 | 1,447 |
-| `callers` tree-sitter | P **100.0%**, R **33.3%** (9 TP) | P **95.7%**, R **9.2%** (133 TP) |
-| `callers` after adapter | P **100.0%**, R **100.0%** (27 TP) | P **98.1%**, R **60.7%** (878 TP, **+745**) |
+| Adapter-repaired cohort | `requests` | `rayon` | `django` |
+| --- | --- | --- | --- |
+| Targets | 7 | 118 | 439 |
+| Expected callers | 17 | 1,087 | 2,812 |
+| `callers` tree-sitter | P **100.0%**, R **52.9%** (9 TP) | P **96.5%**, R **22.5%** (245 TP) | P **98.6%**, R **25.5%** (718 TP) |
+| `callers` after adapter | P **100.0%**, R **100.0%** (17 TP) | P **98.1%**, R **41.7%** (453 TP, **+208**) | P **99.4%**, R **62.0%** (1,743 TP, **+1,025**) |
 
 Reading the numbers:
 
-- **Precision is high; recall is the gap.** Every scoped tree-sitter edge the
-  sample emitted for `requests` matched a compiler reference. The missing
-  references are mostly type-only uses (`SupportsRead` in
-  `src/requests/_types.py:32`), annotations, and same-class/mixin method calls
-  that tree-sitter does not emit; in `rayon` the missing references are
-  generic-bound/trait-dispatch and macro-generated calls. That is the documented
-  resolution ceiling measured as a number instead of described.
-- **The adapter is provably additive.** It recovers +18 TP across 14 sampled
-  Python targets (R 33.3% → 100.0%) and +745 TP across the 183 Rust targets
-  (R 9.2% → 60.7%) with no precision loss on those cohorts. Of the 745, **17**
-  come from ambiguous-group replacements (one per replaced group) that the
-  #48 harness could not see, and the rest from pending repairs. It cannot
-  repair what still has no pending row or disambiguated group (the unchanged R
-  on the uniform sample).
-- **Some Rust false positives remain.** Before the adapter, 3 of 19 actual
-  callers in the sample point at a different target than SCIP's definition
-  (ambiguous inherent/trait `Type.method` attribution); the adapter's exact
-  edges improve precision to 86.4%. These are listed in
-  `accuracy-rayon.json`.
+- **Precision is high; recall is the gap.** The adapter never lowers precision
+  on the sampled callers and is provably additive on the cohort above. The
+  missing references are type-only uses, annotations, generic-bound/trait
+  dispatch, and macro-generated calls; that is the documented resolution
+  ceiling measured as a number instead of described.
+- **The calibration points at concrete rungs.** `py.global.unique` was wrong in
+  the one django sample it covered (0 TP / 1 FP) — the Python analogue of the
+  #82 defect, left in place because #77 is measurement-only. `rs.local` and
+  `rs.generic.bound` carry almost all rayon caller edges (93 of 106 TP) at
+  98.0% / 95.7%; the 0.40 bucket was correct in its two sampled rayon edges.
+  The 0.6–0.8 and 0.9+ buckets are both above 90% precision on every corpus.
+- **The harness itself needed a correction.** Before #77 the truth builder
+  skipped every reference whose enclosing symbol was not a function/method.
+  That excluded class bases while the graph emitted `EXTENDS` edges, so correct
+  edges were scored as false positives. Including every attributable reference
+  moved django callers precision from 81.4% to 98.3% (60 samples) without
+  changing the resolver or the graph.
 
 Excluded facts, counted honestly in the same JSON (`exclusions`):
 
-| Exclusion | `requests` | `rayon` | Why |
-| --- | --- | --- | --- |
-| `unmapped-symbol` | 2,262 | 30,964 | local bindings/module descriptors reduce to no graph target |
-| `definition-unmapped-name` | 433 | 12,368 | definition is a module/namespace, not a symbol |
-| `no-definition` | 2,109 | 10,348 | external/std/builtin symbol with no repath node |
-| `no-enclosing-node` | 186 | 2,061 | top-level reference; repath's documented policy skips it |
-| `enclosing-not-function` | 110 | 477 | class/module-level reference, not a caller fact |
-| `recursive` | 1,212 | 83 | enclosing node == target; the adapter skips these by design |
-| `ambiguous-same-line-name` | 10 | 486 | one `(file, line, reduced name)` resolves to two compiler targets |
-| `definition-no-enclosing-node` | 103 | 74 | definition line outside any repath node |
-| `import` / `generated` | 0 | 0 | SCIP roles; excluded before attribution |
+| Exclusion | `requests` | `rayon` | `django` | Why |
+| --- | --- | --- | --- | --- |
+| `unmapped-symbol` | 2,262 | 30,964 | 49,847 | local bindings/module descriptors reduce to no graph target |
+| `definition-unmapped-name` | 433 | 12,368 | 14,855 | definition is a module/namespace, not a symbol |
+| `no-definition` | 2,109 | 10,348 | 23,122 | external/std/builtin symbol with no repath node |
+| `no-enclosing-node` | 186 | 2,061 | 4,939 | top-level reference; repath's documented policy skips it |
+| `recursive` | 1,212 | 83 | 47,309 | enclosing node == target; the adapter skips these by design |
+| `ambiguous-same-line-name` | 10 | 488 | 32 | one `(file, line, reduced name)` resolves to two compiler targets |
+| `definition-no-enclosing-node` | 103 | 74 | 2,169 | definition line outside any repath node |
+| `document-not-indexed` | 0 | 0 | 37 | SCIP document has no repath file (scope mismatch) |
+| `import` / `generated` | 0 | 0 | 0 | SCIP roles; excluded before attribution |
 
 Caveats: attribution is line-level, exactly the adapter's approximation, so two
 same-named calls on one line are excluded rather than guessed; the compiler
-graph covers only the SCIP document set (`requests` is `src/`-only and `rayon`
-is default-feature Rust); `impact` depth 2 compares a compiler graph built from
-attributable references only, so it is a sampled approximation, not a proof.
-The whole test takes 0.4 s (`requests`) and 1.6 s (`rayon`) and never runs in CI.
+graph covers only the SCIP document set; `impact` depth 2 compares a compiler
+graph built from attributable references only, so it is a sampled approximation,
+not a proof. The three runs take about 0.5 s (`requests`), 1.5 s (`rayon`), and
+15 s (`django`) and never run in CI.
 
 ### Failure modes
 
@@ -1258,10 +1291,11 @@ The read-only case is skipped when the suite runs as root.
   full-tree Django index, which was regenerated for #57 with
   `--max-old-space-size=4096` (recorded in
   `docs/adapters.md` and the producer table above). Producer versions/sizes are
-  recorded in the matrix. Full-tree Django accuracy was not measured through
-  `TestSCIPAccuracy`; the adapter before/after counts above are. `hyusk` uses a
-  default-feature Rust index.
-- Accuracy is sampled (20 targets per language) and scope-matched, and the
+  recorded in the matrix. Full-tree Django is not scored; the production-only
+  `django-60-prod.scip` (909 of 3,051 files) is scored through
+  `TestSCIPAccuracy`, as are `requests` and `rayon`; `hyusk` uses a
+  default-feature Rust index and is not scored.
+- Accuracy is sampled (60 targets per corpus, three corpora) and scope-matched, and the
   excluded-fact counts above are part of the result. It is a measurement of this
   graph against this compiler index, not a general correctness guarantee.
 - `path` has no ground truth and is not scored; `impact` depth 2 is a

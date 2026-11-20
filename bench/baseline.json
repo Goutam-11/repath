@@ -1,30 +1,30 @@
 {
   "schema": 1,
-  "generated_at": "2026-11-18T04:02:36+00:00",
+  "generated_at": "2026-11-20T04:00:30+00:00",
   "generated_by": "scripts/bench-corpora.sh",
-  "repath_commit": "07932b22386173fcea3ce36893bfe3f34fa5dcee",
-  "repath_version": "07932b2",
+  "repath_commit": "8d306de83fedc29f82dec8aeb372ca8a9b64b320",
+  "repath_version": "8d306de",
   "host": {
     "hostname": "fedora",
     "platform": "Linux x86_64",
     "kernel": "7.2.11-200.fc44.x86_64",
     "cpu_model": "AMD Ryzen 5 5600H with Radeon Graphics",
     "cpu_logical": 12,
-    "ram_bytes": 7677788160,
+    "ram_bytes": 7677784064,
     "loadavg_1_5_15": [
-      3.55,
-      2.0,
-      1.31
+      2.49,
+      1.77,
+      1.49
     ],
     "loadavg_before": [
-      1.7,
-      1.35,
-      1.07
+      1.6,
+      1.26,
+      1.3
     ],
     "loadavg_after": [
-      3.55,
-      2.0,
-      1.31
+      2.49,
+      1.77,
+      1.49
     ],
     "python": "3.14.8"
   },
@@ -45,64 +45,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 4047.719,
-          "min": 4036.75,
-          "max": 4070.134
+          "median": 3980.879,
+          "min": 3781.295,
+          "max": 4240.411
         },
         "peak_rss_bytes": {
-          "median": 353755136,
-          "min": 343982080,
-          "max": 356057088
+          "median": 273436672,
+          "min": 266579968,
+          "max": 276348928
         },
         "incremental_ms": {
-          "median": 222.447,
-          "min": 214.713,
-          "max": 222.58
+          "median": 209.246,
+          "min": 194.502,
+          "max": 238.618
         },
         "impact_p50_ms": {
-          "median": 11.325,
-          "min": 11.287,
-          "max": 11.885
+          "median": 10.641,
+          "min": 10.203,
+          "max": 11.795
         },
         "impact_p95_ms": {
-          "median": 13.563,
-          "min": 13.336,
-          "max": 14.441
+          "median": 13.073,
+          "min": 11.416,
+          "max": 13.176
         },
         "callers_p50_ms": {
-          "median": 9.465,
-          "min": 9.323,
-          "max": 9.725
+          "median": 9.217,
+          "min": 8.529,
+          "max": 9.792
         },
         "callers_p95_ms": {
-          "median": 10.718,
-          "min": 10.26,
-          "max": 13.835
+          "median": 10.657,
+          "min": 8.866,
+          "max": 11.017
         },
         "path_p50_ms": {
-          "median": 17.584,
-          "min": 17.189,
-          "max": 18.407
+          "median": 17.586,
+          "min": 16.434,
+          "max": 19.032
         },
         "path_p95_ms": {
-          "median": 19.356,
-          "min": 19.054,
-          "max": 21.805
+          "median": 22.44,
+          "min": 19.191,
+          "max": 23.619
         },
         "map_p50_ms": {
-          "median": 154.428,
-          "min": 149.608,
-          "max": 156.067
+          "median": 141.035,
+          "min": 139.866,
+          "max": 158.155
         },
         "map_p95_ms": {
-          "median": 158.009,
-          "min": 155.019,
-          "max": 158.825
+          "median": 151.037,
+          "min": 145.872,
+          "max": 162.897
         },
         "check_ms": {
-          "median": 508.396,
-          "min": 503.67,
-          "max": 530.987
+          "median": 474.515,
+          "min": 471.353,
+          "max": 500.643
         },
         "check_findings": {
           "median": 200,
@@ -110,44 +110,44 @@
           "max": 200
         },
         "artifact_bytes": {
-          "median": 23613440,
-          "min": 23609344,
-          "max": 23613440
+          "median": 23629824,
+          "min": 23629824,
+          "max": 23629824
         },
         "artifact_export_ms": {
-          "median": 141.555,
-          "min": 139.051,
-          "max": 152.192
+          "median": 136.652,
+          "min": 136.62,
+          "max": 149.3
         },
         "artifact_pull_ms": {
-          "median": 12.446,
-          "min": 12.379,
-          "max": 12.502
+          "median": 13.612,
+          "min": 11.9,
+          "max": 14.751
         },
         "artifact_zstd_bytes": {
-          "median": 6182908,
-          "min": 6170526,
-          "max": 6191973
+          "median": 6181964,
+          "min": 6175973,
+          "max": 6193291
         },
         "artifact_zstd_export_ms": {
-          "median": 235.151,
-          "min": 227.275,
-          "max": 246.079
+          "median": 219.093,
+          "min": 215.024,
+          "max": 235.775
         },
         "artifact_zstd_pull_ms": {
-          "median": 40.698,
-          "min": 38.98,
-          "max": 42.761
+          "median": 37.214,
+          "min": 34.722,
+          "max": 41.644
         },
         "artifact_ratio": {
-          "median": 26.18385123048569,
-          "min": 26.131414990784908,
-          "max": 26.226789698180518
+          "median": 26.161701415973305,
+          "min": 26.136347862768677,
+          "max": 26.209636601609898
         },
         "adapter_wall_ms": {
-          "median": 4943.655,
-          "min": 4878.213,
-          "max": 4943.856
+          "median": 4703.698,
+          "min": 4692.369,
+          "max": 5464.461
         },
         "adapter_matched": {
           "median": 1262,
@@ -242,7 +242,7 @@
         "conflicts": 13,
         "skipped": 142241,
         "unmatched": 31300,
-        "wall_ms": 4943.655,
+        "wall_ms": 4703.698,
         "unresolved_before": 92533,
         "unresolved_after": 91271,
         "edges_before": 56800,
@@ -259,7 +259,859 @@
           "reference": 10
         }
       },
-      "accuracy": null
+      "accuracy": {
+        "corpus": "django",
+        "language": "python",
+        "commit": "f24f38c6b2825f15628c07bf2892f1664eed9361",
+        "documents": 909,
+        "references": 157794,
+        "definitions": 52884,
+        "attributable_references": 20052,
+        "exclusions": {
+          "ambiguous-same-line-name": 32,
+          "definition-no-enclosing-node": 2169,
+          "definition-unmapped-name": 14855,
+          "document-not-indexed": 37,
+          "no-definition": 23122,
+          "no-enclosing-node": 4939,
+          "recursive": 47309,
+          "unmapped-symbol": 49847
+        },
+        "ambiguous_name_keys": 16,
+        "candidate_targets": 6046,
+        "sampled_targets": 60,
+        "min_confidence": 0.5,
+        "before": {
+          "phase": "tree-sitter",
+          "samples": 60,
+          "expected_callers": 229,
+          "actual_callers": 116,
+          "true_positives": 114,
+          "precision": 0.9827586206896551,
+          "recall": 0.4978165938864629,
+          "out_of_scope_actual": 155,
+          "impact_expected": 541,
+          "impact_actual": 193,
+          "impact_true_positives": 189,
+          "impact_precision": 0.9792746113989638,
+          "impact_recall": 0.34935304990757854,
+          "impact_out_of_scope": 309,
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "py.class.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.global.unique",
+                "true_positives": 0,
+                "false_positives": 1,
+                "precision": 0
+              },
+              {
+                "key": "py.import.module",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 30,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.reexport",
+                "true_positives": 16,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.local",
+                "true_positives": 20,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 14,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 21,
+                "false_positives": 1,
+                "precision": 0.9545454545454546
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 4,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 44,
+                "false_positives": 1,
+                "precision": 0.9777777777777777
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 70,
+                "false_positives": 1,
+                "precision": 0.9859154929577465
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "py.class.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.global.unique",
+                "true_positives": 0,
+                "false_positives": 2,
+                "precision": 0
+              },
+              {
+                "key": "py.import.module",
+                "true_positives": 3,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 45,
+                "false_positives": 1,
+                "precision": 0.9782608695652174
+              },
+              {
+                "key": "py.import.reexport",
+                "true_positives": 16,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.local",
+                "true_positives": 40,
+                "false_positives": 1,
+                "precision": 0.975609756097561
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 10,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 18,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 46,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 10,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 78,
+                "false_positives": 3,
+                "precision": 0.9629629629629629
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 111,
+                "false_positives": 1,
+                "precision": 0.9910714285714286
+              }
+            ]
+          }
+        },
+        "after": {
+          "phase": "after-adapter",
+          "samples": 60,
+          "expected_callers": 229,
+          "actual_callers": 134,
+          "true_positives": 132,
+          "precision": 0.9850746268656716,
+          "recall": 0.5764192139737991,
+          "out_of_scope_actual": 155,
+          "impact_expected": 541,
+          "impact_actual": 246,
+          "impact_true_positives": 242,
+          "impact_precision": 0.983739837398374,
+          "impact_recall": 0.44731977818853974,
+          "impact_out_of_scope": 336,
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "py.class.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.global.unique",
+                "true_positives": 0,
+                "false_positives": 1,
+                "precision": 0
+              },
+              {
+                "key": "py.import.module",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 30,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.reexport",
+                "true_positives": 16,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.local",
+                "true_positives": 20,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 14,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 21,
+                "false_positives": 1,
+                "precision": 0.9545454545454546
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 4,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.method",
+                "true_positives": 18,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 44,
+                "false_positives": 1,
+                "precision": 0.9777777777777777
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 88,
+                "false_positives": 1,
+                "precision": 0.9887640449438202
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "py.class.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.global.unique",
+                "true_positives": 0,
+                "false_positives": 2,
+                "precision": 0
+              },
+              {
+                "key": "py.import.alias",
+                "true_positives": 3,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.module",
+                "true_positives": 5,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 49,
+                "false_positives": 1,
+                "precision": 0.98
+              },
+              {
+                "key": "py.import.reexport",
+                "true_positives": 16,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.local",
+                "true_positives": 40,
+                "false_positives": 1,
+                "precision": 0.975609756097561
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 13,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 19,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 59,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 10,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.method",
+                "true_positives": 27,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 82,
+                "false_positives": 3,
+                "precision": 0.9647058823529412
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 160,
+                "false_positives": 1,
+                "precision": 0.9937888198757764
+              }
+            ]
+          }
+        },
+        "calibration_04": {
+          "phase": "tree-sitter 0.4 floor",
+          "samples": 60,
+          "expected_callers": 229,
+          "actual_callers": 116,
+          "true_positives": 114,
+          "precision": 0.9827586206896551,
+          "recall": 0.4978165938864629,
+          "out_of_scope_actual": 155,
+          "impact_expected": 541,
+          "impact_actual": 193,
+          "impact_true_positives": 189,
+          "impact_precision": 0.9792746113989638,
+          "impact_recall": 0.34935304990757854,
+          "impact_out_of_scope": 315,
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "py.class.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.global.unique",
+                "true_positives": 0,
+                "false_positives": 1,
+                "precision": 0
+              },
+              {
+                "key": "py.import.module",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 30,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.reexport",
+                "true_positives": 16,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.local",
+                "true_positives": 20,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 14,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 21,
+                "false_positives": 1,
+                "precision": 0.9545454545454546
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 4,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 44,
+                "false_positives": 1,
+                "precision": 0.9777777777777777
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 70,
+                "false_positives": 1,
+                "precision": 0.9859154929577465
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "py.class.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.global.unique",
+                "true_positives": 0,
+                "false_positives": 2,
+                "precision": 0
+              },
+              {
+                "key": "py.import.module",
+                "true_positives": 3,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 45,
+                "false_positives": 1,
+                "precision": 0.9782608695652174
+              },
+              {
+                "key": "py.import.reexport",
+                "true_positives": 16,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.local",
+                "true_positives": 40,
+                "false_positives": 1,
+                "precision": 0.975609756097561
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 10,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 18,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 46,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 10,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 78,
+                "false_positives": 3,
+                "precision": 0.9629629629629629
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 111,
+                "false_positives": 1,
+                "precision": 0.9910714285714286
+              }
+            ]
+          }
+        },
+        "adapter_touched_targets": 439,
+        "adapter_touched_before": {
+          "phase": "adapter-targets tree-sitter",
+          "samples": 439,
+          "expected_callers": 2812,
+          "actual_callers": 728,
+          "true_positives": 718,
+          "precision": 0.9862637362637363,
+          "recall": 0.2553342816500711,
+          "out_of_scope_actual": 6396,
+          "impact_expected": 0,
+          "impact_actual": 0,
+          "impact_true_positives": 0,
+          "impact_precision": 0,
+          "impact_recall": 0,
+          "impact_out_of_scope": 0,
+          "impact_truncated": 0
+        },
+        "adapter_touched_after": {
+          "phase": "adapter-targets after-adapter",
+          "samples": 439,
+          "expected_callers": 2812,
+          "actual_callers": 1753,
+          "true_positives": 1743,
+          "precision": 0.9942954934398175,
+          "recall": 0.6198435277382646,
+          "out_of_scope_actual": 6396,
+          "impact_expected": 7004,
+          "impact_actual": 3419,
+          "impact_true_positives": 3323,
+          "impact_precision": 0.9719216145071659,
+          "impact_recall": 0.47444317532838376,
+          "impact_out_of_scope": 13356,
+          "impact_truncated": 1,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "py.class.inherited",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.class.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.global.unique",
+                "true_positives": 1,
+                "false_positives": 6,
+                "precision": 0.14285714285714285
+              },
+              {
+                "key": "py.import.alias",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.module",
+                "true_positives": 21,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 66,
+                "false_positives": 1,
+                "precision": 0.9850746268656716
+              },
+              {
+                "key": "py.import.reexport",
+                "true_positives": 46,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.local",
+                "true_positives": 45,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 126,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 127,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 222,
+                "false_positives": 1,
+                "precision": 0.9955156950672646
+              },
+              {
+                "key": "py.typed.inherited",
+                "true_positives": 12,
+                "false_positives": 1,
+                "precision": 0.9230769230769231
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 40,
+                "false_positives": 1,
+                "precision": 0.975609756097561
+              },
+              {
+                "key": "py.typed.method.global",
+                "true_positives": 4,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.call",
+                "true_positives": 114,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.method",
+                "true_positives": 901,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.reference",
+                "true_positives": 10,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 361,
+                "false_positives": 8,
+                "precision": 0.978319783197832
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 1382,
+                "false_positives": 2,
+                "precision": 0.9985549132947977
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "py.class.inherited",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.class.method",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.global.unique",
+                "true_positives": 14,
+                "false_positives": 18,
+                "precision": 0.4375
+              },
+              {
+                "key": "py.import.alias",
+                "true_positives": 9,
+                "false_positives": 2,
+                "precision": 0.8181818181818182
+              },
+              {
+                "key": "py.import.module",
+                "true_positives": 42,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 259,
+                "false_positives": 37,
+                "precision": 0.875
+              },
+              {
+                "key": "py.import.reexport",
+                "true_positives": 120,
+                "false_positives": 20,
+                "precision": 0.8571428571428571
+              },
+              {
+                "key": "py.local",
+                "true_positives": 207,
+                "false_positives": 9,
+                "precision": 0.9583333333333334
+              },
+              {
+                "key": "py.property.alias",
+                "true_positives": 4,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 213,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 315,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 712,
+                "false_positives": 7,
+                "precision": 0.9902642559109874
+              },
+              {
+                "key": "py.typed.inherited",
+                "true_positives": 19,
+                "false_positives": 1,
+                "precision": 0.95
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 56,
+                "false_positives": 2,
+                "precision": 0.9655172413793104
+              },
+              {
+                "key": "py.typed.method.global",
+                "true_positives": 8,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.call",
+                "true_positives": 165,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.method",
+                "true_positives": 1148,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.reference",
+                "true_positives": 20,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 838,
+                "false_positives": 30,
+                "precision": 0.9654377880184332
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 2485,
+                "false_positives": 66,
+                "precision": 0.9741277930223442
+              }
+            ]
+          }
+        },
+        "disagreements": [
+          "AppConfig <- AppConfig.create (django/apps/config.py:100) [false-negative/tree-sitter]",
+          "AppConfig <- AppConfig._is_default_auto_field_overridden (django/apps/config.py:68) [false-negative/tree-sitter]",
+          "AppConfig <- Apps.populate (django/apps/registry.py:61) [false-negative/tree-sitter]",
+          "check_admin_app <- SimpleAdminConfig.ready (django/contrib/admin/apps.py:15) [false-negative/tree-sitter]",
+          "AdminSite.i18n_javascript <- AdminSite.get_urls (django/contrib/admin/sites.py:258) [false-negative/tree-sitter]",
+          "user_passes_test.decorator._view_wrapper <- user_passes_test.decorator (django/contrib/auth/decorators.py:22) [false-negative/tree-sitter]",
+          "OracleGISSchemaEditor.__init__ <- OracleGISSchemaEditor.run_geometry_sql (django/contrib/gis/db/backends/oracle/schema.py:96) [false-negative/tree-sitter]",
+          "OracleGISSchemaEditor.__init__ <- OracleGISSchemaEditor.column_sql (django/contrib/gis/db/backends/oracle/schema.py:48) [false-negative/tree-sitter]",
+          "OFTReal.value <- LayerMapping.verify_ogr_field (django/contrib/gis/utils/layermapping.py:390) [false-negative/tree-sitter]",
+          "GDALBand.datatype <- GDALBand.nodata_value (django/contrib/gis/gdal/raster/band.py:160) [false-positive/tree-sitter/py.this.method]"
+        ]
+      }
     },
     "hyusk": {
       "repo": "https://github.com/Goutam-11/hyusk",
@@ -269,64 +1121,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 273.153,
-          "min": 270.613,
-          "max": 273.498
+          "median": 259.179,
+          "min": 259.107,
+          "max": 260.714
         },
         "peak_rss_bytes": {
-          "median": 72069120,
-          "min": 70516736,
-          "max": 72835072
+          "median": 67555328,
+          "min": 63344640,
+          "max": 68419584
         },
         "incremental_ms": {
-          "median": 30.948,
-          "min": 30.235,
-          "max": 32.6
+          "median": 30.05,
+          "min": 28.737,
+          "max": 31.888
         },
         "impact_p50_ms": {
-          "median": 0.79,
-          "min": 0.766,
-          "max": 0.81
+          "median": 0.778,
+          "min": 0.774,
+          "max": 0.798
         },
         "impact_p95_ms": {
-          "median": 1.189,
-          "min": 1.175,
-          "max": 1.503
+          "median": 1.385,
+          "min": 1.138,
+          "max": 1.385
         },
         "callers_p50_ms": {
-          "median": 0.497,
-          "min": 0.494,
-          "max": 0.498
+          "median": 0.496,
+          "min": 0.47,
+          "max": 0.524
         },
         "callers_p95_ms": {
-          "median": 0.666,
-          "min": 0.575,
-          "max": 0.759
+          "median": 0.551,
+          "min": 0.532,
+          "max": 0.638
         },
         "path_p50_ms": {
-          "median": 1.654,
-          "min": 1.593,
-          "max": 1.81
+          "median": 1.324,
+          "min": 1.282,
+          "max": 1.428
         },
         "path_p95_ms": {
-          "median": 13,
-          "min": 12.256,
-          "max": 13.462
+          "median": 16.186,
+          "min": 15.775,
+          "max": 16.74
         },
         "map_p50_ms": {
-          "median": 7.035,
-          "min": 6.84,
-          "max": 7.044
+          "median": 6.436,
+          "min": 6.371,
+          "max": 6.55
         },
         "map_p95_ms": {
-          "median": 7.251,
-          "min": 7.027,
-          "max": 7.281
+          "median": 6.506,
+          "min": 6.411,
+          "max": 6.7
         },
         "check_ms": {
-          "median": 26.87,
-          "min": 25.98,
-          "max": 26.966
+          "median": 24.042,
+          "min": 23.812,
+          "max": 25.019
         },
         "check_findings": {
           "median": 200,
@@ -334,44 +1186,44 @@
           "max": 200
         },
         "artifact_bytes": {
-          "median": 1118208,
-          "min": 1118208,
-          "max": 1118208
+          "median": 1134592,
+          "min": 1134592,
+          "max": 1134592
         },
         "artifact_export_ms": {
-          "median": 8.781,
-          "min": 8.028,
-          "max": 10.37
+          "median": 8.288,
+          "min": 7.918,
+          "max": 8.496
         },
         "artifact_pull_ms": {
-          "median": 2.765,
-          "min": 2.679,
-          "max": 3.007
+          "median": 2.773,
+          "min": 2.607,
+          "max": 2.774
         },
         "artifact_zstd_bytes": {
-          "median": 326546,
-          "min": 326331,
-          "max": 326656
+          "median": 325559,
+          "min": 325229,
+          "max": 325828
         },
         "artifact_zstd_export_ms": {
-          "median": 15.572,
-          "min": 13.296,
-          "max": 22.656
+          "median": 13.661,
+          "min": 12.959,
+          "max": 14.6
         },
         "artifact_zstd_pull_ms": {
-          "median": 4.936,
-          "min": 4.835,
-          "max": 5.043
+          "median": 4.584,
+          "min": 4.502,
+          "max": 5.106
         },
         "artifact_ratio": {
-          "median": 29.20261704441392,
-          "min": 29.183389852335164,
-          "max": 29.21245421245421
+          "median": 28.69392697991877,
+          "min": 28.664841634702167,
+          "max": 28.717635943140795
         },
         "adapter_wall_ms": {
-          "median": 515.909,
-          "min": 505.279,
-          "max": 516.364
+          "median": 507.644,
+          "min": 507.153,
+          "max": 513.134
         },
         "adapter_matched": {
           "median": 128,
@@ -474,7 +1326,7 @@
         "conflicts": 9,
         "skipped": 63242,
         "unmatched": 10221,
-        "wall_ms": 515.909,
+        "wall_ms": 507.644,
         "unresolved_before": 4126,
         "unresolved_after": 3998,
         "edges_before": 2990,
@@ -501,64 +1353,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 103.188,
-          "min": 97.472,
-          "max": 118.61
+          "median": 97.568,
+          "min": 95.502,
+          "max": 97.837
         },
         "peak_rss_bytes": {
-          "median": 34799616,
-          "min": 33845248,
-          "max": 34996224
+          "median": 34754560,
+          "min": 34652160,
+          "max": 34959360
         },
         "incremental_ms": {
-          "median": 31.642,
-          "min": 31.053,
-          "max": 33.915
+          "median": 30.233,
+          "min": 27.969,
+          "max": 36.352
         },
         "impact_p50_ms": {
-          "median": 0.793,
-          "min": 0.753,
-          "max": 0.823
+          "median": 0.738,
+          "min": 0.717,
+          "max": 0.776
         },
         "impact_p95_ms": {
-          "median": 1.234,
-          "min": 1.197,
-          "max": 1.567
+          "median": 1.29,
+          "min": 1.18,
+          "max": 1.487
         },
         "callers_p50_ms": {
-          "median": 0.29,
-          "min": 0.286,
-          "max": 0.303
+          "median": 0.282,
+          "min": 0.275,
+          "max": 0.285
         },
         "callers_p95_ms": {
-          "median": 0.602,
-          "min": 0.525,
-          "max": 0.818
+          "median": 0.508,
+          "min": 0.484,
+          "max": 0.59
         },
         "path_p50_ms": {
-          "median": 1.802,
-          "min": 1.686,
-          "max": 2.09
+          "median": 1.614,
+          "min": 1.593,
+          "max": 1.753
         },
         "path_p95_ms": {
-          "median": 4.44,
-          "min": 4.395,
-          "max": 4.643
+          "median": 4.445,
+          "min": 4.167,
+          "max": 4.527
         },
         "map_p50_ms": {
-          "median": 2.237,
-          "min": 2.149,
-          "max": 2.448
+          "median": 2.119,
+          "min": 2.081,
+          "max": 2.142
         },
         "map_p95_ms": {
-          "median": 2.545,
-          "min": 2.475,
-          "max": 2.873
+          "median": 2.628,
+          "min": 2.598,
+          "max": 2.737
         },
         "check_ms": {
-          "median": 6.672,
-          "min": 6.559,
-          "max": 6.962
+          "median": 6.687,
+          "min": 6.493,
+          "max": 6.711
         },
         "check_findings": {
           "median": 14,
@@ -566,44 +1418,44 @@
           "max": 14
         },
         "artifact_bytes": {
-          "median": 475136,
-          "min": 471040,
-          "max": 475136
+          "median": 487424,
+          "min": 487424,
+          "max": 491520
         },
         "artifact_export_ms": {
-          "median": 3.662,
-          "min": 3.597,
-          "max": 3.678
+          "median": 3.729,
+          "min": 3.571,
+          "max": 3.804
         },
         "artifact_pull_ms": {
-          "median": 2.406,
-          "min": 2.402,
-          "max": 2.822
+          "median": 2.531,
+          "min": 2.386,
+          "max": 2.57
         },
         "artifact_zstd_bytes": {
-          "median": 107230,
-          "min": 107002,
-          "max": 107258
+          "median": 107612,
+          "min": 107540,
+          "max": 107737
         },
         "artifact_zstd_export_ms": {
-          "median": 8.178,
-          "min": 7.952,
-          "max": 9.421
+          "median": 7.413,
+          "min": 7.047,
+          "max": 7.682
         },
         "artifact_zstd_pull_ms": {
-          "median": 4.021,
-          "min": 3.585,
-          "max": 4.199
+          "median": 3.311,
+          "min": 3.291,
+          "max": 3.55
         },
         "artifact_ratio": {
-          "median": 22.57416823814655,
-          "min": 22.520288927801722,
-          "max": 22.76452105978261
+          "median": 22.062926733193276,
+          "min": 21.893717447916668,
+          "max": 22.103343290441178
         },
         "adapter_wall_ms": {
-          "median": 114.923,
-          "min": 114.797,
-          "max": 117.612
+          "median": 114.639,
+          "min": 113.956,
+          "max": 120.451
         },
         "adapter_matched": {
           "median": 8,
@@ -697,7 +1549,7 @@
         "conflicts": 0,
         "skipped": 6305,
         "unmatched": 957,
-        "wall_ms": 114.923,
+        "wall_ms": 114.639,
         "unresolved_before": 510,
         "unresolved_after": 502,
         "edges_before": 1044,
@@ -721,54 +1573,478 @@
         "documents": 19,
         "references": 6734,
         "definitions": 1485,
-        "attributable_references": 440,
+        "attributable_references": 502,
         "exclusions": {
           "ambiguous-same-line-name": 10,
           "definition-no-enclosing-node": 103,
           "definition-unmapped-name": 433,
-          "enclosing-not-function": 110,
           "no-definition": 2109,
           "no-enclosing-node": 186,
           "recursive": 1212,
           "unmapped-symbol": 2262
         },
         "ambiguous_name_keys": 5,
-        "candidate_targets": 175,
-        "sampled_targets": 20,
+        "candidate_targets": 187,
+        "sampled_targets": 60,
         "min_confidence": 0.5,
         "before": {
           "phase": "tree-sitter",
-          "samples": 20,
-          "expected_callers": 105,
-          "actual_callers": 35,
-          "true_positives": 35,
-          "precision": 1,
-          "recall": 0.3333333333333333,
-          "out_of_scope_actual": 156,
-          "impact_expected": 153,
-          "impact_actual": 70,
-          "impact_true_positives": 69,
-          "impact_precision": 0.9857142857142858,
-          "impact_recall": 0.45098039215686275,
-          "impact_out_of_scope": 242,
-          "impact_truncated": 0
+          "samples": 60,
+          "expected_callers": 142,
+          "actual_callers": 94,
+          "true_positives": 90,
+          "precision": 0.9574468085106383,
+          "recall": 0.6338028169014085,
+          "out_of_scope_actual": 108,
+          "impact_expected": 457,
+          "impact_actual": 181,
+          "impact_true_positives": 166,
+          "impact_precision": 0.9171270718232044,
+          "impact_recall": 0.36323851203501095,
+          "impact_out_of_scope": 307,
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "py.class.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 40,
+                "false_positives": 1,
+                "precision": 0.975609756097561
+              },
+              {
+                "key": "py.local",
+                "true_positives": 16,
+                "false_positives": 1,
+                "precision": 0.9411764705882353
+              },
+              {
+                "key": "py.module.relative",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 27,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 21,
+                "false_positives": 2,
+                "precision": 0.9130434782608695
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 69,
+                "false_positives": 2,
+                "precision": 0.971830985915493
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "py.class.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 50,
+                "false_positives": 6,
+                "precision": 0.8928571428571429
+              },
+              {
+                "key": "py.local",
+                "true_positives": 32,
+                "false_positives": 3,
+                "precision": 0.9142857142857143
+              },
+              {
+                "key": "py.module.relative",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 7,
+                "false_positives": 2,
+                "precision": 0.7777777777777778
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 65,
+                "false_positives": 2,
+                "precision": 0.9701492537313433
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 8,
+                "false_positives": 1,
+                "precision": 0.8888888888888888
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 49,
+                "false_positives": 6,
+                "precision": 0.8909090909090909
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 117,
+                "false_positives": 9,
+                "precision": 0.9285714285714286
+              }
+            ]
+          }
         },
         "after": {
           "phase": "after-adapter",
-          "samples": 20,
-          "expected_callers": 105,
-          "actual_callers": 35,
-          "true_positives": 35,
-          "precision": 1,
-          "recall": 0.3333333333333333,
-          "out_of_scope_actual": 156,
-          "impact_expected": 153,
-          "impact_actual": 73,
-          "impact_true_positives": 72,
-          "impact_precision": 0.9863013698630136,
-          "impact_recall": 0.47058823529411764,
-          "impact_out_of_scope": 242,
-          "impact_truncated": 0
+          "samples": 60,
+          "expected_callers": 142,
+          "actual_callers": 97,
+          "true_positives": 93,
+          "precision": 0.9587628865979382,
+          "recall": 0.6549295774647887,
+          "out_of_scope_actual": 108,
+          "impact_expected": 457,
+          "impact_actual": 201,
+          "impact_true_positives": 186,
+          "impact_precision": 0.9253731343283582,
+          "impact_recall": 0.40700218818380746,
+          "impact_out_of_scope": 309,
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "py.class.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 40,
+                "false_positives": 1,
+                "precision": 0.975609756097561
+              },
+              {
+                "key": "py.local",
+                "true_positives": 16,
+                "false_positives": 1,
+                "precision": 0.9411764705882353
+              },
+              {
+                "key": "py.module.relative",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 27,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              },
+              {
+                "key": "scip.py.method",
+                "true_positives": 3,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 21,
+                "false_positives": 2,
+                "precision": 0.9130434782608695
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 72,
+                "false_positives": 2,
+                "precision": 0.972972972972973
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "py.class.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 50,
+                "false_positives": 6,
+                "precision": 0.8928571428571429
+              },
+              {
+                "key": "py.local",
+                "true_positives": 39,
+                "false_positives": 3,
+                "precision": 0.9285714285714286
+              },
+              {
+                "key": "py.module.relative",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 7,
+                "false_positives": 2,
+                "precision": 0.7777777777777778
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 65,
+                "false_positives": 2,
+                "precision": 0.9701492537313433
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 8,
+                "false_positives": 1,
+                "precision": 0.8888888888888888
+              },
+              {
+                "key": "scip.py.method",
+                "true_positives": 13,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 56,
+                "false_positives": 6,
+                "precision": 0.9032258064516129
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 130,
+                "false_positives": 9,
+                "precision": 0.935251798561151
+              }
+            ]
+          }
+        },
+        "calibration_04": {
+          "phase": "tree-sitter 0.4 floor",
+          "samples": 60,
+          "expected_callers": 142,
+          "actual_callers": 94,
+          "true_positives": 90,
+          "precision": 0.9574468085106383,
+          "recall": 0.6338028169014085,
+          "out_of_scope_actual": 108,
+          "impact_expected": 457,
+          "impact_actual": 181,
+          "impact_true_positives": 166,
+          "impact_precision": 0.9171270718232044,
+          "impact_recall": 0.36323851203501095,
+          "impact_out_of_scope": 307,
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "py.class.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 40,
+                "false_positives": 1,
+                "precision": 0.975609756097561
+              },
+              {
+                "key": "py.local",
+                "true_positives": 16,
+                "false_positives": 1,
+                "precision": 0.9411764705882353
+              },
+              {
+                "key": "py.module.relative",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 27,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 21,
+                "false_positives": 2,
+                "precision": 0.9130434782608695
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 69,
+                "false_positives": 2,
+                "precision": 0.971830985915493
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "py.class.inherited",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.import.named",
+                "true_positives": 50,
+                "false_positives": 6,
+                "precision": 0.8928571428571429
+              },
+              {
+                "key": "py.local",
+                "true_positives": 32,
+                "false_positives": 3,
+                "precision": 0.9142857142857143
+              },
+              {
+                "key": "py.module.relative",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 7,
+                "false_positives": 2,
+                "precision": 0.7777777777777778
+              },
+              {
+                "key": "py.self.super",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 65,
+                "false_positives": 2,
+                "precision": 0.9701492537313433
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 8,
+                "false_positives": 1,
+                "precision": 0.8888888888888888
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 49,
+                "false_positives": 6,
+                "precision": 0.8909090909090909
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 117,
+                "false_positives": 9,
+                "precision": 0.9285714285714286
+              }
+            ]
+          }
         },
         "adapter_touched_targets": 7,
         "adapter_touched_before": {
@@ -803,19 +2079,103 @@
           "impact_precision": 1,
           "impact_recall": 0.9090909090909091,
           "impact_out_of_scope": 26,
-          "impact_truncated": 0
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "py.this.method",
+                "true_positives": 8,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.method",
+                "true_positives": 8,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 16,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "py.local",
+                "true_positives": 7,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.self.inherited",
+                "true_positives": 3,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.this.method",
+                "true_positives": 9,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "py.typed.method",
+                "true_positives": 3,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.py.method",
+                "true_positives": 8,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 13,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 17,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ]
+          }
         },
         "disagreements": [
-          "SupportsRead <- has_read (src/requests/_types.py:32) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.__init__ (src/requests/adapters.py:201) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.close (src/requests/adapters.py:555) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.get_connection_with_tls_context (src/requests/adapters.py:455) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.__getstate__ (src/requests/adapters.py:223) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.build_connection_pool_key_attributes (src/requests/adapters.py:403) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.__setstate__ (src/requests/adapters.py:226) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.init_poolmanager (src/requests/adapters.py:239) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.proxy_manager_for (src/requests/adapters.py:269) [false-negative/tree-sitter]",
-          "HTTPAdapter <- HTTPAdapter.send (src/requests/adapters.py:634) [false-negative/tree-sitter]"
+          "DataKwargs <- Session.patch (src/requests/sessions.py:728) [false-negative/tree-sitter]",
+          "DataKwargs <- Session.put (src/requests/sessions.py:714) [false-negative/tree-sitter]",
+          "DataKwargs <- put (src/requests/api.py:137) [false-negative/tree-sitter]",
+          "DataKwargs <- patch (src/requests/api.py:154) [false-negative/tree-sitter]",
+          "RequestKwargs <- Session.delete (src/requests/sessions.py:742) [false-negative/tree-sitter]",
+          "RequestKwargs <- Session.options (src/requests/sessions.py:673) [false-negative/tree-sitter]",
+          "RequestKwargs <- head (src/requests/api.py:102) [false-negative/tree-sitter]",
+          "RequestKwargs <- delete (src/requests/api.py:171) [false-negative/tree-sitter]",
+          "RequestKwargs <- Session.head (src/requests/sessions.py:684) [false-negative/tree-sitter]",
+          "RequestKwargs <- request (src/requests/api.py:24) [false-negative/tree-sitter]"
         ]
       }
     },
@@ -827,64 +2187,64 @@
       "runs": 3,
       "metrics": {
         "cold_index_ms": {
-          "median": 249.519,
-          "min": 242.281,
-          "max": 251.821
+          "median": 234.349,
+          "min": 233.917,
+          "max": 250.346
         },
         "peak_rss_bytes": {
-          "median": 51163136,
-          "min": 49938432,
-          "max": 52142080
+          "median": 48504832,
+          "min": 48246784,
+          "max": 48812032
         },
         "incremental_ms": {
-          "median": 36.574,
-          "min": 33.508,
-          "max": 37.699
+          "median": 35.284,
+          "min": 32.185,
+          "max": 35.537
         },
         "impact_p50_ms": {
-          "median": 1.017,
-          "min": 0.965,
-          "max": 1.061
+          "median": 0.934,
+          "min": 0.896,
+          "max": 0.987
         },
         "impact_p95_ms": {
-          "median": 1.5,
-          "min": 1.482,
-          "max": 2.11
+          "median": 1.388,
+          "min": 1.388,
+          "max": 1.431
         },
         "callers_p50_ms": {
-          "median": 0.704,
-          "min": 0.67,
-          "max": 0.713
+          "median": 0.656,
+          "min": 0.649,
+          "max": 0.664
         },
         "callers_p95_ms": {
-          "median": 0.818,
-          "min": 0.71,
-          "max": 0.95
+          "median": 0.719,
+          "min": 0.716,
+          "max": 0.84
         },
         "path_p50_ms": {
-          "median": 1.466,
-          "min": 1.36,
-          "max": 1.475
+          "median": 1.369,
+          "min": 1.357,
+          "max": 1.599
         },
         "path_p95_ms": {
-          "median": 5.066,
-          "min": 5.015,
-          "max": 5.627
+          "median": 5.07,
+          "min": 4.788,
+          "max": 5.072
         },
         "map_p50_ms": {
-          "median": 7.336,
-          "min": 7.287,
-          "max": 7.509
+          "median": 7.176,
+          "min": 6.817,
+          "max": 7.227
         },
         "map_p95_ms": {
-          "median": 8.063,
-          "min": 7.557,
-          "max": 8.779
+          "median": 7.487,
+          "min": 7.281,
+          "max": 7.516
         },
         "check_ms": {
-          "median": 20.911,
-          "min": 20.588,
-          "max": 21.982
+          "median": 19.704,
+          "min": 19.344,
+          "max": 20.774
         },
         "check_findings": {
           "median": 200,
@@ -892,44 +2252,44 @@
           "max": 200
         },
         "artifact_bytes": {
-          "median": 1011712,
-          "min": 1007616,
-          "max": 1011712
+          "median": 1028096,
+          "min": 1024000,
+          "max": 1028096
         },
         "artifact_export_ms": {
-          "median": 8.393,
-          "min": 8.221,
-          "max": 8.547
+          "median": 8.147,
+          "min": 8.032,
+          "max": 8.527
         },
         "artifact_pull_ms": {
-          "median": 2.829,
-          "min": 2.707,
-          "max": 2.878
+          "median": 2.728,
+          "min": 2.642,
+          "max": 2.82
         },
         "artifact_zstd_bytes": {
-          "median": 299543,
-          "min": 299315,
-          "max": 299924
+          "median": 299893,
+          "min": 298963,
+          "max": 300409
         },
         "artifact_zstd_export_ms": {
-          "median": 15.847,
-          "min": 14.131,
-          "max": 22.808
+          "median": 13.243,
+          "min": 13.204,
+          "max": 13.733
         },
         "artifact_zstd_pull_ms": {
-          "median": 5.01,
-          "min": 4.516,
-          "max": 5.26
+          "median": 4.431,
+          "min": 4.369,
+          "max": 4.51
         },
         "artifact_ratio": {
-          "median": 29.645195470647774,
-          "min": 29.607536532135626,
-          "max": 29.705264704014226
+          "median": 29.219936659611555,
+          "min": 29.079288315488046,
+          "max": 29.28642578125
         },
         "adapter_wall_ms": {
-          "median": 540.062,
-          "min": 531.25,
-          "max": 545.567
+          "median": 518.819,
+          "min": 518.311,
+          "max": 528.067
         },
         "adapter_matched": {
           "median": 238,
@@ -1027,7 +2387,7 @@
         "conflicts": 4,
         "skipped": 55898,
         "unmatched": 9988,
-        "wall_ms": 540.062,
+        "wall_ms": 518.819,
         "unresolved_before": 1394,
         "unresolved_after": 1156,
         "edges_before": 2517,
@@ -1051,64 +2411,668 @@
         "documents": 187,
         "references": 53694,
         "definitions": 14878,
-        "attributable_references": 5670,
+        "attributable_references": 6093,
         "exclusions": {
-          "ambiguous-same-line-name": 486,
+          "ambiguous-same-line-name": 488,
           "definition-no-enclosing-node": 74,
           "definition-unmapped-name": 12368,
-          "enclosing-not-function": 477,
           "no-definition": 10348,
           "no-enclosing-node": 2061,
           "recursive": 83,
           "unmapped-symbol": 30964
         },
-        "ambiguous_name_keys": 242,
-        "candidate_targets": 1001,
-        "sampled_targets": 20,
+        "ambiguous_name_keys": 243,
+        "candidate_targets": 1007,
+        "sampled_targets": 60,
         "min_confidence": 0.5,
         "before": {
           "phase": "tree-sitter",
-          "samples": 20,
-          "expected_callers": 171,
-          "actual_callers": 20,
-          "true_positives": 17,
-          "precision": 0.85,
-          "recall": 0.09941520467836257,
+          "samples": 60,
+          "expected_callers": 399,
+          "actual_callers": 110,
+          "true_positives": 107,
+          "precision": 0.9727272727272728,
+          "recall": 0.2681704260651629,
           "out_of_scope_actual": 0,
-          "impact_expected": 321,
-          "impact_actual": 105,
-          "impact_true_positives": 101,
-          "impact_precision": 0.9619047619047619,
-          "impact_recall": 0.3146417445482866,
+          "impact_expected": 864,
+          "impact_actual": 329,
+          "impact_true_positives": 293,
+          "impact_precision": 0.8905775075987842,
+          "impact_recall": 0.33912037037037035,
           "impact_out_of_scope": 0,
-          "impact_truncated": 0
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "rs.assoc.fn",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.generic.bound",
+                "true_positives": 44,
+                "false_positives": 2,
+                "precision": 0.9565217391304348
+              },
+              {
+                "key": "rs.local",
+                "true_positives": 49,
+                "false_positives": 1,
+                "precision": 0.98
+              },
+              {
+                "key": "rs.module.path",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.assoc",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.method",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.type",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.glob",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 96,
+                "false_positives": 3,
+                "precision": 0.9696969696969697
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 11,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "rs.assoc.fn",
+                "true_positives": 80,
+                "false_positives": 5,
+                "precision": 0.9411764705882353
+              },
+              {
+                "key": "rs.assoc.global",
+                "true_positives": 5,
+                "false_positives": 7,
+                "precision": 0.4166666666666667
+              },
+              {
+                "key": "rs.generic.bound",
+                "true_positives": 44,
+                "false_positives": 2,
+                "precision": 0.9565217391304348
+              },
+              {
+                "key": "rs.global.unique",
+                "true_positives": 64,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.local",
+                "true_positives": 65,
+                "false_positives": 2,
+                "precision": 0.9701492537313433
+              },
+              {
+                "key": "rs.module.path",
+                "true_positives": 7,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.assoc",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.method",
+                "true_positives": 17,
+                "false_positives": 12,
+                "precision": 0.5862068965517241
+              },
+              {
+                "key": "rs.self.type",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method",
+                "true_positives": 1,
+                "false_positives": 3,
+                "precision": 0.25
+              },
+              {
+                "key": "rs.typed.method.global",
+                "true_positives": 0,
+                "false_positives": 5,
+                "precision": 0
+              },
+              {
+                "key": "rs.use.glob",
+                "true_positives": 5,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.reexport",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 184,
+                "false_positives": 19,
+                "precision": 0.9064039408866995
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 109,
+                "false_positives": 17,
+                "precision": 0.8650793650793651
+              }
+            ]
+          }
         },
         "after": {
           "phase": "after-adapter",
-          "samples": 20,
-          "expected_callers": 171,
-          "actual_callers": 22,
-          "true_positives": 19,
-          "precision": 0.8636363636363636,
-          "recall": 0.1111111111111111,
+          "samples": 60,
+          "expected_callers": 399,
+          "actual_callers": 132,
+          "true_positives": 129,
+          "precision": 0.9772727272727273,
+          "recall": 0.3233082706766917,
           "out_of_scope_actual": 0,
-          "impact_expected": 321,
-          "impact_actual": 107,
-          "impact_true_positives": 103,
-          "impact_precision": 0.9626168224299065,
-          "impact_recall": 0.32087227414330216,
+          "impact_expected": 864,
+          "impact_actual": 373,
+          "impact_true_positives": 336,
+          "impact_precision": 0.900804289544236,
+          "impact_recall": 0.3888888888888889,
           "impact_out_of_scope": 0,
-          "impact_truncated": 0
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "rs.assoc.fn",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.generic.bound",
+                "true_positives": 44,
+                "false_positives": 2,
+                "precision": 0.9565217391304348
+              },
+              {
+                "key": "rs.local",
+                "true_positives": 49,
+                "false_positives": 1,
+                "precision": 0.98
+              },
+              {
+                "key": "rs.module.path",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.assoc",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.method",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.type",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.glob",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.call",
+                "true_positives": 8,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.method",
+                "true_positives": 11,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.new",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.reference",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 96,
+                "false_positives": 3,
+                "precision": 0.9696969696969697
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 33,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "rs.assoc.fn",
+                "true_positives": 80,
+                "false_positives": 5,
+                "precision": 0.9411764705882353
+              },
+              {
+                "key": "rs.assoc.global",
+                "true_positives": 5,
+                "false_positives": 7,
+                "precision": 0.4166666666666667
+              },
+              {
+                "key": "rs.generic.bound",
+                "true_positives": 48,
+                "false_positives": 2,
+                "precision": 0.96
+              },
+              {
+                "key": "rs.global.unique",
+                "true_positives": 64,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.local",
+                "true_positives": 67,
+                "false_positives": 2,
+                "precision": 0.9710144927536232
+              },
+              {
+                "key": "rs.module.path",
+                "true_positives": 7,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.assoc",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.method",
+                "true_positives": 17,
+                "false_positives": 13,
+                "precision": 0.5666666666666667
+              },
+              {
+                "key": "rs.self.type",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method",
+                "true_positives": 1,
+                "false_positives": 3,
+                "precision": 0.25
+              },
+              {
+                "key": "rs.typed.method.global",
+                "true_positives": 0,
+                "false_positives": 5,
+                "precision": 0
+              },
+              {
+                "key": "rs.use.glob",
+                "true_positives": 5,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.named",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.reexport",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.call",
+                "true_positives": 8,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.method",
+                "true_positives": 25,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.new",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.reference",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 190,
+                "false_positives": 19,
+                "precision": 0.9090909090909091
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 146,
+                "false_positives": 18,
+                "precision": 0.8902439024390244
+              }
+            ]
+          }
+        },
+        "calibration_04": {
+          "phase": "tree-sitter 0.4 floor",
+          "samples": 60,
+          "expected_callers": 399,
+          "actual_callers": 112,
+          "true_positives": 109,
+          "precision": 0.9732142857142857,
+          "recall": 0.2731829573934837,
+          "out_of_scope_actual": 0,
+          "impact_expected": 864,
+          "impact_actual": 332,
+          "impact_true_positives": 295,
+          "impact_precision": 0.8885542168674698,
+          "impact_recall": 0.3414351851851852,
+          "impact_out_of_scope": 0,
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "rs.assoc.fn",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.generic.bound",
+                "true_positives": 44,
+                "false_positives": 2,
+                "precision": 0.9565217391304348
+              },
+              {
+                "key": "rs.global.ambiguous",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.local",
+                "true_positives": 49,
+                "false_positives": 1,
+                "precision": 0.98
+              },
+              {
+                "key": "rs.module.path",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.assoc",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.method",
+                "true_positives": 6,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.type",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.glob",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.4",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "0.6-0.8",
+                "true_positives": 96,
+                "false_positives": 3,
+                "precision": 0.9696969696969697
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 11,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "rs.assoc.fn",
+                "true_positives": 80,
+                "false_positives": 5,
+                "precision": 0.9411764705882353
+              },
+              {
+                "key": "rs.assoc.global",
+                "true_positives": 5,
+                "false_positives": 7,
+                "precision": 0.4166666666666667
+              },
+              {
+                "key": "rs.generic.bound",
+                "true_positives": 44,
+                "false_positives": 2,
+                "precision": 0.9565217391304348
+              },
+              {
+                "key": "rs.global.ambiguous",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.global.unique",
+                "true_positives": 64,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.local",
+                "true_positives": 65,
+                "false_positives": 2,
+                "precision": 0.9701492537313433
+              },
+              {
+                "key": "rs.module.path",
+                "true_positives": 7,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.assoc",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.method",
+                "true_positives": 17,
+                "false_positives": 12,
+                "precision": 0.5862068965517241
+              },
+              {
+                "key": "rs.self.type",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method",
+                "true_positives": 1,
+                "false_positives": 3,
+                "precision": 0.25
+              },
+              {
+                "key": "rs.typed.method.ambiguous",
+                "true_positives": 0,
+                "false_positives": 1,
+                "precision": 0
+              },
+              {
+                "key": "rs.typed.method.global",
+                "true_positives": 0,
+                "false_positives": 5,
+                "precision": 0
+              },
+              {
+                "key": "rs.use.glob",
+                "true_positives": 5,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.reexport",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.4",
+                "true_positives": 2,
+                "false_positives": 1,
+                "precision": 0.6666666666666666
+              },
+              {
+                "key": "0.6-0.8",
+                "true_positives": 184,
+                "false_positives": 19,
+                "precision": 0.9064039408866995
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 109,
+                "false_positives": 17,
+                "precision": 0.8650793650793651
+              }
+            ]
+          }
         },
         "adapter_touched_targets": 118,
         "adapter_touched_before": {
           "phase": "adapter-targets tree-sitter",
           "samples": 118,
-          "expected_callers": 1027,
+          "expected_callers": 1087,
           "actual_callers": 254,
           "true_positives": 245,
           "precision": 0.9645669291338582,
-          "recall": 0.2385589094449854,
+          "recall": 0.22539098436062557,
           "out_of_scope_actual": 0,
           "impact_expected": 0,
           "impact_actual": 0,
@@ -1121,31 +3085,247 @@
         "adapter_touched_after": {
           "phase": "adapter-targets after-adapter",
           "samples": 118,
-          "expected_callers": 1027,
+          "expected_callers": 1087,
           "actual_callers": 462,
           "true_positives": 453,
           "precision": 0.9805194805194806,
-          "recall": 0.44109055501460565,
+          "recall": 0.41674333026678934,
           "out_of_scope_actual": 0,
-          "impact_expected": 1619,
+          "impact_expected": 1791,
           "impact_actual": 763,
-          "impact_true_positives": 706,
-          "impact_precision": 0.9252948885976409,
-          "impact_recall": 0.43607164916615193,
+          "impact_true_positives": 709,
+          "impact_precision": 0.9292267365661862,
+          "impact_recall": 0.39586823003908433,
           "impact_out_of_scope": 0,
-          "impact_truncated": 0
+          "impact_truncated": 0,
+          "callers_calibration": {
+            "rules": [
+              {
+                "key": "rs.assoc.fn",
+                "true_positives": 1,
+                "false_positives": 5,
+                "precision": 0.16666666666666666
+              },
+              {
+                "key": "rs.generic.bound",
+                "true_positives": 170,
+                "false_positives": 3,
+                "precision": 0.9826589595375722
+              },
+              {
+                "key": "rs.local",
+                "true_positives": 46,
+                "false_positives": 1,
+                "precision": 0.9787234042553191
+              },
+              {
+                "key": "rs.self.method",
+                "true_positives": 16,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.type",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.trait.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.reexport",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.call",
+                "true_positives": 59,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.method",
+                "true_positives": 135,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.new",
+                "true_positives": 17,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.reference",
+                "true_positives": 4,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 218,
+                "false_positives": 4,
+                "precision": 0.9819819819819819
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 235,
+                "false_positives": 5,
+                "precision": 0.9791666666666666
+              }
+            ]
+          },
+          "impact_calibration": {
+            "rules": [
+              {
+                "key": "rs.assoc.fn",
+                "true_positives": 21,
+                "false_positives": 11,
+                "precision": 0.65625
+              },
+              {
+                "key": "rs.assoc.global",
+                "true_positives": 0,
+                "false_positives": 7,
+                "precision": 0
+              },
+              {
+                "key": "rs.generic.bound",
+                "true_positives": 177,
+                "false_positives": 3,
+                "precision": 0.9833333333333333
+              },
+              {
+                "key": "rs.global.unique",
+                "true_positives": 128,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.local",
+                "true_positives": 93,
+                "false_positives": 5,
+                "precision": 0.9489795918367347
+              },
+              {
+                "key": "rs.module.path",
+                "true_positives": 20,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.self.assoc",
+                "true_positives": 0,
+                "false_positives": 3,
+                "precision": 0
+              },
+              {
+                "key": "rs.self.method",
+                "true_positives": 28,
+                "false_positives": 19,
+                "precision": 0.5957446808510638
+              },
+              {
+                "key": "rs.self.type",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.trait.method",
+                "true_positives": 1,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.typed.method.global",
+                "true_positives": 0,
+                "false_positives": 6,
+                "precision": 0
+              },
+              {
+                "key": "rs.use.named",
+                "true_positives": 4,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "rs.use.reexport",
+                "true_positives": 2,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.call",
+                "true_positives": 61,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.method",
+                "true_positives": 150,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.new",
+                "true_positives": 17,
+                "false_positives": 0,
+                "precision": 1
+              },
+              {
+                "key": "scip.rs.reference",
+                "true_positives": 4,
+                "false_positives": 0,
+                "precision": 1
+              }
+            ],
+            "buckets": [
+              {
+                "key": "0.6-0.8",
+                "true_positives": 401,
+                "false_positives": 21,
+                "precision": 0.9502369668246445
+              },
+              {
+                "key": "0.9+",
+                "true_positives": 308,
+                "false_positives": 33,
+                "precision": 0.9032258064516129
+              }
+            ]
+          }
         },
         "disagreements": [
-          "BroadcastContext <- spawn_broadcast_in (rayon-core/src/broadcast/mod.rs:131) [false-negative/tree-sitter]",
-          "BroadcastContext <- ScopeFifo.spawn_broadcast (rayon-core/src/scope/mod.rs:633) [false-negative/tree-sitter]",
           "BroadcastContext <- Scope.spawn_broadcast (rayon-core/src/scope/mod.rs:582) [false-negative/tree-sitter]",
-          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
-          "BroadcastContext <- BroadcastContext.index (rayon-core/src/broadcast/mod.rs:65) [false-negative/tree-sitter]",
-          "BroadcastContext <- spawn_broadcast (rayon-core/src/broadcast/mod.rs:37) [false-negative/tree-sitter]",
-          "BroadcastContext <- ScopeBroadcast.inject (rayon-core/src/scope/mod.rs:835) [false-negative/tree-sitter]",
-          "BroadcastContext <- ThreadPool.broadcast (rayon-core/src/thread_pool/mod.rs:187) [false-negative/tree-sitter]",
           "BroadcastContext <- BroadcastContext.num_threads (rayon-core/src/broadcast/mod.rs:77) [false-negative/tree-sitter]",
-          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]"
+          "BroadcastContext <- ScopeBroadcast.inject (rayon-core/src/scope/mod.rs:835) [false-negative/tree-sitter]",
+          "BroadcastContext <- broadcast (rayon-core/src/broadcast/mod.rs:20) [false-negative/tree-sitter]",
+          "BroadcastContext <- broadcast_in (rayon-core/src/broadcast/mod.rs:98) [false-negative/tree-sitter]",
+          "BroadcastContext <- BroadcastContext.fmt (rayon-core/src/broadcast/mod.rs:83) [false-negative/tree-sitter]",
+          "BroadcastContext <- ThreadPool.spawn_broadcast (rayon-core/src/thread_pool/mod.rs:366) [false-negative/tree-sitter]",
+          "BroadcastContext <- ScopeFifo.spawn_broadcast (rayon-core/src/scope/mod.rs:633) [false-negative/tree-sitter]",
+          "BroadcastContext <- ThreadPool.broadcast (rayon-core/src/thread_pool/mod.rs:187) [false-negative/tree-sitter]",
+          "BroadcastContext <- spawn_broadcast (rayon-core/src/broadcast/mod.rs:37) [false-negative/tree-sitter]"
         ]
       }
     }
