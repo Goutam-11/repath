@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -186,6 +187,14 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 		}
 		if err := tx.Commit(); err != nil {
 			return err
+		}
+		for _, o := range batch {
+			// Resolution only reads the packed refs, the file path, and fileID; symbols,
+			// imports, entrypoints, and anchors are already persisted.
+			o.symbols = nil
+			o.imports = nil
+			o.entries = nil
+			o.anchors = nil
 		}
 		written = append(written, batch...)
 		batch = batch[:0]
@@ -387,7 +396,11 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		links := make([]resolve.ClassLink, 0, len(fileIDs))
 		for _, o := range written {
 			ids := idsByFile[o.fileID]
-			for _, ref := range o.refs {
+			refs, err := facts.UnpackRefs(o.packedRefs)
+			if err != nil {
+				return fmt.Errorf("decode refs for %s: %w", o.src.Path, err)
+			}
+			for _, ref := range refs {
 				if ref.Kind != "extends" {
 					continue
 				}
@@ -411,7 +424,11 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 		links := make([]resolve.ImplLink, 0, len(fileIDs))
 		for _, o := range written {
 			ids := idsByFile[o.fileID]
-			for _, ref := range o.refs {
+			refs, err := facts.UnpackRefs(o.packedRefs)
+			if err != nil {
+				return fmt.Errorf("decode refs for %s: %w", o.src.Path, err)
+			}
+			for _, ref := range refs {
 				if ref.Kind != "implements" {
 					continue
 				}
@@ -432,7 +449,11 @@ func resolveChanges(ctx context.Context, st *store.Store, root string, written [
 	var pending []store.PendingRef
 	for _, o := range written {
 		ids := idsByFile[o.fileID]
-		for _, ref := range o.refs {
+		refs, err := facts.UnpackRefs(o.packedRefs)
+		if err != nil {
+			return fmt.Errorf("decode refs for %s: %w", o.src.Path, err)
+		}
+		for _, ref := range refs {
 			src, ok := ids[ref.Enclosing]
 			if !ok {
 				// Top-level references have no containing symbol to attach to.
@@ -570,12 +591,16 @@ type outcome struct {
 	ok      bool
 	errMsg  string
 	symbols []store.Node
-	refs    []facts.Ref
-	imports []facts.Import
-	entries []facts.Entrypoint
-	anchors []facts.Anchor
-	skipped bool
-	fileID  int64
+	// packedRefs is the compact form of the file's references. A cold run
+	// parses the whole tree before it can resolve anything, so retaining one
+	// Ref struct per reference cost ~258 MiB on the pinned Kibana tree; the
+	// packed form is decoded one file at a time during resolution.
+	packedRefs []byte
+	imports    []facts.Import
+	entries    []facts.Entrypoint
+	anchors    []facts.Anchor
+	skipped    bool
+	fileID     int64
 }
 
 func parseOne(src Source, ex *lang.Extractor, existing map[string]store.FileState, full bool) *outcome {
@@ -608,16 +633,16 @@ func parseOne(src Source, ex *lang.Extractor, existing map[string]store.FileStat
 	result := ex.Extract(data, dialect)
 	augmentPathEntrypoints(src.Path, &result)
 	return &outcome{
-		src:     src,
-		lang:    langName,
-		hash:    hash,
-		ok:      result.OK,
-		errMsg:  result.Err,
-		symbols: toNodes(result.Symbols),
-		refs:    result.Refs,
-		imports: result.Imports,
-		entries: result.Entrypoints,
-		anchors: result.Anchors,
+		src:        src,
+		lang:       langName,
+		hash:       hash,
+		ok:         result.OK,
+		errMsg:     result.Err,
+		symbols:    toNodes(result.Symbols),
+		packedRefs: facts.PackRefs(result.Refs),
+		imports:    result.Imports,
+		entries:    result.Entrypoints,
+		anchors:    result.Anchors,
 	}
 }
 

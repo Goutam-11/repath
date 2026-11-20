@@ -363,6 +363,14 @@ the database.
   is checkpointed after a run. Keep those properties: reverting to per-file
   pending deletes or hashing every file brings back the #43 cold/incremental
   regressions.
+- **Cold-run memory is bounded by packed references.** A cold run parses the
+  whole tree before it can resolve anything, so the indexer retains each file's
+  references in the compact `facts.PackRefs` form (decoded one file at a time by
+  `facts.UnpackRefs`) and drops symbols, imports, entrypoints, and anchors once
+  they are persisted. That is what keeps the pinned Kibana tree at ~633 MiB
+  cold RSS instead of 1.09 GiB (#75). A new `facts.Ref` field must be added to
+  the codec and its round-trip test in the same change; do not return to
+  retaining `[]facts.Ref` until resolution (1.17M refs ≈ 258 MiB on Kibana).
 - **`make perf` is opt-in.** `TestPerf10k` and `TestPerf50k` skip without
   `REPATH_PERF=1`; `make perf` runs each in its own process so the Linux VmHWM
   reading belongs to that tree. It is evidence, not a CI gate (timings are

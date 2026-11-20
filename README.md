@@ -117,10 +117,10 @@ A pinned real-repo run (`make bench-real`, Kibana `x-pack/solutions` at
 `0551196`, 38,548 TS files) is in [`docs/benchmarks.md`](docs/benchmarks.md):
 cold **19.2 s**, incremental **582 ms**, `map` p95 **223 ms**, `impact`/
 `callers`/`path` p95 **60.8 / 38.3 / 71.6 ms**, peak RSS **920 MiB** cold at the
-#43 measurement, and artifact **65.6 MiB → 17.2 MiB** (26.2%). A quiet-host
-rerun now reports **1.09 GiB** cold RSS, above the 1 GiB PLAN §10 budget; the
-miss is tracked by [#75](https://github.com/Goutam-11/repath/issues/75). Every
-other measured target is met; the synthetic budgets above remain the gate.
+#43 measurement, and artifact **65.6 MiB → 17.2 MiB** (26.2%). #75 compacted the
+per-file references retained during a cold run: three quiet runs now measure
+**629–637 MiB** cold RSS (median **633 MiB**), inside the 1 GiB PLAN §10 budget.
+Every measured target is met; the synthetic budgets above remain the gate.
 
 A Python corpus (`psf/requests`, 37 files) and a Rust corpus (`rayon`, 191
 files) run with `make bench-real-langs`: the `scip-python` adapter takes
