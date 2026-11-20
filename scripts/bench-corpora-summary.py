@@ -205,6 +205,8 @@ def phase_summary(phase):
         "impact_recall",
         "impact_out_of_scope",
         "impact_truncated",
+        "callers_calibration",
+        "impact_calibration",
     ]
     return {key: phase.get(key) for key in keys if key in phase}
 
@@ -229,6 +231,7 @@ def accuracy_summary(path):
         "min_confidence": data.get("min_confidence"),
         "before": phase_summary(data.get("before")),
         "after": phase_summary(data.get("after")),
+        "calibration_04": phase_summary(data.get("calibration_04")),
         "adapter_touched_targets": data.get("adapter_touched_targets"),
         "adapter_touched_before": phase_summary(data.get("adapter_touched_before")),
         "adapter_touched_after": phase_summary(data.get("adapter_touched_after")),

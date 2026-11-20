@@ -21,15 +21,18 @@ package adapter
 //	REPATH_ACCURACY_SCIP=/path/to/requests.scip \
 //	go test ./internal/adapter -run '^TestSCIPAccuracy$' -v -count=1
 //
-// The test reports precision/recall for a deterministic sample of >=20 symbols
+// The test reports precision/recall for a deterministic sample of >=60 symbols
 // with at least one attributable caller, tree-sitter-only and after
 // adapter.ApplySCIPAll on the same store, plus a disagreement list. Facts that
 // the graph model cannot attribute are excluded and counted, not silently
 // dropped: imports, SCIP-generated occurrences, module/local symbols, external
-// definitions, references outside a function/method (repath's documented
+// definitions, references with no enclosing symbol (repath's documented
 // "top-level references are skipped"), recursive references (the adapter skips
 // src == target), and same-file+line+name keys that resolve to two different
-// targets. `impact` depth 2 is compared only through Blast (the walker behind
+// targets. Every reference with an enclosing symbol is attributable, including
+// a class-body reference and a class-base reference; an earlier revision
+// excluded all class-enclosing references and therefore counted correct
+// `EXTENDS` edges as false positives (#77). `impact` depth 2 is compared only through Blast (the walker behind
 // query.Impact; importing query here would cycle back into this package), at
 // the same confidence floor, with truncated results excluded and counted.
 
@@ -52,6 +55,67 @@ import (
 )
 
 const accuracySchema = 1
+
+func TestAccuracyCalibrationBuckets(t *testing.T) {
+	counter := newAccuracyCounter()
+	counter.add("ts.local", 0.85, true)
+	counter.add("ts.local", 0.85, false)
+	counter.add("ts.import.named", 1.0, true)
+	counter.add("ts.global.ambiguous", 0.40, false)
+
+	cal := counter.result()
+	if len(cal.Rules) != 3 {
+		t.Fatalf("rules = %+v, want three", cal.Rules)
+	}
+	wantRules := []struct {
+		key       string
+		tp, fp    int
+		precision float64
+	}{
+		{"ts.global.ambiguous", 0, 1, 0},
+		{"ts.import.named", 1, 0, 1},
+		{"ts.local", 1, 1, 0.5},
+	}
+	for i, want := range wantRules {
+		got := cal.Rules[i]
+		if got.Key != want.key || got.TruePositives != want.tp || got.FalsePositives != want.fp || got.Precision != want.precision {
+			t.Fatalf("rule cell %d = %+v, want %+v", i, got, want)
+		}
+	}
+
+	wantBuckets := []struct {
+		key       string
+		tp, fp    int
+		precision float64
+	}{
+		{"0.4", 0, 1, 0},
+		{"0.6-0.8", 1, 1, 0.5},
+		{"0.9+", 1, 0, 1},
+	}
+	if len(cal.Buckets) != len(wantBuckets) {
+		t.Fatalf("buckets = %+v, want %d", cal.Buckets, len(wantBuckets))
+	}
+	for i, want := range wantBuckets {
+		got := cal.Buckets[i]
+		if got.Key != want.key || got.TruePositives != want.tp || got.FalsePositives != want.fp || got.Precision != want.precision {
+			t.Fatalf("bucket cell %d = %+v, want %+v", i, got, want)
+		}
+	}
+}
+
+func TestAccuracyBucketBoundaries(t *testing.T) {
+	cases := map[float64]string{
+		0.40: "0.4", 0.49: "0.4",
+		0.50: "0.5", 0.59: "0.5",
+		0.60: "0.6-0.8", 0.80: "0.6-0.8", 0.899: "0.6-0.8",
+		0.90: "0.9+", 0.99: "0.9+", 1.0: "0.9+",
+	}
+	for confidence, want := range cases {
+		if got := accuracyBucket(confidence); got != want {
+			t.Errorf("bucket(%.3f) = %q, want %q", confidence, got, want)
+		}
+	}
+}
 
 func TestSCIPAccuracy(t *testing.T) {
 	if os.Getenv("REPATH_ACCURACY") != "1" {
@@ -91,7 +155,7 @@ func TestSCIPAccuracy(t *testing.T) {
 	}
 	samplesWant, _ := strconv.Atoi(os.Getenv("REPATH_ACCURACY_SAMPLES"))
 	if samplesWant <= 0 {
-		samplesWant = 20
+		samplesWant = 60
 	}
 	minConfidence := 0.5
 	if raw := os.Getenv("REPATH_ACCURACY_MIN_CONFIDENCE"); raw != "" {
@@ -134,6 +198,10 @@ func TestSCIPAccuracy(t *testing.T) {
 	t.Logf("accuracy %s: excluded %s", corpus, formatCounts(gt.exclusions))
 
 	before := measureAccuracy(t, ctx, st, gt, sampled, "tree-sitter", minConfidence, nil)
+	// Re-measure the tree-sitter graph at a 0.4 floor so the calibration table
+	// has a populated low-confidence bucket. This runs before ApplySCIPAll,
+	// which replaces ambiguous 0.40 groups and would empty the bucket after.
+	calibration := measureAccuracy(t, ctx, st, gt, sampled, "tree-sitter 0.4 floor", 0.4, nil)
 	// Snapshot the tree-sitter callers before the adapter runs. Ambiguous-group
 	// replacement deletes 0.40 candidate rows, so filtering adapter rule ids
 	// afterwards no longer reconstructs the pre-adapter graph; the snapshot is
@@ -187,11 +255,12 @@ func TestSCIPAccuracy(t *testing.T) {
 		Adapters:       statsList,
 		Before:         before,
 		After:          after,
+		Calibration04:  calibration,
 		TouchedTargets: len(touched),
 		TouchedBefore:  touchedBefore,
 		TouchedAfter:   touchedAfter,
 	}
-	for _, phase := range []accuracyPhase{before, after} {
+	for _, phase := range []accuracyPhase{before, after, calibration} {
 		t.Logf("accuracy %s %s: callers expected=%d actual=%d TP=%d precision=%.1f%% recall=%.1f%% (out-of-scope actual=%d)",
 			corpus, phase.Phase, phase.Expected, phase.Actual, phase.TruePositives,
 			phase.Precision*100, phase.Recall*100, phase.OutOfScope)
@@ -199,6 +268,12 @@ func TestSCIPAccuracy(t *testing.T) {
 			corpus, phase.Phase, phase.ImpactExpected, phase.ImpactActual, phase.ImpactTruePositives,
 			phase.ImpactPrecision*100, phase.ImpactRecall*100, phase.ImpactTruncated, phase.ImpactOutOfScope)
 	}
+	logCalibration(t, corpus, "tree-sitter", before.CallersCalibration)
+	logCalibration(t, corpus, "tree-sitter-impact", before.ImpactCalibration)
+	logCalibration(t, corpus, "after-adapter", after.CallersCalibration)
+	logCalibration(t, corpus, "after-adapter-impact", after.ImpactCalibration)
+	logCalibration(t, corpus, "0.4-floor", calibration.CallersCalibration)
+	logCalibration(t, corpus, "0.4-floor-impact", calibration.ImpactCalibration)
 	if len(touched) > 0 {
 		t.Logf("accuracy %s: %d ground-truth targets repaired by the adapter; callers before expected=%d actual=%d TP=%d precision=%.1f%% recall=%.1f%%; after expected=%d actual=%d TP=%d precision=%.1f%% recall=%.1f%% (+%d TP)",
 			corpus, len(touched),
@@ -348,6 +423,8 @@ func buildGroundTruth(t *testing.T, ctx context.Context, st *store.Store, index 
 	}
 
 	// References, in a second pass so order within a document does not matter.
+	// Any reference with an enclosing symbol is attributable: class-body and
+	// class-base uses are real edges in the graph too.
 	keyTargets := map[occurrenceKey]map[int64]bool{}
 	keyOccs := map[occurrenceKey][]attributedOccurrence{}
 	for _, doc := range index.Documents {
@@ -397,12 +474,7 @@ func buildGroundTruth(t *testing.T, ctx context.Context, st *store.Store, index 
 				gt.exclusions["recursive"]++
 				continue
 			}
-			if kind := gt.nodes[src].Kind; kind != "function" && kind != "method" {
-				// Class/module-level reference; the extraction policy is to
-				// skip it, so it is not attributable as a caller.
-				gt.exclusions["enclosing-not-function"]++
-				continue
-			}
+
 			key := occurrenceKey{fileID: fileID, line: occ.Line + 1, name: name}
 			if keyTargets[key] == nil {
 				keyTargets[key] = map[int64]bool{}
@@ -471,23 +543,43 @@ func sampleTargets(gt *groundTruth, want int) ([]int64, int) {
 	return out, len(candidates)
 }
 
+// accuracyCell is one rule or confidence bucket in the calibration table. Only
+// TP/FP are attributable: a false negative has no emitted edge to attribute.
+type accuracyCell struct {
+	Key            string  `json:"key"`
+	TruePositives  int     `json:"true_positives"`
+	FalsePositives int     `json:"false_positives"`
+	Precision      float64 `json:"precision"`
+}
+
+// accuracyCalibration groups the same matches by rule id and by confidence
+// bucket (0.4 / 0.5 / 0.6-0.8 / 0.9+). Sorted keys keep the JSON stable.
+type accuracyCalibration struct {
+	Rules   []accuracyCell `json:"rules,omitempty"`
+	Buckets []accuracyCell `json:"buckets,omitempty"`
+}
+
 type accuracyPhase struct {
-	Phase               string   `json:"phase"`
-	Samples             int      `json:"samples"`
-	Expected            int      `json:"expected_callers"`
-	Actual              int      `json:"actual_callers"`
-	TruePositives       int      `json:"true_positives"`
-	Precision           float64  `json:"precision"`
-	Recall              float64  `json:"recall"`
-	OutOfScope          int      `json:"out_of_scope_actual"`
-	ImpactExpected      int      `json:"impact_expected"`
-	ImpactActual        int      `json:"impact_actual"`
-	ImpactTruePositives int      `json:"impact_true_positives"`
-	ImpactPrecision     float64  `json:"impact_precision"`
-	ImpactRecall        float64  `json:"impact_recall"`
-	ImpactOutOfScope    int      `json:"impact_out_of_scope"`
-	ImpactTruncated     int      `json:"impact_truncated"`
-	Disagreements       []string `json:"disagreements,omitempty"`
+	Phase               string  `json:"phase"`
+	Samples             int     `json:"samples"`
+	Expected            int     `json:"expected_callers"`
+	Actual              int     `json:"actual_callers"`
+	TruePositives       int     `json:"true_positives"`
+	Precision           float64 `json:"precision"`
+	Recall              float64 `json:"recall"`
+	OutOfScope          int     `json:"out_of_scope_actual"`
+	ImpactExpected      int     `json:"impact_expected"`
+	ImpactActual        int     `json:"impact_actual"`
+	ImpactTruePositives int     `json:"impact_true_positives"`
+	ImpactPrecision     float64 `json:"impact_precision"`
+	ImpactRecall        float64 `json:"impact_recall"`
+	ImpactOutOfScope    int     `json:"impact_out_of_scope"`
+	ImpactTruncated     int     `json:"impact_truncated"`
+	// Calibration is present only when the phase measured live edges (the
+	// pre-adapter snapshot has no rule ids to attribute).
+	CallersCalibration *accuracyCalibration `json:"callers_calibration,omitempty"`
+	ImpactCalibration  *accuracyCalibration `json:"impact_calibration,omitempty"`
+	Disagreements      []string             `json:"disagreements,omitempty"`
 }
 
 type accuracyReport struct {
@@ -511,6 +603,9 @@ type accuracyReport struct {
 	Adapters         []Stats        `json:"adapters,omitempty"`
 	Before           accuracyPhase  `json:"before"`
 	After            accuracyPhase  `json:"after"`
+	// Calibration04 re-measures the tree-sitter graph at a 0.4 floor so the
+	// low-confidence bucket is populated; headline totals stay at the default.
+	Calibration04 accuracyPhase `json:"calibration_04"`
 	// AdapterTouched is the cohort of ground-truth targets whose callers the
 	// adapter actually repaired, measured with adapter edges filtered out for
 	// the "before" row. Separate so the uniform sample stays unbiased.
@@ -530,8 +625,10 @@ type accuracyStore struct {
 // callerRef is one incoming edge reduced to the fields accuracy compares:
 // source node and its file path (for SCIP scope).
 type callerRef struct {
-	src  int64
-	path string
+	src        int64
+	path       string
+	rule       string
+	confidence float64
 }
 
 // snapshotCallers reads every edge at the confidence floor before the adapter
@@ -545,7 +642,9 @@ func snapshotCallers(t *testing.T, ctx context.Context, st *store.Store, minConf
 	}
 	out := make(map[int64][]callerRef)
 	for _, edge := range edges {
-		out[edge.Dst] = append(out[edge.Dst], callerRef{src: edge.Src, path: edge.SrcPath})
+		out[edge.Dst] = append(out[edge.Dst], callerRef{
+			src: edge.Src, path: edge.SrcPath, rule: edge.Rule, confidence: edge.Confidence,
+		})
 	}
 	return out
 }
@@ -557,6 +656,9 @@ func snapshotCallers(t *testing.T, ctx context.Context, st *store.Store, minConf
 func measureAccuracy(t *testing.T, ctx context.Context, st *store.Store, gt *groundTruth, sampled []int64, phase string, minConfidence float64, beforeCallers map[int64][]callerRef) accuracyPhase {
 	t.Helper()
 	out := accuracyPhase{Phase: phase, Samples: len(sampled)}
+	callerCal := newAccuracyCounter()
+	impactCal := newAccuracyCounter()
+	calibrate := beforeCallers == nil // the pre-adapter snapshot has no rule ids
 	coveredPaths := map[string]bool{}
 	for id := range gt.covered {
 		coveredPaths[gt.files[id]] = true
@@ -580,16 +682,23 @@ func measureAccuracy(t *testing.T, ctx context.Context, st *store.Store, gt *gro
 			}
 			callers = make([]callerRef, 0, len(edges))
 			for _, edge := range edges {
-				callers = append(callers, callerRef{src: edge.SrcNode.ID, path: edge.SrcPath})
+				callers = append(callers, callerRef{
+					src: edge.SrcNode.ID, path: edge.SrcPath,
+					rule: edge.Rule, confidence: edge.Confidence,
+				})
 			}
 		}
 		actual := map[int64]bool{}
+		strongest := map[int64]callerRef{}
 		for _, caller := range callers {
 			if !coveredPaths[caller.path] {
 				out.OutOfScope++
 				continue
 			}
 			actual[caller.src] = true
+			if prev, ok := strongest[caller.src]; !ok || caller.confidence > prev.confidence {
+				strongest[caller.src] = caller
+			}
 		}
 		tp := 0
 		for id := range expected {
@@ -600,13 +709,19 @@ func measureAccuracy(t *testing.T, ctx context.Context, st *store.Store, gt *gro
 		out.Expected += len(expected)
 		out.Actual += len(actual)
 		out.TruePositives += tp
+		if calibrate {
+			for id := range actual {
+				edge := strongest[id]
+				callerCal.add(edge.rule, edge.confidence, expected[id])
+			}
+		}
 		for id := range actual {
 			if expected[id] {
 				continue
 			}
 			caller := gt.nodes[id]
-			addDisagreement(fmt.Sprintf("%s <- %s (%s:%d) [false-positive/%s]",
-				targetNode.QName, caller.QName, gt.files[caller.FileID], caller.StartLine, phase))
+			addDisagreement(fmt.Sprintf("%s <- %s (%s:%d) [false-positive/%s/%s]",
+				targetNode.QName, caller.QName, gt.files[caller.FileID], caller.StartLine, phase, strongest[id].rule))
 		}
 		for id := range expected {
 			if actual[id] {
@@ -646,13 +761,105 @@ func measureAccuracy(t *testing.T, ctx context.Context, st *store.Store, gt *gro
 			out.ImpactExpected += len(impactExpected)
 			out.ImpactActual += len(impactActual)
 			out.ImpactTruePositives += tp
+			if calibrate {
+				for _, dependent := range blast.Dependents {
+					if !coveredPaths[dependent.File] {
+						continue
+					}
+					impactCal.add(dependent.Rule, dependent.Confidence, impactExpected[dependent.ID])
+				}
+			}
 		}
+	}
+	if calibrate {
+		out.CallersCalibration = callerCal.result()
+		out.ImpactCalibration = impactCal.result()
 	}
 	out.Precision = ratio(out.TruePositives, out.Actual)
 	out.Recall = ratio(out.TruePositives, out.Expected)
 	out.ImpactPrecision = ratio(out.ImpactTruePositives, out.ImpactActual)
 	out.ImpactRecall = ratio(out.ImpactTruePositives, out.ImpactExpected)
 	return out
+}
+
+// accuracyCounter accumulates TP/FP per rule id and per confidence bucket while
+// measureAccuracy walks the sample. A false negative has no emitted edge, so it
+// cannot be attributed to a rule; the recall denominator stays the phase total.
+type accuracyCounter struct {
+	rules   map[string]*accuracyCell
+	buckets map[string]*accuracyCell
+}
+
+func newAccuracyCounter() *accuracyCounter {
+	return &accuracyCounter{rules: map[string]*accuracyCell{}, buckets: map[string]*accuracyCell{}}
+}
+
+func (c *accuracyCounter) add(rule string, confidence float64, expected bool) {
+	if rule == "" {
+		rule = "(none)"
+	}
+	cell, ok := c.rules[rule]
+	if !ok {
+		cell = &accuracyCell{Key: rule}
+		c.rules[rule] = cell
+	}
+	bucket, ok := c.buckets[accuracyBucket(confidence)]
+	if !ok {
+		bucket = &accuracyCell{Key: accuracyBucket(confidence)}
+		c.buckets[accuracyBucket(confidence)] = bucket
+	}
+	if expected {
+		cell.TruePositives++
+		bucket.TruePositives++
+	} else {
+		cell.FalsePositives++
+		bucket.FalsePositives++
+	}
+}
+
+func (c *accuracyCounter) result() *accuracyCalibration {
+	out := &accuracyCalibration{}
+	for _, cell := range c.rules {
+		cell.Precision = ratio(cell.TruePositives, cell.TruePositives+cell.FalsePositives)
+		out.Rules = append(out.Rules, *cell)
+	}
+	sort.Slice(out.Rules, func(i, j int) bool { return out.Rules[i].Key < out.Rules[j].Key })
+	for _, cell := range c.buckets {
+		cell.Precision = ratio(cell.TruePositives, cell.TruePositives+cell.FalsePositives)
+		out.Buckets = append(out.Buckets, *cell)
+	}
+	order := map[string]int{"0.4": 0, "0.5": 1, "0.6-0.8": 2, "0.9+": 3}
+	sort.Slice(out.Buckets, func(i, j int) bool { return order[out.Buckets[i].Key] < order[out.Buckets[j].Key] })
+	return out
+}
+
+// accuracyBucket names the calibration band for one edge confidence.
+func accuracyBucket(confidence float64) string {
+	switch {
+	case confidence < 0.5:
+		return "0.4"
+	case confidence < 0.6:
+		return "0.5"
+	case confidence < 0.9:
+		return "0.6-0.8"
+	default:
+		return "0.9+"
+	}
+}
+
+func logCalibration(t *testing.T, corpus, phase string, cal *accuracyCalibration) {
+	t.Helper()
+	if cal == nil {
+		return
+	}
+	for _, cell := range cal.Rules {
+		t.Logf("accuracy %s %s rule %-30s TP=%d FP=%d precision=%.1f%%",
+			corpus, phase, cell.Key, cell.TruePositives, cell.FalsePositives, cell.Precision*100)
+	}
+	for _, cell := range cal.Buckets {
+		t.Logf("accuracy %s %s bucket %-8s TP=%d FP=%d precision=%.1f%%",
+			corpus, phase, cell.Key, cell.TruePositives, cell.FalsePositives, cell.Precision*100)
+	}
 }
 
 func gtClosure(gt *groundTruth, target int64, depth int) map[int64]bool {
