@@ -453,8 +453,10 @@ the database.
   Obsidian-vault writer. `export` and `map --md` read a **local artifact** in
   place with `--artifact DIR|FILE` (`store.OpenReadOnly`, no pull, no writes
   beside it; a stale manifest or database schema is exit 1, a missing artifact
-  exit 3), and the output is byte-identical to the live index. See
-  `docs/export.md`.
+  exit 3), and the output is byte-identical to the live index. The vendored
+  GraphML 1.0 schema set under `testdata/export/graphml/` is **test-only**:
+  `REPATH_XSD=1` opts into `xmllint` validation and `make check` needs neither
+  `xmllint` nor a viewer. See `docs/export.md`.
 - **Entrypoints are a dimension, not nodes.** The `entrypoints` table (schema
   v6) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
   `rs.main` to existing symbols. Do not turn them into a node kind or let
