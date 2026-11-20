@@ -4,8 +4,8 @@ Structural answers about a codebase — *what breaks if I change this*, *how doe
 A reach B*, *where is the important code* — from one deterministic graph, for
 humans and for coding agents.
 
-**Status: pre-alpha (M5 + the v1.1, v1.2, and v1.3 waves; schema v6, 24 locked
-decisions).** TypeScript/JS, Python, and Rust
+**Status: v1.3.0, the first tagged release (2026-11-20; M5 + the v1.1, v1.2, and
+v1.3 waves, schema v6, 24 locked decisions).** TypeScript/JS, Python, and Rust
 definitions and relations are indexed, and `impact`, `path`, `find`, `callers`,
 and `map` answer structural questions from SQLite. `repath mcp` serves the same
 six answers over stdio JSON-RPC in both the legacy and 2026-07-28 eras, and [`skills/repath/SKILL.md`](skills/repath/SKILL.md)
@@ -29,21 +29,20 @@ shell-less clients.
 
 ## Install
 
-No release is tagged yet: GoReleaser and the tag-triggered workflow are wired,
-but the first release is tracked by [#81](https://github.com/Goutam-11/repath/issues/81)
-and needs explicit approval. Until then, build from source. Once a release
-exists, prebuilt Linux amd64/arm64 archives and SHA-256 checksums will be
-attached to [GitHub releases](https://github.com/Goutam-11/repath/releases);
+Prebuilt Linux amd64/arm64 archives and SHA-256 checksums are attached to the
+[v1.3.0 release](https://github.com/Goutam-11/repath/releases/tag/v1.3.0);
 cross-compile and runtime notes are in [`docs/install.md`](docs/install.md).
 
 ```sh
-# from source
-make build
-./bin/repath --version
+# from the release (Linux amd64/arm64)
+curl -LO https://github.com/Goutam-11/repath/releases/download/v1.3.0/repath_1.3.0_linux_amd64.tar.gz
+curl -LO https://github.com/Goutam-11/repath/releases/download/v1.3.0/checksums.txt
+sha256sum --check --ignore-missing checksums.txt
+tar -xzf repath_1.3.0_linux_amd64.tar.gz && sudo install -m 0755 repath /usr/local/bin/
+repath --version          # v1.3.0
 
-# once a release exists
-tar -xzf repath_X.Y.Z_linux_amd64.tar.gz && sudo install -m 0755 repath /usr/local/bin/
-repath --version
+# or from source
+make build && ./bin/repath --version
 ```
 
 ## Build
