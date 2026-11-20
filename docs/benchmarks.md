@@ -753,13 +753,52 @@ also covers the test suite, so **15,150** of the 16,903 new edges have a
 test-path source and **1,753** are production; the production-only index above
 is the application-code number. The replacement path participates at scale:
 **295** ambiguous groups (914 candidate rows) are replaced, leaving **658**
-ambiguous rows that the compiler's occurrence set does not disambiguate.
+ambiguous rows that the compiler's occurrence set does not disambiguate. These
+are pre-#54 numbers; the current graph is measured in
+[Post-#54 re-measure](#post-54-re-measure-78).
 
 `rust-analyzer` 1.97.0 does finish `hyusk` (750 crates, 157.7 s, 7.1 MiB), but
 the adapter gain is modest: only 141 of 65,165 references match a pending
 tree-sitter row, because most references are external, standard-library, or
 already resolved. The production-heavy split (54 of 88) is the useful signal;
 this is not a repeat of `rayon`'s generic-bound corpus.
+
+#### Post-#54 re-measure (#78)
+
+The table above is the pre-#54 graph. On the current tree (#54 inheritance and
+typed receivers, #75 memory fix) the same 100.3 MiB index applied to a fresh
+cold graph measures:
+
+| Full-tree adapter (post-#54) | Before | After |
+| --- | --- | --- |
+| Unresolved | 92,533 | **82,012** |
+| Edges | 56,800 | **63,800** |
+| Ambiguous rows | 1,570 | **656** |
+| Matched pending / replaced groups / rows | — | 10,521 / 295 / 914 |
+| New edges by rule | — | 6,048 method, 1,391 call, 475 reference |
+| Conflicts / skipped / unmatched | — | 41 / 500,347 / 161,318 |
+| Adapter wall / RSS | — | 23.1 s / 345 MiB |
+
+Reconciliation: `56,800 + 7,914 − 914 = 63,800`; `92,533 − 10,521 = 82,012`.
+The new edges split **6,772 test-path / 1,142 production**. The drop from the
+pre-#54 22,809 matched / 16,903 edges is the resolver's own gain: #54 resolves
+many of those references before the adapter runs, so the adapter's remaining
+opportunity is smaller, not broken.
+
+The production-only 909-document index was re-measured on the same commit:
+pending **92,533 → 91,271**, edges **56,800 → 57,793**, **1,262** matched,
+**1,025** new edges (901 method, 114 call, 10 reference), 15 replaced groups /
+32 rows, 13 conflicts, 4.91 s / 126 MiB.
+
+**LSP at this scale.** `pyright-langserver` 1.1.414 on the 163-file
+`django/{apps,core,utils}` subset produced 7,713 definitions / 17,351
+references in 30.9 s / 807 MiB (4.9 MB facts); applying them to the full graph
+merged 245 pending rows into 161 edges (147 method, 13 call, 1 reference) and
+replaced 3 groups (8 rows), leaving pending **92,533 → 92,288**. On the same
+163 source files the production SCIP index adds 199 edges, so LSP is close but
+behind SCIP for Python here. The full 3,051-file pyright run was stopped after
+**>27 minutes** with the 7.2 GiB host at ~6.3 GiB used and no facts file: it is
+not practical on this class of host, and no full-tree LSP number is claimed.
 
 ### Gaps
 
@@ -777,8 +816,9 @@ this is not a repeat of `rayon`'s generic-bound corpus.
   replication. `check` stopped at the 200-finding cap for both trees.
 - `callers`/`impact` now have a compiler ground-truth check on the smaller
   `requests` and `rayon` corpora (see [Reproducible corpora and compiler
-  accuracy](#reproducible-corpora-and-compiler-accuracy-2026-11-15-61)); the
-  large Django/hyusk numbers above were not accuracy-checked.
+  accuracy](#reproducible-corpora-and-compiler-accuracy-2026-11-15-61)); django
+  production is scored there too, while the `hyusk` numbers above are not
+  accuracy-checked.
 
 ## Python inheritance and receiver typing (2026-11-16, #54)
 

@@ -310,7 +310,7 @@ are from the corpora in [`docs/benchmarks.md`](benchmarks.md).
 | `scip-typescript` | 0.6.2 | 8-file `microsoft/vscode-uri` index | repo with `tsconfig.json` | smallest producer; fixture `testdata/fixtures/ts-adapter` |
 | `scip-python` | 0.6.8 | 798 KiB (`requests`), 30.3 MiB (Django production 909 files), 100.3 MiB (Django full tree 2,941 `.py`) | project root | needs Python 3.12; 0.6.8 rejects Python 3.14; full Django tree needs `NODE_OPTIONS=--max-old-space-size=4096` |
 | `rust-analyzer` | 1.97.0 | 7.4 MiB (`rayon`), 7.1 MiB (`hyusk`) | crate/workspace root | needs `cargo metadata` plus the crate's dependencies |
-| external LSP client (`scripts/lsp-facts.py`) | `typescript-language-server` 6.1.0 + TS 5.9.3; `pyright-langserver` 1.1.414 | JSON facts: 0.8 MB (`vscode-uri`), 1.9 MB (`requests`) | server command + `--root` | no server bundled; TypeScript 7 has no `lib/tsserver.js`, so the TS server is pinned to 5.9.3 |
+| external LSP client (`scripts/lsp-facts.py`) | `typescript-language-server` 6.1.0 + TS 5.9.3; `pyright-langserver` 1.1.414 | JSON facts: 0.8 MB (`vscode-uri`), 1.9 MB (`requests`), 4.9 MB (Django 163-file subset); full-tree Django did not complete | server command + `--root` | no server bundled; TypeScript 7 has no `lib/tsserver.js`, so the TS server is pinned to 5.9.3 |
 
 The pinned fixtures were produced externally and committed:
 `testdata/fixtures/ts-adapter` (scip-typescript 0.6.2),
@@ -392,29 +392,46 @@ index in-process (`SCIPIndex`) instead of committing another producer file.
   [`docs/benchmarks.md`](benchmarks.md).
 
 - **`django/django` @ `f24f38c6b2825f15628c07bf2892f1664eed9361`** (3,051
-  indexed files, 44,426 nodes, 105,319 pending) with the production-package
-  SCIP index (909 documents, 30.3 MiB, `--target-only django`): unresolved
-  **105,319 → 103,306** with **1,684** new edges (**1,627** `scip.py.method`,
-  **47** `scip.py.call`, **10** `scip.py.reference`), **2,013** matched pending
-  refs, **15 replaced ambiguous groups** (**32** candidate rows removed),
-  **10** reported conflicts, and ambiguous rows **1,572 → 1,540** (groups
-  **487 → 472**). Adapter wall time **6.08 s** median (6.07–6.26, three runs;
-  peak RSS **128.7 MiB**); the wall includes the post-index refresh. By source
-  file the 1,684 edges split **1,603 production / 81 test-path**.
-- **Full-tree Django**: `scip-python` 0.6.8 with
-  `NODE_OPTIONS=--max-old-space-size=4096` indexes all **2,941 `.py`** files in
-  **2:08** (max RSS **3.74 GiB**, **100.3 MiB** SCIP, exit 0). Applying it to
-  the same cold graph takes **33.1 s** (347.6 MiB RSS) and yields **169,269**
-  definitions / **613,467** references: unresolved **105,319 → 82,510**,
-  **22,809** matched pending refs, **16,903** new edges (**15,218**
-  `scip.py.method`, **1,210** `scip.py.call`, **475** `scip.py.reference`),
-  **295 replaced ambiguous groups** (**914** rows removed), **33** conflicts,
-  ambiguous rows **1,572 → 658** (groups **487 → 192**), edges **45,834 →
-  61,823**. The full index covers the test suite, so **15,150** of the 16,903
-  edges have a test-path source and only **1,753** are production; the
-  production-only file above is the useful application-code number. This is the
-  documented large-tree mode; see [Producer scale](#producer-scale).
-
+  indexed files, 44,426 nodes, 92,533 pending) with the production-package
+  SCIP index (909 documents, 30.3 MiB, `--target-only django`), re-measured on
+  the post-#54 graph in #78: unresolved **92,533 → 91,271** with **1,025** new
+  edges (**901** `scip.py.method`, **114** `scip.py.call`, **10**
+  `scip.py.reference`), **1,262** matched pending refs, **15 replaced ambiguous
+  groups** (**32** candidate rows removed), **13** conflicts, and ambiguous rows
+  **1,570 → 1,538**. Adapter wall **4.91 s** (**126 MiB** RSS); all 1,025 new
+  edges are production-source (`tests/` is empty because this producer indexes
+  the package, not the test suite). The pre-#54 record was 1,684 edges / 2,013
+  matched: the resolver now claims about half of what the adapter used to add,
+  and the remaining adapter gain is mostly method and call edges.
+- **Full-tree Django, post-#54** (`scip-python` 0.6.8 with
+  `NODE_OPTIONS=--max-old-space-size=4096`, all **2,941 `.py`** in **2:08**,
+  **3.74 GiB** max RSS, **100.3 MiB** SCIP): applying it to the current cold
+  graph takes **23.1 s** (**345 MiB** RSS) and yields **169,269** definitions /
+  **613,467** references: unresolved **92,533 → 82,012**, **10,521** matched
+  pending refs, **7,914** new edges (**6,048** `scip.py.method`, **1,391**
+  `scip.py.call`, **475** `scip.py.reference`), **295 replaced ambiguous groups**
+  (**914** rows removed), **41** conflicts, **500,347** skipped, **161,318**
+  unmatched; edges **56,800 → 63,800** and ambiguous rows **1,570 → 656**. The
+  full index covers the test suite, so **6,772** of the 7,914 edges have a
+  test-path source and **1,142** are production. The pre-#54 record (16,903
+  edges from 22,809 matched) overstates what the adapter still adds: #54's
+  inheritance/receiver rules now resolve those references before the adapter
+  runs. This is the documented large-tree mode; see
+  [Producer scale](#producer-scale).
+- **LSP facts, Python, Django subset** (`django/apps`, `django/core`,
+  `django/utils`; 163 files): `pyright-langserver` 1.1.414 produced **7,713
+  definitions / 17,351 references** in **30.9 s** (807 MiB peak RSS, **4.9 MB**
+  facts). `repath adapter --lsp-facts` merged 245 pending rows into **161** edges
+  (**147** `lsp.py.method`, **13** `lsp.py.call`, **1** `lsp.py.reference`) and
+  replaced 3 ambiguous groups (8 rows) in **1.00 s** (53 MiB): unresolved
+  **92,533 → 92,288**, edges **56,800 → 56,953**, ambiguous 1,570 → 1,562. On
+  the same 163 source files the production SCIP index contributes 199 edges
+  (196 method, 3 call), so SCIP covers a little more of this subset and covers
+  909 documents to pyright's 163 files. **Full-tree pyright is impractical on
+  this host**: the same producer on all 3,051 Django files ran for **>27
+  minutes**, held the 7.2 GiB host at ~6.3 GiB used (~1.0 GiB available), and
+  had written no facts file when stopped; the 163-file run is the largest
+  measured Python LSP scale, and the bound is recorded rather than extrapolated.
 - **LSP facts, TypeScript** (`microsoft/vscode-uri` @ `8b86482`, 8 files):
   `typescript-language-server` 6.1.0 with TypeScript 5.9.3 produced 677
   definitions / 3,801 references in **2.52 s** (79 MiB peak RSS, 808 KB facts).

@@ -817,18 +817,22 @@ resolved edge at the exact key is still a reported conflict, never an
 overwrite. Two same-line occurrences leave the group alone and are counted, so
 two distinct references are never merged. Stats gain `replaced` (groups) and
 `replaced_edges` (candidate rows) in `meta`/`status.adapters`, with no schema
-change (`SchemaVersion` stays 5). Measured: Django production-index
-**15 groups / 32 rows** replaced (ambiguous rows 1,572 → 1,540; pending
-105,319 → 103,306; edges 45,834 → 47,486), rayon **17 / 41** (ambiguous
-75 → 34; pending 2,048 → 1,214; edges 2,161 → 2,886), requests **0 / 0**. The
-full-tree Django producer now works: `scip-python` 0.6.8 with
-`NODE_OPTIONS=--max-old-space-size=4096` indexes 2,941 `.py` in **2:08** at
-**3.74 GiB** RSS (100.3 MiB SCIP), and the adapter takes the cold graph
-105,319 → 82,510 pending with **295 / 914** replaced, 16,903 edges, 33
-conflicts, 33.1 s and 347.6 MiB RSS. Accuracy: the adapter-touched cohort grows
-to 183 targets / 1,447 expected, and replacement adds **17** of the **+745** TP
-(rayon callers R 9.2% → 60.7%, precision 98.1% unchanged); the harness "before"
-row is now a pre-adapter caller snapshot because replacement deletes rows.
+change (`SchemaVersion` stays 6). Measured on the post-#54 graph (#78): Django
+production-index **15 groups / 32 rows** replaced (ambiguous rows 1,570 →
+1,538; pending 92,533 → 91,271; edges 56,800 → 57,793 with 1,025 new edges),
+rayon **17 / 41** (ambiguous 75 → 34; pending 2,048 → 1,214; edges 2,161 →
+2,886), requests **0 / 0**. The full-tree Django producer works: `scip-python`
+0.6.8 with `NODE_OPTIONS=--max-old-space-size=4096` indexes 2,941 `.py` in
+**2:08** at **3.74 GiB** RSS (100.3 MiB SCIP), and the adapter takes the cold
+graph 92,533 → 82,012 pending with **295 / 914** replaced, 7,914 edges, 41
+conflicts, 23.1 s and 345 MiB RSS. The pre-#54 record (22,809 matched / 16,903
+edges) overstates the adapter's remaining gain because #54 resolves many of
+those references first. Accuracy (#77, 60-target calibration): the
+adapter-touched cohort gains **+208** TP across 118 rayon targets (callers R
+22.5% → 41.7%) and **+1,025** TP across 439 Django targets (R 25.5% → 62.0%),
+with precision unchanged or higher; ambiguous-group replacement contributes
+inside those gains. The harness "before" row is a pre-adapter caller snapshot
+because replacement deletes rows.
 Fixture gates, exit codes, producers-in-CI, dependencies, and the resolver are
 unchanged; the adversarial tests are `TestSCIPAmbiguousReplacement`,
 `TestSCIPAmbiguousNonCandidateLeftAlone`,
@@ -903,8 +907,9 @@ Three runs: Django cold **4.54 s**, 10-file incremental **209 ms**, RSS
 **293 MiB**, `map` p95 **160.8 ms**, artifact **22.3 MiB → 5.8 MiB zstd
 (26.1%)**; hyusk cold **292 ms**, incremental **41.4 ms**, RSS **66.4 MiB**,
 `map` p95 **8.48 ms**, artifact **1.0 MiB → 313.7 KiB (29.4%)**. Adapter:
-`scip-python` 0.6.8 on a production-only 909-file Django index takes unresolved
-**105,319 → 103,306** (69.68% → 68.50%) with 1,669 edges (pre-#57; 1,684 now),
+`scip-python` 0.6.8 on a production-only 909-file Django index took unresolved
+**105,319 → 103,306** (69.68% → 68.50%) with 1,669 edges (pre-#57; 1,684 then;
+re-measured on the post-#54 graph in #78: 92,533 → 91,271 with 1,025 edges),
 while the full tree needs a 4 GB Node heap and then works (#57, below);
 `scip-rust` on the 750-crate hyusk workspace takes **4,222 → 4,081**
 (60.94% → 59.36%) with 88 edges, 54 of them production, from a 157.7 s
