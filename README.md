@@ -66,6 +66,9 @@ make build
 ./bin/repath impact --diff origin/main  # union blast radius for a change set
 ./bin/repath path <from> <to>          # how one symbol reaches another
 ./bin/repath map                       # ranked overview: modules, cycles, hubs
+./bin/repath map --md --out docs/repath-map  # committable markdown module bundle
+./bin/repath export --graphml --out g.graphml # full graph for Gephi/yEd/Obsidian
+./bin/repath export --dot --modules         # module graph for Graphviz
 ./bin/repath callers <symbol>          # who calls this
 ./bin/repath find <symbol>             # symbol card: callers, callees
 ./bin/repath mcp                       # stdio JSON-RPC for MCP clients

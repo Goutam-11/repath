@@ -29,6 +29,8 @@ Usage:
   repath tests   --diff [base] [--depth N] [--limit N] [--json]
   repath path    <from> <to> [--max-depth N] [--json]
   repath map     [--max-tokens N] [--json]
+  repath map     --md [--out DIR] [--max-tokens N]
+  repath export  --graphml|--dot [--modules] [--out FILE] [--min-confidence N]
   repath flows   <entrypoint> [--depth N] [--limit N] [--json]
   repath check   [--root DIR] [--json] [--min-confidence N]
                  [--fail-on none|error|warning|info] [--max-findings N]
@@ -52,6 +54,8 @@ Commands:
   tests    test files that structurally reach a changed target
   path     how one symbol reaches another
   map      ranked overview: modules, cycles, hot symbols
+           (--md writes a committable markdown bundle of the same rollup)
+  export   write the graph as GraphML or DOT for Gephi, yEd, Obsidian, or dot
   flows    forward execution paths from a detected entrypoint
   check    graph-native checks: cycles, dead code, boundaries, hotspots
            (opt-in --sarif adds compiler/linter diagnostics; repath never runs one)
@@ -103,6 +107,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return pathCmd(args[1:], stdout, stderr)
 	case "map":
 		return mapCmd(args[1:], stdout, stderr)
+	case "export":
+		return exportCmd(args[1:], stdout, stderr)
 	case "flows":
 		return flowsCmd(args[1:], stdout, stderr)
 	case "check":
@@ -146,6 +152,11 @@ type options struct {
 	failOn        string
 	maxFindings   int
 	platform      string
+	md            bool
+	out           string
+	modules       bool
+	graphml       bool
+	dot           bool
 	all           bool
 	force         bool
 	purge         bool
@@ -268,6 +279,22 @@ func parseOptions(args []string) (options, []string, error) {
 			o.platform = args[i]
 		case strings.HasPrefix(arg, "--platform="):
 			o.platform = strings.TrimPrefix(arg, "--platform=")
+		case arg == "--md":
+			o.md = true
+		case arg == "--modules":
+			o.modules = true
+		case arg == "--graphml":
+			o.graphml = true
+		case arg == "--dot":
+			o.dot = true
+		case arg == "--out":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--out needs a path")
+			}
+			i++
+			o.out = args[i]
+		case strings.HasPrefix(arg, "--out="):
+			o.out = strings.TrimPrefix(arg, "--out=")
 		case arg == "--all":
 			o.all = true
 		case arg == "--force":

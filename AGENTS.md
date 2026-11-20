@@ -42,6 +42,9 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 ./bin/repath impact <symbol|file:line>     # reverse closure, depth 8, limit 50
 ./bin/repath path <from> <to>              # shortest chain + alternates
 ./bin/repath map --max-tokens 1200         # PageRank, modules, cycles
+./bin/repath map --md --out docs/repath-map # committable markdown bundle (index.md + one page per module)
+./bin/repath export --graphml --out g.graphml  # full symbol graph for Gephi/yEd/Obsidian
+./bin/repath export --dot --modules         # module-level graph for Graphviz
 ./bin/repath find <symbol>                 # card: callers/callees
 ./bin/repath callers <symbol>              # one-hop reverse edges
 ./bin/repath impact x --min-confidence 0.9 # import/this/local edges only
@@ -405,6 +408,14 @@ the database.
   `diff.skipped`. Base order is explicit, `origin/main`, `main`, `HEAD`; bad
   refs/non-git exit `3`, clean diffs exit `0` without opening an index, and
   untracked files require `git add`.
+- **Exports are read-only projections, not a renderer.** `map --md` and
+  `export --graphml|--dot` read the same index and write no new nodes, edges,
+  rules, schema, or pending rows; they add no dependency (`encoding/xml` plus
+  text). Both are byte-identical across runs (sorted modules/symbols/edges), and
+  `map --md` bounds the whole bundle with `--max-tokens` while admitting when the
+  structural pages alone exceed it. Do not add HTML, SVG, a layout engine, or an
+  Obsidian-vault writer; do not make `export` read artifacts directly (pull
+  first) without a plan change. See `docs/export.md`.
 - **Entrypoints are a dimension, not nodes.** The `entrypoints` table (schema
   v6) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
   `rs.main` to existing symbols. Do not turn them into a node kind or let

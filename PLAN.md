@@ -366,6 +366,8 @@ repath tests  --diff [base]     [--depth 8] [--limit 50] [--json]
 repath flows  <entrypoint>      [--depth 6] [--limit 20] [--json]
 repath path   <A> <B>           [--max-depth 8] [--alternates 3] [--json]
 repath map    [--max-tokens 2000] [--json]
+repath map    --md [--out DIR] [--max-tokens 2000]
+repath export --graphml|--dot [--modules] [--out FILE] [--min-confidence 0.5]
 repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
               [--max-findings 200] [--sarif FILE|DIR ...] [--json]
 repath adapter --scip FILE      [--json]
@@ -377,6 +379,18 @@ repath serve  [--addr 127.0.0.1:0] [--root DIR]
 ```
 
 Symbol references accept `qname`, `name`, `file:line`, or `file:name`.
+
+`map --md` and `export` are read-only file projections of the same index: no new
+nodes, edges, rules, or schema. `map --md` writes `index.md` plus one page per
+module, bounds the **whole bundle** with `--max-tokens` (default 2,000, ~4 bytes
+per token), anchors a relative `--out` at the repository root, and is
+byte-identical on a second run; the default directory is `.repath/map`.
+`export` writes GraphML or DOT — symbol nodes/edges (`qname`/`kind`/`file`/`line`,
+`kind`/`confidence`/`rule`) or, with `--modules`, module nodes and aggregated
+`DEPENDS` edges (`weight`, strongest confidence) — to stdout or `--out`, and
+never emits pending rows or file bodies. Both are deterministic; the only new
+usage errors are the exit-`2` flag combinations documented in
+[`docs/export.md`](docs/export.md).
 
 `install`/`uninstall` are a file copy of the embedded `skills/repath/SKILL.md`
 into a user-scope agent skill directory (`claude`, `codex`, `cursor`, `gemini`,
