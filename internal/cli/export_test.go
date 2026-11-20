@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -325,7 +327,7 @@ func TestExportUsageErrors(t *testing.T) {
 		{"neither format", []string{"export", "--root", root}},
 		{"both formats", []string{"export", "--graphml", "--dot", "--root", root}},
 		{"positional", []string{"export", "--dot", "extra", "--root", root}},
-		{"artifact flag", []string{"export", "--dot", "--artifact", t.TempDir(), "--root", root}},
+		{"artifact without value", []string{"export", "--dot", "--artifact"}},
 		{"json flag", []string{"export", "--dot", "--json", "--root", root}},
 	}
 	for _, tc := range cases {
@@ -384,4 +386,132 @@ func keys(m map[string]string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// TestExportAndMapReadArtifactInPlace pins #107: export and map --md accept a
+// local artifact and must read it exactly like the live index, without pulling
+// it into .repath/ first.
+func TestExportAndMapReadArtifactInPlace(t *testing.T) {
+	root := exportFixture(t)
+	artifactDir := t.TempDir()
+
+	code, _, stderr := run(t, "index", "--root", root, "--artifact", artifactDir)
+	if code != 0 {
+		t.Fatalf("index --artifact exit = %d, stderr = %s", code, stderr)
+	}
+	if _, err := os.Stat(filepath.Join(artifactDir, "manifest.json")); err != nil {
+		t.Fatalf("artifact manifest: %v", err)
+	}
+
+	if code, _, stderr := run(t, "export", "--graphml", "--root", root); code != 0 {
+		t.Fatalf("local export: %d %s", code, stderr)
+	} else if code, again, _ := run(t, "export", "--graphml", "--root", root); code != 0 {
+		t.Fatalf("control export: %d", code)
+	} else if code, fromArtifact, stderr := run(t, "export", "--graphml", "--artifact", artifactDir); code != 0 {
+		t.Fatalf("artifact export: %d %s", code, stderr)
+	} else if fromArtifact != again {
+		t.Fatal("artifact export bytes differ from the local-index export")
+	}
+	localMap := t.TempDir()
+	if code, _, stderr := run(t, "map", "--md", "--root", root, "--out", localMap); code != 0 {
+		t.Fatalf("local map: %d %s", code, stderr)
+	}
+	artifactMap := t.TempDir()
+	if code, _, stderr := run(t, "map", "--md", "--artifact", artifactDir, "--out", artifactMap); code != 0 {
+		t.Fatalf("artifact map: %d %s", code, stderr)
+	}
+	if a, b := readTree(t, localMap), readTree(t, artifactMap); len(a) == 0 || !reflect.DeepEqual(a, b) {
+		t.Fatalf("artifact map bundle differs: %d vs %d pages", len(a), len(b))
+	}
+}
+
+func TestExportArtifactCompressed(t *testing.T) {
+	root := exportFixture(t)
+	artifactDir := t.TempDir()
+	if code, _, stderr := run(t, "index", "--root", root, "--artifact", artifactDir, "--compress"); code != 0 {
+		t.Fatalf("compressed artifact exit = %d, stderr = %s", code, stderr)
+	}
+	_, want, _ := run(t, "export", "--graphml", "--root", root)
+	code, got, stderr := run(t, "export", "--graphml", "--artifact", artifactDir)
+	if code != 0 {
+		t.Fatalf("compressed artifact export exit = %d, stderr = %s", code, stderr)
+	}
+	if got != want {
+		t.Fatal("compressed artifact export bytes differ from the local-index export")
+	}
+}
+
+func TestExportArtifactExitCodes(t *testing.T) {
+	root := exportFixture(t)
+	artifactDir := t.TempDir()
+	if code, _, stderr := run(t, "index", "--root", root, "--artifact", artifactDir); code != 0 {
+		t.Fatalf("index --artifact exit = %d, stderr = %s", code, stderr)
+	}
+
+	if code, _, _ := run(t, "export", "--graphml", "--artifact", filepath.Join(t.TempDir(), "missing")); code != 3 {
+		t.Fatalf("missing artifact exit = %d, want 3", code)
+	}
+
+	stale := t.TempDir()
+	copyTreeForTest(t, artifactDir, stale)
+	manifestPath := filepath.Join(stale, "manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest["schema_version"] = 99
+	data, _ = json.Marshal(manifest)
+	if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "never.graphml")
+	code, stdout, stderr := run(t, "export", "--graphml", "--artifact", stale, "--out", out)
+	if code != 1 {
+		t.Fatalf("stale artifact exit = %d, want 1 (stderr %s)", code, stderr)
+	}
+	if stdout != "" {
+		t.Fatalf("stale artifact wrote to stdout: %q", stdout)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("stale artifact wrote %s", out)
+	}
+
+	if code, _, _ := run(t, "export", "--graphml", "--dot", "--artifact", artifactDir); code != 2 {
+		t.Fatalf("format conflict exit = %d, want 2", code)
+	}
+	if code, _, _ := run(t, "map", "--artifact", artifactDir); code != 2 {
+		t.Fatalf("map without --md exit = %d, want 2", code)
+	}
+}
+
+// copyTreeForTest copies a directory tree (and its file modes) so a test can
+// tamper with an artifact without touching the original.
+func copyTreeForTest(t *testing.T, src, dst string) {
+	t.Helper()
+	err := filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		mode := info.Mode().Perm() | 0o200 // a copied artifact stays writable
+		return os.WriteFile(target, data, mode)
+	})
+	if err != nil {
+		t.Fatalf("copy %s: %v", src, err)
+	}
 }

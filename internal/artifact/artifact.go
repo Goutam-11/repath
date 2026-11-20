@@ -289,6 +289,70 @@ func Pull(ctx context.Context, source, root, version string) (Manifest, error) {
 	return manifest, nil
 }
 
+// ErrSchema marks an artifact whose manifest or database schema is not the
+// schema this binary understands. The CLI maps it to exit code 1 (an internal
+// mismatch, like a corrupted index), never to "not found".
+var ErrSchema = errors.New("artifact schema mismatch")
+
+// OpenReadOnly opens an artifact's database in place, without pulling it into
+// .repath/. It accepts the same local inputs Pull does: a directory, a
+// manifest path, or a direct database path. A compressed artifact is decoded
+// to a temporary file that the returned cleanup removes. The manifest, and the
+// database's own meta row, must both match store.SchemaVersion; a stale
+// artifact is refused rather than read with the wrong assumptions.
+func OpenReadOnly(ctx context.Context, source string) (*store.Store, func(), Manifest, error) {
+	manifest, dbPath, cleanup, err := resolveLocal(source)
+	if err != nil {
+		return nil, func() {}, Manifest{}, err
+	}
+	switch manifest.Format {
+	case "", "sqlite", "sqlite+zstd":
+	default:
+		cleanup()
+		return nil, func() {}, manifest, fmt.Errorf("artifact format %q is not supported", manifest.Format)
+	}
+	if isCompressed(manifest, dbPath) {
+		decompressed, err := decompressToTemp(dbPath)
+		if err != nil {
+			cleanup()
+			return nil, func() {}, manifest, err
+		}
+		previous := cleanup
+		cleanup = func() {
+			_ = os.Remove(decompressed)
+			previous()
+		}
+		dbPath = decompressed
+	}
+	if manifest.SchemaVersion != store.SchemaVersion {
+		cleanup()
+		return nil, func() {}, manifest, fmt.Errorf(
+			"%w: v%d is not supported by this binary (expects v%d); rebuild the artifact",
+			ErrSchema, manifest.SchemaVersion, store.SchemaVersion)
+	}
+	st, err := store.OpenReadOnly(ctx, dbPath)
+	if err != nil {
+		cleanup()
+		return nil, func() {}, manifest, err
+	}
+	done := func() {
+		_ = st.Close()
+		cleanup()
+	}
+	meta, err := st.Meta(ctx)
+	if err != nil {
+		done()
+		return nil, func() {}, manifest, fmt.Errorf("read artifact meta: %w", err)
+	}
+	if got := meta["schema_version"]; got != strconv.Itoa(store.SchemaVersion) {
+		done()
+		return nil, func() {}, manifest, fmt.Errorf(
+			"%w: database is v%s, manifest says v%d; rebuild the artifact",
+			ErrSchema, got, manifest.SchemaVersion)
+	}
+	return st, done, manifest, nil
+}
+
 func isCompressed(manifest Manifest, dbPath string) bool {
 	return manifest.Format == "sqlite+zstd" || strings.HasSuffix(strings.ToLower(dbPath), ".zst")
 }

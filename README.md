@@ -175,7 +175,9 @@ with its own exit code `5`. `check --sarif` attaches an external tool's SARIF
 **Committable exports.** `map --md` writes an `index.md` plus one page per module
 (trimmed to a token budget, byte-identical across runs); `export --graphml|--dot`
 writes the graph for Gephi, yEd, Obsidian, or Graphviz, with `--modules` for the
-module-level view. Both are read-only projections — no new nodes or edges.
+module-level view. Both are read-only projections — no new nodes or edges — and
+both accept `--artifact DIR|FILE` to read an exported snapshot in place instead
+of the local index.
 
 **Monorepos and CI.** `index --scope DIR` limits discovery to a subtree while
 keeping the repo root for module detection and git invalidation (Kibana:
@@ -275,11 +277,11 @@ repath path <from> <to> [--max-depth 8] [--json]
 repath find <symbol> [--module M] [--json]
 repath callers <symbol> [--min-confidence 0.5] [--json]
 repath tests <symbol|file:line> [--diff [base]] [--json]
-repath map [--max-tokens 2000] [--json] | repath map --md [--out DIR]
+repath map [--max-tokens 2000] [--json] | repath map --md [--out DIR] [--artifact DIR|FILE]
 repath flows <entrypoint> [--depth 6] [--limit 20] [--json]
 
 # projections and checks
-repath export --graphml|--dot [--modules] [--out FILE] [--min-confidence 0.5]
+repath export --graphml|--dot [--modules] [--out FILE] [--min-confidence 0.5] [--artifact DIR|FILE]
 repath check [--fail-on none|error|warning|info] [--max-findings N] [--sarif FILE|DIR ...] [--json]
 repath trace --file PROFILE [--limit 50] [--json]
 

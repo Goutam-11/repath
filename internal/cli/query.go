@@ -2,14 +2,17 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/Goutam-11/repath/internal/artifact"
 	"github.com/Goutam-11/repath/internal/graph"
 	"github.com/Goutam-11/repath/internal/query"
+	"github.com/Goutam-11/repath/internal/store"
 )
 
 func impactCmd(args []string, stdout, stderr io.Writer) int {
@@ -142,26 +145,51 @@ func mapCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "--md writes files; --json prints the answer. Pick one\n\n%s", usage)
 		return 2
 	}
+	if opts.artifact != "" && !opts.md {
+		fmt.Fprintf(stderr, "--artifact is only used with map --md\n\n%s", usage)
+		return 2
+	}
 
 	ctx := context.Background()
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	var (
+		st   *store.Store
+		root string
+	)
+	if opts.artifact != "" {
+		// A read-only artifact, opened in place: the bundle is rendered from
+		// the artifact's snapshot, never from a pulled or refreshed index.
+		opened, done, _, openErr := artifact.OpenReadOnly(ctx, opts.artifact)
+		if openErr != nil {
+			fmt.Fprintf(stderr, "map: %v\n", openErr)
+			if errors.Is(openErr, artifact.ErrNotFound) {
+				return 3
+			}
+			return 1
+		}
+		st = opened
+		defer done()
+	} else {
+		var err error
+		root, err = query.ResolveRoot(opts.root)
+		if err != nil {
+			fmt.Fprintf(stderr, "resolve root: %v\n", err)
+			return 1
+		}
+		opened, err := query.Open(ctx, root, false)
+		if err != nil {
+			fmt.Fprintf(stderr, "%v\n", err)
+			return 1
+		}
+		defer opened.Close()
+		st = opened.Store
 	}
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
-	}
-	defer st.Close()
 
 	if opts.md {
 		budget := opts.maxTokens
 		if budget <= 0 {
 			budget = query.DefaultMaxTokens
 		}
-		bundle, err := graph.BuildMapBundle(ctx, st.Store, opts.minConfidence)
+		bundle, err := graph.BuildMapBundle(ctx, st, opts.minConfidence)
 		if err != nil {
 			fmt.Fprintf(stderr, "map: %v\n", err)
 			return 1
@@ -172,8 +200,9 @@ func mapCmd(args []string, stdout, stderr io.Writer) int {
 		}
 		// A relative --out (and the default) is anchored at the repository the
 		// answer describes, so `--root other-repo` never writes into the
-		// caller's working directory.
-		if !filepath.IsAbs(outDir) {
+		// caller's working directory. An artifact has no checkout root, so its
+		// paths stay relative to the working directory.
+		if !filepath.IsAbs(outDir) && opts.artifact == "" {
 			outDir = filepath.Join(root, outDir)
 		}
 		files, trimmed, err := writeMapBundle(outDir, bundle, budget, opts.minConfidence)
@@ -185,7 +214,7 @@ func mapCmd(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	answer, err := query.Map(ctx, st.Store, opts.maxTokens, opts.minConfidence)
+	answer, err := query.Map(ctx, st, opts.maxTokens, opts.minConfidence)
 	if err != nil {
 		fmt.Fprintf(stderr, "map: %v\n", err)
 		return 1

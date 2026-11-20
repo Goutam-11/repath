@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Goutam-11/repath/internal/artifact"
 	"github.com/Goutam-11/repath/internal/graph"
 	"github.com/Goutam-11/repath/internal/query"
 	"github.com/Goutam-11/repath/internal/store"
@@ -57,33 +59,46 @@ func exportCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "export needs exactly one of --graphml or --dot\n\n%s", usage)
 		return 2
 	}
-	if opts.artifact != "" {
-		fmt.Fprintf(stderr, "export reads the local index; pull the artifact first (repath pull <dir>)\n\n%s", usage)
-		return 2
-	}
 	if opts.md || opts.json {
 		fmt.Fprintf(stderr, "export writes GraphML or DOT; --md is a map flag and --json is not used here\n\n%s", usage)
 		return 2
 	}
 
 	ctx := context.Background()
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	// An artifact is a read-only projection: it is opened in place, never
+	// pulled into .repath/ and never mutated.
+	var st *store.Store
+	if opts.artifact != "" {
+		opened, done, _, openErr := artifact.OpenReadOnly(ctx, opts.artifact)
+		if openErr != nil {
+			fmt.Fprintf(stderr, "export: %v\n", openErr)
+			if errors.Is(openErr, artifact.ErrNotFound) {
+				return 3
+			}
+			return 1
+		}
+		st = opened
+		defer done()
+	} else {
+		root, err := query.ResolveRoot(opts.root)
+		if err != nil {
+			fmt.Fprintf(stderr, "resolve root: %v\n", err)
+			return 1
+		}
+		opened, err := query.Open(ctx, root, false)
+		if err != nil {
+			fmt.Fprintf(stderr, "%v\n", err)
+			return 1
+		}
+		defer opened.Close()
+		st = opened.Store
 	}
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
-	}
-	defer st.Close()
 
 	var g exportGraph
 	if opts.modules {
-		g, err = buildModuleExport(ctx, st.Store, opts.minConfidence)
+		g, err = buildModuleExport(ctx, st, opts.minConfidence)
 	} else {
-		g, err = buildSymbolExport(ctx, st.Store, opts.minConfidence)
+		g, err = buildSymbolExport(ctx, st, opts.minConfidence)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "export: %v\n", err)
