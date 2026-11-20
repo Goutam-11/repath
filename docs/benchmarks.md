@@ -73,6 +73,10 @@ Three quiet-machine runs on 2026-11-13; the range is in parentheses.
 | zstd export / pull | **531 / 88 ms** | no target | — |
 | Peak RSS (all measurements) | **1.00–1.02 GiB** | no real-tree target | — |
 
+These are the #43-era numbers. Cold RSS was later measured at 1.09 GiB
+(2026-11-18) and fixed to a **633 MiB** median in #75; see
+[Cold RSS: compacted references](#cold-rss-compacted-references-75).
+
 Sample sizes: 20 deterministic `impact`/`callers` samples and 17 `path`
 samples over symbols with both callers and callees; 5 `map` samples. The first
 query of each kind is included, so these are warm-index, cold-process numbers
@@ -311,6 +315,68 @@ which is ≈25 MiB of live heap — the reason cold RSS sits near the 1 GiB line
   non-package.json workspace manifests are documented gaps, not measured.
 - The 215 removed pairs were sampled and classified by hand; they were not
   audited one by one.
+
+## Cold RSS: compacted references (#75)
+
+### Why
+
+The 2026-11-18 quiet-host run measured a met cold index (**24.9 s**) but
+**1.09 GiB** peak RSS, a miss against the §10 <1 GiB budget (earlier records:
+920 MiB at #43, ~1.00 GiB at #56 under load). A live-heap profile at
+`parse+flush` attributed **241 MiB** to `tsx.(*walker).call`: the indexer kept
+every file's `facts.Ref` struct until resolution, and the pinned tree has
+**1,173,776 refs** across 38,548 files. `resolve.Build` then added another
+145 MiB (node maps plus the 316,235 import bindings).
+
+### What changed
+
+- Each file's references are packed into one compact `[]byte` by
+  `facts.PackRefs` as soon as the file is parsed, and decoded one file at a time
+  during resolution (`facts.UnpackRefs`). Every `Ref` field round-trips; the
+  packed form averages ~39 bytes per reference instead of the ~205-byte live
+  allocation.
+- `flush` drops a batch's symbols, imports, entrypoints, and anchors once they
+  are persisted; resolution only needs the packed refs, the file path, and the
+  file id.
+- No schema, resolver rule, edge, or pending-row decision changed. A decode
+  error aborts the run instead of persisting a partial graph.
+- `internal/lang/facts/pack_test.go` pins the round trip (every field, empty,
+  unicode, malformed/truncated input) and the compact size.
+
+### Results (N=3, 2026-11-20)
+
+Linux 12 logical CPUs, 7.2 GiB RAM, warm page cache, shared host load
+**1.54 / 1.79 / 2.39** at the three runs.
+
+| Metric | Median (range) | PLAN §10 target |
+| --- | --- | --- |
+| Cold index | **20.2 s** (20.07–20.24) | < 3 min · pass |
+| **Peak RSS (cold)** | **633.1 MiB** (629.2–636.9) | < 1 GiB · **pass** |
+| 10-file incremental | **632 ms** (623–937) | < 1 s · pass |
+| `impact` p95 | **60.6 ms** (57.9–131.1) | < 150 ms · pass |
+| `callers` p95 | **40.1 ms** (38.7–46.3) | < 150 ms · pass |
+| `path` p95 | **86.4 ms** (85.5–92.3) | < 250 ms · pass |
+| `map` p95 | **234.1 ms** (219.6–247.3) | < 300 ms · pass |
+| `check` | 753 ms (749–760) | no target |
+| Artifact / zstd | 66.4 MiB → 17.4 MiB (26.2%) | no target |
+
+The graph is unchanged: 38,548 files / 87,478 nodes / **62,489 edges** /
+**157,205 unresolved (71.6%)** / 5,138 ambiguous / 158 parse failures, matching
+#56. Row-set parity on this tree: cold, a ten-file incremental, and a second
+`--full` produce identical edge and pending row sets (62,489 edge rows, 157,435
+pending rows), including the same ambiguous candidate ids. Synthetic
+`make perf` stayed green and improved: 50k cold **10.3 s / 280 MiB**, 10k cold
+**1.84 s / 77 MiB**, every p95 budget met.
+
+### Not verified
+
+- Median of three runs on one shared host at load 1.5–2.4; RSS was not measured
+  on an idle machine or with a different Go version.
+- The packed refs are an in-process format; no on-disk compatibility is claimed.
+- The diagnosis profile used a temporary `runtime.GC()` phase hook (removed);
+  the VmHWM values above are the normal `make bench-real` readings.
+- Only the sparse `x-pack/solutions` subtree is indexed, so no whole-Kibana
+  claim.
 
 ## Python and Rust corpora (#48)
 
