@@ -74,6 +74,16 @@ func Open(ctx context.Context, root string, noBuild bool) (*Session, error) {
 	return &Session{Root: root, Store: st}, nil
 }
 
+// OpenScoped opens the index for an explicit `index --scope` run, so a scoped
+// build never seeds the whole-repository commit cache.
+func OpenScoped(ctx context.Context, root string, noBuild bool, scope []string) (*Session, error) {
+	st, err := index.PrepareScoped(ctx, root, noBuild, scope)
+	if err != nil {
+		return nil, err
+	}
+	return &Session{Root: root, Store: st}, nil
+}
+
 // Close closes the underlying index.
 func (s *Session) Close() error { return s.Store.Close() }
 

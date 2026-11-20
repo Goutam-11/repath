@@ -23,6 +23,14 @@ import (
 type Options struct {
 	// Full re-parses every file even when its hash is unchanged.
 	Full bool
+	// Scope restricts discovery to these repository-relative paths (already
+	// normalised with CleanScope). nil means "whatever the index records";
+	// WholeRepo is the explicit request for the whole repository.
+	Scope []string
+	// WholeRepo clears a recorded scope. `index` without --scope sets it, so the
+	// default command always describes the whole tree; every other caller leaves
+	// it false and therefore keeps the scope it finds.
+	WholeRepo bool
 }
 
 // Result reports what one run changed.
@@ -43,14 +51,32 @@ type Result struct {
 // database write happens on the calling goroutine.
 func Run(ctx context.Context, st *store.Store, root string, opts Options) (Result, error) {
 	start := time.Now()
+	meta, err := st.Meta(ctx)
+	if err != nil {
+		return Result{}, err
+	}
+	// A scope change replaces the file set, so the graph must be rebuilt from
+	// scratch. Mixing two scopes in one index would leave rows for files the
+	// user did not ask for and module counts that describe another tree.
+	recorded := ScopeFromMeta(meta)
+	scope := effectiveScope(opts, recorded)
+	if !sameScope(scope, recorded) {
+		if err := st.ResetGraph(ctx); err != nil {
+			return Result{}, err
+		}
+		if err := st.SetMeta(ctx, metaScope, scopeMeta(scope)); err != nil {
+			return Result{}, err
+		}
+		opts.Full = true
+	} else {
+		opts.Scope = scope
+	}
 	// The xlang anchors are a v6 addition. A database migrated in place (for
 	// example a non-git directory) has files but no anchors for them, so one
 	// full re-read is forced until the marker says extraction has happened.
 	// Git worktrees already discard a stale-schema database before this point.
-	if !opts.Full {
-		if meta, err := st.Meta(ctx); err == nil && meta["xlang_indexed"] != "1" {
-			opts.Full = true
-		}
+	if !opts.Full && meta["xlang_indexed"] != "1" {
+		opts.Full = true
 	}
 	indexed, err := st.IndexedPaths(ctx)
 	if err != nil {
@@ -307,14 +333,14 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 // so the result can never be fresher than the hash path would have been.
 func runSources(ctx context.Context, st *store.Store, root string, indexed map[string]bool, head string, opts Options) ([]Source, error) {
 	if opts.Full || len(indexed) == 0 || head == "" {
-		return Discover(ctx, root)
+		return discoverScoped(ctx, root, opts.Scope)
 	}
 	meta, err := st.Meta(ctx)
 	if err != nil {
 		return nil, err
 	}
 	if meta["git_head"] != head {
-		return Discover(ctx, root)
+		return discoverScoped(ctx, root, opts.Scope)
 	}
 	// The two git reads are independent; run them together so the untracked
 	// scan and the tracked-status read overlap.
@@ -332,7 +358,7 @@ func runSources(ctx context.Context, st *store.Store, root string, indexed map[s
 		return nil, listErr
 	}
 	if !trackedOK {
-		return Discover(ctx, root)
+		return discoverScoped(ctx, root, opts.Scope)
 	}
 
 	changed := make(map[string]bool, len(trackedChanges)+len(untracked))
@@ -344,7 +370,7 @@ func runSources(ctx context.Context, st *store.Store, root string, indexed map[s
 	}
 	out := sourcesFromPaths(root, paths, func(rel string) bool {
 		return indexed[rel] && !changed[rel]
-	})
+	}, opts.Scope)
 	return out, nil
 }
 

@@ -43,9 +43,17 @@ type gitState struct {
 // stored for other worktrees. noBuild skips the lazy index pass (the index and
 // status commands run it explicitly).
 func Prepare(ctx context.Context, root string, noBuild bool) (*store.Store, error) {
+	return PrepareScoped(ctx, root, noBuild, nil)
+}
+
+// PrepareScoped is Prepare for an explicit `index --scope` run. A scoped index
+// is not a whole-repository snapshot, so it never seeds from (and never stores)
+// the commit cache: that cache is keyed by HEAD only and describes the whole
+// tree. Other commands call Prepare and keep whatever scope the index records.
+func PrepareScoped(ctx context.Context, root string, noBuild bool, scope []string) (*store.Store, error) {
 	g := inspectGit(ctx, root)
 	if !g.isGit || g.head == "" {
-		return openLocal(ctx, root, noBuild)
+		return openLocal(ctx, root, noBuild, Options{Scope: scope})
 	}
 
 	active := filepath.Join(root, ".repath", "index.db")
@@ -53,7 +61,36 @@ func Prepare(ctx context.Context, root string, noBuild bool) (*store.Store, erro
 		return nil, err
 	} else if ok {
 		if !noBuild {
-			if err := ensureIndexed(ctx, st, root, g); err != nil {
+			// A nil scope means "keep what the index records"; only an explicit
+			// `--scope` changes it.
+			opts := Options{}
+			if scope != nil {
+				opts = Options{Scope: scope}
+			}
+			if err := ensureIndexed(ctx, st, root, g, opts, false); err != nil {
+				st.Close()
+				return nil, err
+			}
+		}
+		return st, nil
+	}
+
+	// The active database is stale (a different HEAD or schema). A scope is an
+	// index property, so carry it across the rebuild: a lazy refresh of a scoped
+	// index must not silently turn into a whole-repository build.
+	if scope == nil {
+		scope = recordedScope(ctx, active)
+	}
+	if len(scope) > 0 {
+		if err := removeDB(active); err != nil {
+			return nil, err
+		}
+		st, err := openMigrated(ctx, active)
+		if err != nil {
+			return nil, err
+		}
+		if !noBuild {
+			if err := ensureIndexed(ctx, st, root, g, Options{Scope: scope}, true); err != nil {
 				st.Close()
 				return nil, err
 			}
@@ -69,11 +106,11 @@ func Prepare(ctx context.Context, root string, noBuild bool) (*store.Store, erro
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		// The cache is an optimization; a read-only common dir must not make a
 		// worktree unusable.
-		return openLocal(ctx, root, noBuild)
+		return openLocal(ctx, root, noBuild, Options{})
 	}
 	lock, err := acquireLock(ctx, cacheDir, g.head)
 	if err != nil {
-		return openLocal(ctx, root, noBuild)
+		return openLocal(ctx, root, noBuild, Options{})
 	}
 	defer lock.release()
 
@@ -162,7 +199,7 @@ func StoreCommit(ctx context.Context, root string, st *store.Store) error {
 	return storeCommitLocked(ctx, st, g, cacheDir)
 }
 
-func openLocal(ctx context.Context, root string, noBuild bool) (*store.Store, error) {
+func openLocal(ctx context.Context, root string, noBuild bool, opts Options) (*store.Store, error) {
 	st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
 	if err != nil {
 		return nil, fmt.Errorf("open index: %w", err)
@@ -172,7 +209,7 @@ func openLocal(ctx context.Context, root string, noBuild bool) (*store.Store, er
 		return nil, fmt.Errorf("migrate index: %w", err)
 	}
 	if !noBuild {
-		if err := ensureIndexed(ctx, st, root, gitState{}); err != nil {
+		if err := ensureIndexed(ctx, st, root, gitState{}, opts, opts.Scope != nil); err != nil {
 			st.Close()
 			return nil, err
 		}
@@ -180,23 +217,55 @@ func openLocal(ctx context.Context, root string, noBuild bool) (*store.Store, er
 	return st, nil
 }
 
-// ensureIndexed performs the lazy first index pass and, in a clean worktree,
-// refreshes the commit cache.
-func ensureIndexed(ctx context.Context, st *store.Store, root string, g gitState) error {
-	counts, err := st.Counts(ctx)
+// openMigrated opens an index database without git-aware seeding.
+func openMigrated(ctx context.Context, path string) (*store.Store, error) {
+	st, err := store.Open(ctx, path)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("open index: %w", err)
 	}
-	if counts.Files > 0 {
-		return nil
+	if err := st.Migrate(ctx); err != nil {
+		st.Close()
+		return nil, fmt.Errorf("migrate index: %w", err)
 	}
-	if _, err := Run(ctx, st, root, Options{}); err != nil {
+	return st, nil
+}
+
+// ensureIndexed performs the lazy first index pass and, in a clean worktree,
+// refreshes the commit cache. opts carries an explicit scope; with an empty
+// Options the run preserves the scope already recorded in the index. force
+// bypasses the "already indexed" short-circuit (a scope change must rebuild).
+func ensureIndexed(ctx context.Context, st *store.Store, root string, g gitState, opts Options, force bool) error {
+	if !force {
+		counts, err := st.Counts(ctx)
+		if err != nil {
+			return err
+		}
+		if counts.Files > 0 {
+			return nil
+		}
+	}
+	if _, err := Run(ctx, st, root, opts); err != nil {
 		return err
 	}
 	if g.isGit && g.clean && g.head != "" {
 		_ = StoreCommit(ctx, root, st)
 	}
 	return nil
+}
+
+// recordedScope reads the scope out of an existing index before it is replaced.
+// A missing, corrupt, or older-schema database has no scope to carry.
+func recordedScope(ctx context.Context, path string) []string {
+	st, err := store.OpenReadOnly(ctx, path)
+	if err != nil {
+		return nil
+	}
+	defer st.Close()
+	meta, err := st.Meta(ctx)
+	if err != nil {
+		return nil
+	}
+	return ScopeFromMeta(meta)
 }
 
 // openIfCurrent opens an existing active database only when it belongs to this
@@ -230,6 +299,15 @@ func openIfCurrent(ctx context.Context, active, head string) (*store.Store, bool
 }
 
 func storeCommitLocked(ctx context.Context, st *store.Store, g gitState, cacheDir string) error {
+	// The commit cache is keyed by HEAD and describes the whole tree; a scoped
+	// index must never become another worktree's seed.
+	meta, err := st.Meta(ctx)
+	if err != nil {
+		return err
+	}
+	if len(ScopeFromMeta(meta)) > 0 {
+		return nil
+	}
 	cache := filepath.Join(cacheDir, g.head+".db")
 	if cacheValid(cache) {
 		touch(cache)

@@ -355,7 +355,7 @@ Per-language rules that must exist before that language ships:
 ## 6. CLI contract
 
 ```
-repath index  [--full] [--json]
+repath index  [--full] [--json] [--scope DIR ...]
 repath status [--json]
 repath find   <name>            [--module M] [--json]
 repath callers <sym>            [--depth 1] [--min-confidence 0.5] [--json]
@@ -379,6 +379,16 @@ repath serve  [--addr 127.0.0.1:0] [--root DIR]
 ```
 
 Symbol references accept `qname`, `name`, `file:line`, or `file:name`.
+
+`index --scope DIR` (repeatable) restricts discovery to a subtree while keeping
+the repository root for module detection and git invalidation. The scope is
+recorded in `meta.scope`; `status --json` exposes `scope`/`scope_files`. A plain
+`index` (no `--scope`) or a different scope set wipes the graph and rebuilds —
+two scopes are never mixed — while every read command preserves the recorded
+scope. The HEAD-keyed worktree cache describes the whole tree, so a scoped index
+is never seeded from it or stored into it, and an artifact manifest records the
+scope. Usage errors are exit `2`; a manifest/database scope mismatch on `pull`
+is exit `1`. See [`docs/scope.md`](docs/scope.md).
 
 `map --md` and `export` are read-only file projections of the same index: no new
 nodes, edges, rules, or schema. `map --md` writes `index.md` plus one page per

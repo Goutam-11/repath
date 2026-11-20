@@ -39,6 +39,7 @@ make perf       # opt-in 10k + 50k synthetic budgets (outside make check)
 
 ./bin/repath status --json                 # indexes lazily, prints counts
 ./bin/repath index --full                  # rebuild
+./bin/repath index --scope packages/web    # discovery limited to a monorepo subtree (repeatable)
 ./bin/repath impact <symbol|file:line>     # reverse closure, depth 8, limit 50
 ./bin/repath path <from> <to>              # shortest chain + alternates
 ./bin/repath map --max-tokens 1200         # PageRank, modules, cycles
@@ -408,6 +409,18 @@ the database.
   `diff.skipped`. Base order is explicit, `origin/main`, `main`, `HEAD`; bad
   refs/non-git exit `3`, clean diffs exit `0` without opening an index, and
   untracked files require `git add`.
+- **`--scope` is a discovery filter with rebuild semantics.** `index --scope DIR`
+  (repeatable) filters discovery but keeps the repo root for module detection
+  and git invalidation; the set is recorded in `meta.scope` (absent = whole
+  repo), `status` reports `scope`/`scope_files`, and an artifact manifest records
+  it. A plain `index` or a different scope set **wipes the graph and rebuilds**
+  (`store.ResetGraph`) — never splice two scopes — while every read command
+  preserves the recorded scope, including across a HEAD change (the scope is
+  carried out of the stale database before it is replaced). The HEAD-keyed
+  commit cache describes the whole tree: a scoped index is never seeded from it
+  and never stored into it, so a fresh worktree or a cache seed starts
+  whole-repo. Do not add `--scope` to read commands or a per-scope cache file
+  without a plan change. See `docs/scope.md`.
 - **Exports are read-only projections, not a renderer.** `map --md` and
   `export --graphml|--dot` read the same index and write no new nodes, edges,
   rules, schema, or pending rows; they add no dependency (`encoding/xml` plus

@@ -48,6 +48,9 @@ type Manifest struct {
 	IndexedAt      string  `json:"indexed_at"`
 	Format         string  `json:"format"`
 	DBFile         string  `json:"db_file"`
+	// Scope is the `index --scope` set the snapshot was built with, recorded so
+	// a pulled index cannot silently describe a different file set.
+	Scope []string `json:"scope,omitempty"`
 }
 
 // ExportResult names the files an export wrote.
@@ -182,6 +185,7 @@ func ExportWithOptions(ctx context.Context, st *store.Store, root, outDir, versi
 		IndexedAt:      indexedAt,
 		Format:         format,
 		DBFile:         name,
+		Scope:          index.ScopeFromMeta(meta),
 	}
 	manifestPath := filepath.Join(outDir, ManifestName)
 	if err := writeManifest(manifestPath, manifest); err != nil {
@@ -255,6 +259,18 @@ func Pull(ctx context.Context, source, root, version string) (Manifest, error) {
 	}
 	if err := st.SetMeta(ctx, "root", root); err != nil {
 		return manifest, err
+	}
+	// The manifest and the database must agree on the scope; a mismatch means
+	// the artifact (or its manifest) was edited and the index would mix two
+	// file sets.
+	artifactScope, err := index.CleanScope(manifest.Scope)
+	if err != nil {
+		return manifest, fmt.Errorf("artifact scope: %w", err)
+	}
+	if !index.ScopeEqual(artifactScope, index.ScopeFromMeta(meta)) {
+		return manifest, fmt.Errorf(
+			"artifact manifest scope %v does not match the seeded index scope %v; rebuild the artifact",
+			manifest.Scope, index.ScopeFromMeta(meta))
 	}
 
 	files, err := index.Discover(ctx, root)

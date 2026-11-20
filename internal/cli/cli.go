@@ -19,6 +19,7 @@ const usage = `repath — structural answers about a codebase
 
 Usage:
   repath index   [--root DIR] [--full] [--json] [--artifact DIR] [--compress]
+                 [--scope DIR ...]
   repath pull    <path|url> [--root DIR] [--json]
   repath status  [--root DIR] [--json] [--no-refresh]
   repath find    <symbol> [--root DIR] [--json] [--min-confidence N]
@@ -152,6 +153,7 @@ type options struct {
 	failOn        string
 	maxFindings   int
 	platform      string
+	scope         []string
 	md            bool
 	out           string
 	modules       bool
@@ -279,6 +281,14 @@ func parseOptions(args []string) (options, []string, error) {
 			o.platform = args[i]
 		case strings.HasPrefix(arg, "--platform="):
 			o.platform = strings.TrimPrefix(arg, "--platform=")
+		case arg == "--scope":
+			if i+1 >= len(args) {
+				return o, nil, fmt.Errorf("--scope needs a directory")
+			}
+			i++
+			o.scope = append(o.scope, args[i])
+		case strings.HasPrefix(arg, "--scope="):
+			o.scope = append(o.scope, strings.TrimPrefix(arg, "--scope="))
 		case arg == "--md":
 			o.md = true
 		case arg == "--modules":

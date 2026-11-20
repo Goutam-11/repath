@@ -65,6 +65,7 @@ make build
 ./bin/repath impact <handler> --min-confidence 0.4  # include cross-language HTTP links
 ./bin/repath impact --diff origin/main  # union blast radius for a change set
 ./bin/repath path <from> <to>          # how one symbol reaches another
+./bin/repath index --scope packages/web  # index one monorepo subtree (repeatable)
 ./bin/repath map                       # ranked overview: modules, cycles, hubs
 ./bin/repath map --md --out docs/repath-map  # committable markdown module bundle
 ./bin/repath export --graphml --out g.graphml # full graph for Gephi/yEd/Obsidian
