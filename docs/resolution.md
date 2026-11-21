@@ -15,7 +15,7 @@ nothing better was available.
 | `ts.import.default` | 0.95 | default import, target file has exactly one export |
 | `ts.import.reexport` | 0.95 | the name is reached through `export { a } from "./x"` (or `export { default as a } from "./x"`) in the target module |
 | `ts.import.star` | 0.85 | the name is reached through one or more `export * from "./x"` hops |
-| `ts.import.workspace` | 0.95 | `import { a } from "@scope/pkg"` resolved through package.json `workspaces` to the package's source entry |
+| `ts.import.workspace` | 0.95 | `import { a } from "@scope/pkg"` resolved through the root workspace manifest (`pnpm-workspace.yaml` `packages:` or package.json `workspaces`) to the package's source entry |
 | `ts.import.workspace.reexport` | 0.90 | the workspace entry re-exports the name with `export { … } from` |
 | `ts.import.workspace.star` | 0.80 | the workspace entry reaches it through `export *` |
 | `ts.this.method` | 0.90 | `this.add()` inside `class Cart` → `Cart.add` |
@@ -198,18 +198,32 @@ that ends at a dependency is classified external instead of pending, which is
 why imports of names a local barrel re-exports from `@scope/pkg` no longer fall
 back to a repo-wide same-name guess.
 
-A bare specifier is then matched against the root `package.json` `workspaces`
-patterns (`packages/*`, and the object form's `packages` array). Each matching
-directory's `package.json` maps its `name` to a source entry, tried in this
-order: `exports` (string, `.` condition, or `import`/`types`/`require`/`default`
-condition), `source`, `types`, `typings`, `module`, `main`, then the
-`src/index` / `index` convention. An entry that is not in the index (build
-output under `dist/`) falls through to the next candidate, so a package whose
-`main` points at compiled JavaScript still resolves to its TypeScript source.
-`@scope/pkg/sub` resolves inside the package directory. This is local-manifest
-only: no registry, lockfile, or package manager is consulted, and
-`pnpm-workspace.yaml` is **not** read (Kibana declares its workspaces there, so
-its `@kbn/*` imports stay external).
+A bare specifier is then matched against the root workspace manifest: the
+`packages:` list of `pnpm-workspace.yaml` when that file declares one, else the
+root `package.json` `workspaces` field (an array, or the object form's
+`packages` array). The pnpm list is read without a YAML dependency — only the
+top-level `packages:` block, quoted or unquoted entries with trailing comments
+stripped, and a one-line `[...]` list — so `hoistPattern`, `catalog`, and
+`overrides` entries are never mistaken for packages. Patterns support `*`,
+`?`, `[...]`, and a recursive `**` segment; `**` is the only shape that walks
+the tree (bounded at 20k patterns, 10k directories, and 200k visits, skipping
+`node_modules` and dot directories), and the walk is deterministic. A leading
+`!` removes a directory, so a negated package stays external instead of being
+resolved by accident.
+
+Each matching directory's `package.json` maps its `name` to a source entry,
+tried in this order: `exports` (string, `.` condition, or
+`import`/`types`/`require`/`default` condition), `source`, `types`, `typings`,
+`module`, `main`, then the `src/index` / `index` convention. An entry that is
+not in the index (build output under `dist/`) falls through to the next
+candidate, so a package whose `main` points at compiled JavaScript still
+resolves to its TypeScript source. `@scope/pkg/sub` resolves inside the package
+directory. This is local-manifest only: no registry, lockfile, or package
+manager is consulted. A workspace entry whose named export is invisible (an
+anonymous `export default` call, or an entry file the parser rejects, such as
+`export type *` on the pinned grammar) leaves the import **pending** rather
+than external: the specifier does point into the repo, and the row names the
+gap instead of hiding it.
 
 A static dynamic import is a binding too: `const m = require("./x")` and
 `const m = await import("./x")` bind a namespace (resolved like
@@ -371,10 +385,12 @@ is in [`docs/benchmarks.md`](benchmarks.md#star-re-exports-2026-11-20-102).
   `import { ns } from "./barrel"` for a barrel that writes
   `export * as ns from "./x"` stays unresolved. Named and star re-exports are
   followed.
-- **Workspace manifests other than package.json.** Only the root package.json
-  `workspaces` field is read. `pnpm-workspace.yaml` (Kibana), `lerna.json`, and
-  per-package overrides are not consulted, so those repos' `@scope/*` imports
-  stay external even when the sources are indexed.
+- **Workspace manifests beyond the root.** The root `pnpm-workspace.yaml`
+  `packages:` list and the root `package.json` `workspaces` field are read,
+  with `*`/`**` patterns and `!` negations. `lerna.json`, per-package
+  overrides, lockfiles, registries, and nested workspace roots are not
+  consulted. A matched directory without a usable `package.json` contributes
+  no package name, so its specifiers stay external.
 - **Computed specifiers.** `import(path)` / `require(name)` with a variable or
   a template substitution is not a static module edge. `require` inside a
   non-declaration position (`module.exports = require("./x")`, a call argument)

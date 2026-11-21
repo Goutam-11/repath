@@ -1,0 +1,5 @@
+[
+  { "src": "src/app.ts:run", "dst": "packages/gadget/index.ts:spin", "kind": "CALLS" },
+  { "src": "src/app.ts:run", "dst": "packages/widget/src/impl.ts:gadget", "kind": "CALLS" },
+  { "src": "src/app.ts:run", "dst": "apps/web/src/index.ts:render", "kind": "CALLS" }
+]

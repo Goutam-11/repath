@@ -82,7 +82,7 @@ Two hard constraints inherited from the field:
 | 6 | Human output | Structured text on stdout + `--json` | Pipeable, diffable, zero dependencies |
 | 7 | Proof | Golden fixtures with P/R gates in CI | Regression protection without an LLM harness |
 | 8 | Nodes | Symbols are the only nodes; file and module are dimensions (amended in M2) | Same rollup power, no 10k no-op nodes, no drift after incremental |
-| 9 | Modules | Manifest-first, directory fallback | Zero-config that survives monorepos |
+| 9 | Modules | Manifest-first (`package.json` `workspaces` or `pnpm-workspace.yaml` `packages:`, amended for #79), directory fallback | Zero-config that survives monorepos |
 | 10 | Identity | Scoped qname + kind + arity; lines for display | Survives edits, disambiguates overloads |
 | 11 | Fidelity | tree-sitter + scope heuristics + confidence; optional compiler-fact merge via SCIP (v1.1) or an LSP facts file (v1.3) | Zero setup; compiler facts are opt-in and never required |
 | 12 | Ambiguity | Emit at low confidence with candidates + rule id | Complete answers; precision is the user's choice |
@@ -1170,7 +1170,8 @@ node taxonomy, module boundaries, symbol identity, cold start, cut line, proof
 strategy. Round 4 — transport (CLI + MCP adapter + skill), worktree seeding,
 team artifact sharing, diagnostics scope. Output: the 22 decisions in §3;
 decisions 23 (cross-language links) and 24 (runtime trace evidence) were added
-in v1.3.
+in v1.3. Decision 9 was amended for #79: a pnpm `packages:` list is a manifest
+source alongside package.json `workspaces`.
 
 ---
 
@@ -1183,9 +1184,13 @@ the Kibana cold-RSS miss against the §10 budget (#75), per-rule compiler-accura
 calibration (#77), and full-tree Django evidence (#78). After those, #81 is the
 first tagged release and stays approval-gated.
 
-The two large bets are alternatives, not a queue, and both need a §3 amendment
-and explicit approval before code: `pnpm-workspace.yaml` workspaces (#79) and Go
-support (#80). A merged cross-repo index (#88) is the third decision-gated item.
+The two large bets are alternatives, not a queue. `pnpm-workspace.yaml`
+workspace resolution (#79) landed on main: module boundaries and `@scope/*`
+imports read the pnpm `packages:` list, so Kibana @ `0551196` gains 2,156
+`ts.import.workspace*` edges over 562 target files (62,489 → 64,797 edges; the
+cold/incremental/full row sets agree). Go support (#80) remains the largest bet
+and still needs a decision-13 amendment and explicit approval before code. A
+merged cross-repo index (#88) is the third decision-gated item.
 The independent adoption features are #83 (`repath install` skill), #84
 (`impact --diff`), #85 (`map --md` + GraphML/DOT), #86 (`index --scope`), and
 #87 (token-savings benchmark). The largest remaining resolution quality gap is
