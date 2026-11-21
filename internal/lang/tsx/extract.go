@@ -71,9 +71,29 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 	if err != nil {
 		return Result{Err: err.Error()}
 	}
+	root := tree.RootNode()
+	parseSrc := src
+
+	// `export type *` is valid TypeScript the pinned grammar rejects (#122).
+	// Retry once on a same-length copy with the keyword blanked; only a tree
+	// with no errors replaces the original, so a genuine syntax error still
+	// reports parse_ok=0 and offsets never shift.
+	if root.HasError() && dialect != JavaScript {
+		if normalized, changed := typeStarSource(src); changed {
+			if altTree, altErr := parser.ParseString(context.Background(), nil, normalized); altErr == nil {
+				if !altTree.RootNode().HasError() {
+					tree.Close()
+					tree = altTree
+					root = altTree.RootNode()
+					parseSrc = normalized
+				} else {
+					altTree.Close()
+				}
+			}
+		}
+	}
 	defer tree.Close()
 
-	root := tree.RootNode()
 	res := Result{OK: !root.HasError()}
 	if !res.OK {
 		if line := errorLine(root); line > 0 {
@@ -83,7 +103,7 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 		}
 	}
 
-	w := &walker{src: src, res: &res, seen: make(map[string]bool), types: make(map[string]string)}
+	w := &walker{src: parseSrc, res: &res, seen: make(map[string]bool), types: make(map[string]string)}
 	for i := uint32(0); i < root.NamedChildCount(); i++ {
 		w.node(root.NamedChild(i), "", false)
 	}

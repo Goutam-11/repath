@@ -163,7 +163,12 @@ the database.
   deliberately and rebuild.
 - **The parser rejects some valid TypeScript**, e.g.
   `call<typeof import("x")>()`. Those files are stored with `parse_ok=0` and
-  partial symbols. Report the count; never hide it.
+  partial symbols. Report the count; never hide it. `export type *` (TS 5.0,
+  rejected by the pinned grammar) is the one handled exception: the extractor
+  retries a **same-length** copy with the `type` keyword blanked, accepts it
+  only when that parse has no errors, and walks the copy, so offsets never
+  move and the wildcard re-export is recorded (#122). Any other genuine error
+  still reports `parse_ok=0`; do not generalize this into a source rewriter.
 - **Member calls need a typed receiver** (`x.m()` resolves only when `x` is
   `new T()`, a parameter `x: T`, or a variable annotation). Without a type the
   reference stays unresolved by design — name guessing produced a false
@@ -341,9 +346,13 @@ the database.
   Since #79 (2026-11-21) Kibana's `pnpm-workspace.yaml` is read: a cold run
   measured **64,797 edges / 157,253 pending** (2,156 `ts.import.workspace*`
   over 562 target files; the +48 pending rows are local package entries whose
-  named export is invisible — anonymous defaults and 106 files the pinned
-  grammar rejects at `export type *`), with cold / incremental / second-`--full`
-  row sets identical. Run-to-run variance under host load can push
+  named export is invisible — anonymous defaults and local alias re-exports
+  such as `export { X as Y }`), with cold / incremental / second-`--full` row
+  sets identical. Since #122 the same-day `export type *` parse fix leaves
+  Kibana's edges and pending unchanged (tree-sitter error recovery already
+  recorded those bindings): parse failures drop 158 → 52 and only
+  `status.parse_failures` and the `parse-failure` bucket move (355 → 353).
+  Run-to-run variance under host load can push
   incremental to ~1.3 s and `impact` p95 past 150 ms; report medians and the
   load caveat, never turn it into CI, and do not weaken the synthetic
   `make perf` budgets because of it. `make bench-real-langs` is the #48

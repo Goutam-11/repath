@@ -98,6 +98,7 @@ func TestFixturePrecisionAndRecall(t *testing.T) {
 	specs := []fixtureSpec{
 		{name: "ts", precision: 0.90, recall: 0.75, maxUnresolved: 3},
 		{name: "ts-pnpm", precision: 0.90, recall: 0.75, maxUnresolved: 0},
+		{name: "ts-type-star", precision: 0.90, recall: 0.75, maxUnresolved: 0},
 		{name: "py", precision: 0.88, recall: 0.80, maxUnresolved: 2},
 		{name: "rs", precision: 0.85, recall: 0.70, maxUnresolved: 2},
 	}

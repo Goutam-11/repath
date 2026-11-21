@@ -349,9 +349,12 @@ Precision is unchanged everywhere: ambiguous rows are identical (Kibana 5,138;
 unocss 52; vite 285). The +48 Kibana and +21 unocss pending rows are the cost
 side: a specifier that used to be external now resolves to a local package
 entry whose named export is invisible (an anonymous
-`export default definePreset(...)`, or an entry file the pinned grammar rejects
-at `export type *` — 106 of Kibana's 158 parse failures contain that form). The
-row names a real gap instead of hiding it.
+`export default definePreset(...)`, or a local alias re-export such as
+`export { X as Y }`). The row names a real gap instead of hiding it. The
+same-day #122 `export type *` fix then drops Kibana's parse failures 158 → 52
+while edges and pending stay unchanged (tree-sitter error recovery had already
+recorded those bindings); only `status.parse_failures` and the `parse-failure`
+bucket move (355 → 353 rows).
 
 Cold / incremental / full parity is exact where it was re-checked. Kibana:
 **64,797 edge rows and 157,253 pending rows identical** after a ten-file
