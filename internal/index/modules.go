@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Goutam-11/repath/internal/resolve"
 	"github.com/Goutam-11/repath/internal/store"
 )
 
@@ -39,8 +40,7 @@ func ModuleRootFor(modules []store.Module, path string) string {
 }
 
 type packageJSON struct {
-	Name       string          `json:"name"`
-	Workspaces json.RawMessage `json:"workspaces"`
+	Name string `json:"name"`
 }
 
 func manifestModules(root string) []store.Module {
@@ -50,18 +50,19 @@ func manifestModules(root string) []store.Module {
 	return cargoModules(root)
 }
 
+// packageJSONModules groups a workspace by its manifests. The pattern list comes
+// from the same resolver helper the TypeScript resolver uses, so
+// pnpm-workspace.yaml `packages:` and package.json `workspaces` agree on
+// boundaries. A matched directory contributes a module only when it carries a
+// package.json: a `packages/**` pattern also matches nested source directories,
+// and those are not packages.
 func packageJSONModules(root string) []store.Module {
-	data, err := os.ReadFile(filepath.Join(root, "package.json"))
-	if err != nil {
-		return nil
-	}
-
 	var pkg packageJSON
-	if err := json.Unmarshal(data, &pkg); err != nil {
-		return nil
+	if data, err := os.ReadFile(filepath.Join(root, "package.json")); err == nil {
+		_ = json.Unmarshal(data, &pkg)
 	}
 
-	patterns := workspacePatterns(pkg.Workspaces)
+	patterns := resolve.WorkspacePatterns(root)
 	if len(patterns) == 0 {
 		return nil
 	}
@@ -69,35 +70,24 @@ func packageJSONModules(root string) []store.Module {
 	modules := []store.Module{{Name: nameOr(pkg.Name, "(root)"), Kind: "workspace", Root: "."}}
 
 	seen := map[string]bool{".": true}
-	for _, pattern := range patterns {
-		matches, err := filepath.Glob(filepath.Join(root, pattern))
-		if err != nil {
+	for _, rel := range resolve.ExpandWorkspaceDirs(root, patterns) {
+		if seen[rel] {
 			continue
 		}
-		for _, dir := range matches {
-			info, err := os.Stat(dir)
-			if err != nil || !info.IsDir() {
-				continue
-			}
-			rel, err := filepath.Rel(root, dir)
-			if err != nil || rel == "." {
-				continue
-			}
-			rel = filepath.ToSlash(rel)
-			if seen[rel] {
-				continue
-			}
-			seen[rel] = true
+		seen[rel] = true
 
-			name := rel
-			if data, err := os.ReadFile(filepath.Join(dir, "package.json")); err == nil {
-				var sub packageJSON
-				if json.Unmarshal(data, &sub) == nil && sub.Name != "" {
-					name = sub.Name
-				}
+		name := rel
+		if data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel), "package.json")); err == nil {
+			var sub packageJSON
+			if json.Unmarshal(data, &sub) == nil && sub.Name != "" {
+				name = sub.Name
 			}
-			modules = append(modules, store.Module{Name: name, Kind: "package", Root: rel})
+		} else {
+			// A glob such as `packages/**` matches nested directories; only a
+			// directory with a manifest is a workspace package.
+			continue
 		}
+		modules = append(modules, store.Module{Name: name, Kind: "package", Root: rel})
 	}
 
 	sort.Slice(modules, func(i, j int) bool { return modules[i].Root < modules[j].Root })
@@ -263,25 +253,6 @@ func stripTOMLComments(text string) string {
 		lines[i] = stripTOMLComment(line)
 	}
 	return strings.Join(lines, "\n")
-}
-
-func workspacePatterns(raw json.RawMessage) []string {
-	if len(raw) == 0 {
-		return nil
-	}
-
-	var list []string
-	if err := json.Unmarshal(raw, &list); err == nil {
-		return list
-	}
-
-	var object struct {
-		Packages []string `json:"packages"`
-	}
-	if err := json.Unmarshal(raw, &object); err == nil {
-		return object.Packages
-	}
-	return nil
 }
 
 // directoryModules keeps one module per first-level unit: src/<x>, or the

@@ -211,10 +211,15 @@ the database.
   named re-export beats `export *`; `export *` never carries a default; a chain
   ending at a dependency is external. A re-export creates no local binding, so
   it is **not** in the local-name imports map (Python/Rust re-exports are).
-  `@scope/pkg` resolves only from the root package.json `workspaces` field to
-  the package's source entry (`exports`/`source`/`types`/`module`/`main`, then
-  `src/index`); `pnpm-workspace.yaml`, lockfiles, and registries are not read,
-  which is why Kibana's `@kbn/*` imports stay external. Static
+  `@scope/pkg` resolves from the root workspace manifest: the
+  `pnpm-workspace.yaml` `packages:` list when present, else package.json
+  `workspaces`, to the package's source entry
+  (`exports`/`source`/`types`/`typings`/`module`/`main`, then `src/index`).
+  Patterns support `*`/`?`/`[...]` and a bounded `**` walk, `!` negations are
+  honored, and only the top-level `packages:` block is parsed — keep the YAML
+  reader dependency-free and never read lockfiles, registries, `lerna.json`, or
+  per-package overrides. A negated or unmatched package stays external; do not
+  add a same-name fallback. Static
   `require("./x")` / `import("./x")` bindings, including bundler magic comments
   in the argument list, reuse the namespace/named rules; computed specifiers
   create no binding. `export * as ns` and CommonJS `module.exports` shapes are
@@ -244,9 +249,10 @@ the database.
   would be a schema change).
   Treat the buckets as a pointer to a resolver gap, not a compiler diagnosis:
   inheritance, macro-generated symbols, `export * as ns`, and workspace imports
-  declared outside package.json legitimately land in
-  `member-scope`/`scope-gap`. TypeScript barrels, package.json workspaces, and
-  static dynamic imports no longer do (#56, see `docs/resolution.md`).
+  declared outside the root manifest (`lerna.json`, per-package overrides)
+  legitimately land in `member-scope`/`scope-gap`. TypeScript barrels, workspace
+  imports (package.json or pnpm), and static dynamic imports no longer do
+  (#56/#79, see `docs/resolution.md`).
 - **Rust module resolution is convention-based, with two explicit layout
   features.** Crate roots come from Cargo packages (`src/lib.rs` or
   `src/main.rs`), and a member's crate name comes from its Cargo.toml
@@ -332,8 +338,12 @@ the database.
   added), ambiguous **5,242 → 5,138**, cold **27.4 s**, 10-file incremental
   **737 ms**, `map` p95 **313 ms** on a load-4 host, with cold / incremental /
   second `--full` edge and pending **row sets identical**.
-  `ts.import.workspace*` stays 0 on Kibana because it declares workspaces in
-  `pnpm-workspace.yaml`. Run-to-run variance under host load can push
+  Since #79 (2026-11-21) Kibana's `pnpm-workspace.yaml` is read: a cold run
+  measured **64,797 edges / 157,253 pending** (2,156 `ts.import.workspace*`
+  over 562 target files; the +48 pending rows are local package entries whose
+  named export is invisible — anonymous defaults and 106 files the pinned
+  grammar rejects at `export type *`), with cold / incremental / second-`--full`
+  row sets identical. Run-to-run variance under host load can push
   incremental to ~1.3 s and `impact` p95 past 150 ms; report medians and the
   load caveat, never turn it into CI, and do not weaken the synthetic
   `make perf` budgets because of it. `make bench-real-langs` is the #48

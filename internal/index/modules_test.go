@@ -53,3 +53,41 @@ name = "beta-core"
 		t.Fatalf("member names = %+v", got)
 	}
 }
+
+// TestDetectPnpmWorkspaceModules pins #79 module boundaries: pnpm-workspace.yaml
+// is a manifest source alongside package.json, a negation removes a package, and
+// a `**` match without a package.json (a nested source directory) is not a
+// module.
+func TestDetectPnpmWorkspaceModules(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "package.json", `{"name":"pnpm-mono","private":true}`)
+	write(t, dir, "pnpm-workspace.yaml", `hoistPattern:
+  - '*'
+packages:
+  - 'packages/*'
+  - 'packages/**'
+  - apps/*
+  - '!packages/skip'
+`)
+	write(t, dir, "packages/alpha/package.json", `{"name":"@demo/alpha"}`)
+	write(t, dir, "packages/alpha/index.ts", "export const a = 1;\n")
+	write(t, dir, "packages/widget/package.json", `{"name":"@demo/widget"}`)
+	write(t, dir, "packages/widget/src/index.ts", "export const w = 2;\n")
+	write(t, dir, "packages/skip/package.json", `{"name":"@demo/skip"}`)
+	write(t, dir, "apps/web/package.json", `{"name":"@demo/web"}`)
+	write(t, dir, "tools/unlisted/package.json", `{"name":"@demo/unlisted"}`)
+
+	modules := DetectModules(dir, nil)
+	got := map[string]string{}
+	for _, m := range modules {
+		got[m.Root] = m.Name
+	}
+	if got["."] != "pnpm-mono" || got["packages/alpha"] != "@demo/alpha" || got["packages/widget"] != "@demo/widget" || got["apps/web"] != "@demo/web" {
+		t.Fatalf("modules = %+v", got)
+	}
+	for _, absent := range []string{"packages/skip", "packages/widget/src", "tools/unlisted", "packages"} {
+		if name, ok := got[absent]; ok {
+			t.Fatalf("module %q = %q, want no module (negated, manifest-less, or unmatched)", absent, name)
+		}
+	}
+}

@@ -311,9 +311,11 @@ Symbol references accept a qualified name, a bare name, `file:line`, or
 ## Limitations and non-goals
 
 - **No Go support yet** ([#80](https://github.com/Goutam-11/repath/issues/80),
-  decision-gated). `pnpm-workspace.yaml` workspaces are not read
-  ([#79](https://github.com/Goutam-11/repath/issues/79)); Kibana's `@kbn/*`
-  imports therefore stay external.
+  decision-gated).
+- **Workspace manifests are read from the repo root only.** A pnpm
+  `packages:` list or package.json `workspaces` field resolves `@scope/*`
+  imports to local package sources; lockfiles, registries, `lerna.json`,
+  per-package overrides, and nested workspace roots are not read.
 - **cgo is required.** Release binaries are dynamically linked (glibc);
   arm64 cross-compiles need an aarch64 C toolchain.
 - **Parser and resolver limits are documented, not hidden:** some valid

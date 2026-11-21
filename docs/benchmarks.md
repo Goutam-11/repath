@@ -259,11 +259,9 @@ wrong candidates of an ambiguity group the barrel now resolves exactly. Both are
 precision improvements, but they remove impact/caller branches from those local
 symbols, so they are recorded rather than celebrated.
 
-`ts.import.workspace*` is 0 on Kibana: the root `package.json` has no
-`workspaces` field (its workspace list lives in `pnpm-workspace.yaml`, which
-`docs/resolution.md` lists as not read), so `@kbn/*` imports stay external.
-Workspace resolution is fixture- and unit-tested instead
-(`testdata/fixtures/ts/packages/*` and `TestTypeScriptWorkspacePackageResolves`).
+`ts.import.workspace*` was 0 on Kibana under #56 because the root `package.json`
+has no `workspaces` field and its `pnpm-workspace.yaml` was not read. #79
+(2026-11-21) reads that list; see §pnpm workspaces below.
 
 ### Cold / incremental / full parity
 
@@ -305,9 +303,8 @@ which is ≈25 MiB of live heap — the reason cold RSS sits near the 1 GiB line
 
 ### Not verified
 
-- Workspace resolution is not measured on a real package.json-workspaces
-  monorepo. Kibana uses `pnpm-workspace.yaml` and no other pinned corpus has
-  local workspaces, so that part of #56 is fixture/unit evidence only.
+- Workspace resolution is now measured on Kibana and two mid-size pnpm corpora
+  (§pnpm workspaces); it is no longer fixture-only.
 - Every number above is one Linux host with a warm page cache and a shared
   load (2.6–5.9). The `map` and RSS rows are load-sensitive.
 - Only the `x-pack/solutions` subtree is indexed, so no whole-Kibana claim.
@@ -315,6 +312,76 @@ which is ≈25 MiB of live heap — the reason cold RSS sits near the 1 GiB line
   non-package.json workspace manifests are documented gaps, not measured.
 - The 215 removed pairs were sampled and classified by hand; they were not
   audited one by one.
+
+## pnpm workspaces (2026-11-21, #79)
+
+`pnpm-workspace.yaml` is the workspace manifest in pnpm monorepos; Kibana
+declares its 1,530 package entries there and the root `package.json` has no
+`workspaces` field. #79 reads only the top-level `packages:` list — no YAML
+dependency — expands `*`/`?`/`[...]` and a bounded `**` walk, honors `!`
+negations, and reuses the existing package-entry ladder
+(`exports`/`source`/`types`/`typings`/`module`/`main`, then `src/index`).
+Module boundaries use the same expansion, so a pnpm monorepo's `map` groups by
+package instead of by first-level directory.
+
+Two binaries (main before, branch after), same command (`index --full`), same
+host, with `.repath/` and `.git/repath` removed before each cold run:
+
+| Corpus | Files | Edges before → after | Pending before → after | `ts.import.workspace*` | Target files |
+| --- | --- | --- | --- | --- | --- |
+| `elastic/kibana` @ `0551196` (sparse `x-pack/solutions`) | 38,548 | 62,489 → 64,797 | 157,205 → 157,253 | 0 → 2,156 | 562 |
+| `unocss/unocss` @ `fd42165` | 1,016 | 1,080 → 1,301 | 4,052 → 4,073 | 0 → 209 | 52 |
+| `vitejs/vite` @ `3567471` | 1,676 | 2,796 → 2,801 | 7,393 → 7,396 | 0 → 5 | 5 |
+| `vuejs/core` @ `7de9e41` | 519 | 3,507 → 3,507 | 5,478 → 5,478 | 0 → 0 | 0 |
+
+Kibana's workspace list is mostly explicit package paths, so its 1,530 entries
+expand without a tree walk; 154 of them are present in the sparse clone and
+they still reach 562 distinct source files. `unocss` is the shape the feature
+targets (`packages-engine/*`, `packages-presets/*`, `virtual-shared/*`, every
+`@unocss/*` import bare). `vite` exercises `playground/**` and a
+`!packages/vite/src/node/server/__tests__/fixtures/pnpm` negation; its small
+gain is real — most of its internals import relatively. `vuejs/core` is a
+negative control: its `tsconfig.json` maps `@vue/*` to `packages/*/src`, so the
+alias ladder resolves those imports first and the graph is unchanged. The
+negated/unmatched fixture case is `testdata/fixtures/ts-pnpm`.
+
+Precision is unchanged everywhere: ambiguous rows are identical (Kibana 5,138;
+unocss 52; vite 285). The +48 Kibana and +21 unocss pending rows are the cost
+side: a specifier that used to be external now resolves to a local package
+entry whose named export is invisible (an anonymous
+`export default definePreset(...)`, or an entry file the pinned grammar rejects
+at `export type *` — 106 of Kibana's 158 parse failures contain that form). The
+row names a real gap instead of hiding it.
+
+Cold / incremental / full parity is exact where it was re-checked. Kibana:
+**64,797 edge rows and 157,253 pending rows identical** after a ten-file
+comment edit (741 ms incremental) and after a second `index --full`. `unocss`:
+1,301 / 4,073 identical (56 ms incremental). Cold wall and RSS were measured
+twice per binary on Kibana:
+
+| Corpus | Cold before | Cold after | Peak RSS | Host load |
+| --- | --- | --- | --- | --- |
+| Kibana (run 1) | 26.03 s | 26.31 s | 628 → 670 MiB | 1.54 → 3.14 |
+| Kibana (run 2) | 24.29 s | 25.54 s | 661 → 660 MiB | 1.97 → 2.28 |
+| unocss | 0.50 s | 0.41 s | ~79 MiB | ~2 |
+| vite | 0.59 s | 0.68 s | ~70 MiB | ~2 |
+
+The run-1 RSS delta was load noise; run 2 is at parity. Both Kibana cold runs
+stay inside the §10 budget (3 min, 1 GiB). One expensive case: the pnpm list is
+parsed and expanded once per index run (1,530 literal patterns + 154 manifest
+reads on the sparse Kibana tree), which is a few milliseconds; no tree walk
+happens because no Kibana pattern uses `**`.
+
+### Not verified
+
+- Only the sparse `x-pack/solutions` Kibana subtree is cloned; a whole-Kibana
+  run is not measured (the full 1,530-entry list is read, but only 154 local
+  packages are indexed).
+- No pinned corpus exercises `**` patterns at scale; `**` is fixture- and
+  unit-tested, and `vite`'s patterns are the only real-tree exercise.
+- The extra pending rows are counted, not audited name by name.
+- Timings are one Linux host with a shared load (1.5–3.1); they are not a
+  budget.
 
 ## Cold RSS: compacted references (#75)
 

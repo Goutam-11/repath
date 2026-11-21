@@ -1,0 +1,13 @@
+# A pnpm workspace declares its packages here, not in package.json.
+# Only the top-level `packages:` list is read; hoistPattern and catalog are
+# not workspace members.
+nodeLinker: hoisted
+hoistPattern:
+  - '*'
+catalog:
+  react: 19.0.0
+
+packages:
+  - 'packages/*'
+  - apps/*          # unquoted with a trailing comment
+  - "!packages/legacy"
