@@ -256,3 +256,74 @@ app.get("/api/products", products);`)
 		}
 	}
 }
+
+// TestTypeStarExportParses pins #122: TypeScript 5.0's `export type *` is
+// valid but rejected by the pinned grammar, so the extractor retries on a
+// same-length copy with the keyword blanked. The wildcard re-export survives,
+// the file is parse_ok, and the next declaration keeps its real line number.
+func TestTypeStarExportParses(t *testing.T) {
+	src := []byte("export type * from './types';\n\nexport function after(): number {\n  return 1;\n}\n")
+	result := New().Extract(src, TypeScript)
+	if !result.OK {
+		t.Fatalf("OK = false, err = %q", result.Err)
+	}
+	var star bool
+	for _, imp := range result.Imports {
+		if imp.Source == "./types" && imp.Imported == "*" && imp.Public {
+			star = true
+		}
+	}
+	if !star {
+		t.Fatalf("missing wildcard re-export to ./types: %+v", result.Imports)
+	}
+	after, ok := byQName(result.Symbols)["after"]
+	if !ok {
+		t.Fatalf("missing `after` symbol after the type-star line: %+v", result.Symbols)
+	}
+	if after.StartLine != 3 {
+		t.Fatalf("after.StartLine = %d, want 3 (the rewrite must not shift offsets)", after.StartLine)
+	}
+}
+
+// TestTypeStarNamespaceExportParses covers the `export type * as ns` form.
+func TestTypeStarNamespaceExportParses(t *testing.T) {
+	result := New().Extract([]byte("export type * as types from './types';\n"), TypeScript)
+	if !result.OK {
+		t.Fatalf("OK = false, err = %q", result.Err)
+	}
+}
+
+// TestTypeStarKeepsGenuineErrors: the fallback must not mask a real syntax
+// error in the same file.
+func TestTypeStarKeepsGenuineErrors(t *testing.T) {
+	result := New().Extract([]byte("export type * from './a';\nconst = ;\n"), TypeScript)
+	if result.OK {
+		t.Fatal("OK = true; a genuine syntax error must stay parse_ok=0")
+	}
+}
+
+func TestTypeStarSourcePreservesLength(t *testing.T) {
+	src := []byte("export type * as ns from './a';\n")
+	out, changed := typeStarSource(src)
+	if !changed {
+		t.Fatal("type-star statement was not rewritten")
+	}
+	if len(out) != len(src) {
+		t.Fatalf("length %d -> %d; offsets must be preserved", len(src), len(out))
+	}
+	if want := "export      * as ns from './a';\n"; string(out) != want {
+		t.Fatalf("rewrite = %q, want %q", out, want)
+	}
+}
+
+func TestTypeStarSourceIgnoresNonStatements(t *testing.T) {
+	for _, src := range []string{
+		"const s = \"export type * from './a'\";\n",
+		"// export type * from './a'\n",
+		"const x = 1; export type * from './a';\n",
+	} {
+		if _, changed := typeStarSource([]byte(src)); changed {
+			t.Fatalf("unexpected rewrite of %q", src)
+		}
+	}
+}

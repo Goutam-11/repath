@@ -381,6 +381,10 @@ is in [`docs/benchmarks.md`](benchmarks.md#star-re-exports-2026-11-20-102).
 
 ### TypeScript / JavaScript
 
+- **Type-only wildcards.** `export type * from "./x"` is parsed through a
+  same-length retry that blanks the `type` keyword (#122), so the module keeps
+  its wildcard re-export; whether an export is type-only or a value is still
+  not modelled, and `export type * as ns` keeps the `export * as ns` gap below.
 - **`export * as ns`.** A namespace re-export is not followed, so
   `import { ns } from "./barrel"` for a barrel that writes
   `export * as ns from "./x"` stays unresolved. Named and star re-exports are
