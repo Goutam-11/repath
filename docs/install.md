@@ -4,17 +4,17 @@ repath is one binary over SQLite. Building it needs Go 1.27+ **and a C
 toolchain**: tree-sitter runs through cgo (PLAN §3 decision 15), so there is no
 pure-Go build. Linux amd64 and arm64 are the release targets.
 
-The first tagged release is **v1.3.0** (2026-11-20): Linux amd64/arm64
-archives, SHA-256 checksums, and a source archive on the
-[GitHub releases page](https://github.com/Goutam-11/repath/releases/tag/v1.3.0).
-`repath --version` prints the tag (`v1.3.0`).
+The latest release is **v1.4.0** (2026-11-22): Linux amd64/arm64 archives,
+SHA-256 checksums, and a source archive on the
+[GitHub releases page](https://github.com/Goutam-11/repath/releases/tag/v1.4.0).
+`repath --version` prints the tag (`v1.4.0`).
 
 ## From a release
 
 Download the archive and checksums from the [GitHub releases page](https://github.com/Goutam-11/repath/releases):
 
 ```sh
-version=1.3.0    # release version WITHOUT the leading v (GoReleaser .Version)
+version=1.4.0    # release version WITHOUT the leading v (GoReleaser .Version)
 tag="v${version}"
 arch=amd64       # amd64 or arm64
 base="https://github.com/Goutam-11/repath/releases/download/${tag}"

@@ -26,10 +26,9 @@ depth 1
   use_star  app/star_use.py:4  0.80  calls
 ```
 
-- **Latest release:** [v1.3.0](https://github.com/Goutam-11/repath/releases/tag/v1.3.0)
+- **Latest release:** [v1.4.0](https://github.com/Goutam-11/repath/releases/tag/v1.4.0)
   (Linux amd64/arm64, SHA-256 checksums).
-- **Status:** the first tagged release. TypeScript/JavaScript, Python, Rust,
-  and Go are indexed. The contract (schema v6, 25 locked decisions) lives in
+- **Status:** TypeScript/JavaScript, Python, Rust, and Go are indexed. The contract (schema v6, 25 locked decisions) lives in
   [`PLAN.md`](PLAN.md).
 
 ---
