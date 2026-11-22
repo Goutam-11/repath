@@ -19,6 +19,7 @@ repath callers <symbol> --json            # direct reverse edges
 repath find <symbol> --json               # card: location, caller/callee counts
 repath map --max-tokens 1200 --json       # modules, cycles, ranked hubs
 repath status --json                      # counts, unresolved, ambiguity, parse failures
+repath merge <artifact>... --out DIR      # one read-only index from several repo artifacts
 repath flows <entrypoint> --json          # forward execution paths
 repath tests <symbol|file:line> --json    # structurally affected test files
 repath tests --diff origin/main --json   # affected tests for a change set

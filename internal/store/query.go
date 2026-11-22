@@ -1033,3 +1033,60 @@ func (s *Store) EntrypointCounts(ctx context.Context) (map[string]int, error) {
 	}
 	return out, rows.Err()
 }
+
+// FileRow is one row of the files table, used by the cross-repo merge to copy a
+// part's file set without re-parsing sources.
+type FileRow struct {
+	ID       int64
+	Path     string
+	Lang     string
+	ModuleID int64
+	Size     int64
+	MTime    int64
+	Hash     string
+	ParseOK  bool
+	Err      string
+}
+
+// Files returns every file row, stable by path. It is a projection reader: the
+// merge package is the only caller, and it never mutates the source store.
+func (s *Store) Files(ctx context.Context) ([]FileRow, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, path, lang, module_id, size, mtime, hash, parse_ok, err
+		FROM files ORDER BY path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []FileRow
+	for rows.Next() {
+		var f FileRow
+		if err := rows.Scan(&f.ID, &f.Path, &f.Lang, &f.ModuleID, &f.Size, &f.MTime, &f.Hash, &f.ParseOK, &f.Err); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
+// AllEdges returns every edge with its endpoints as node ids, stable by source,
+// target, kind, rule and line. Candidate ids are the ambiguous group's node ids
+// at the source store; a merge must remap them.
+func (s *Store) AllEdges(ctx context.Context) ([]Edge, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT src, dst, kind, confidence, rule, line, candidates
+		FROM edges ORDER BY src, dst, kind, rule, line`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Edge
+	for rows.Next() {
+		var e Edge
+		if err := rows.Scan(&e.Src, &e.Dst, &e.Kind, &e.Confidence, &e.Rule, &e.Line, &e.Candidates); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}

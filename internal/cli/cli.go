@@ -49,6 +49,7 @@ Usage:
 Commands:
   index    build or update .repath/index.db (optionally export an artifact)
   pull     seed the local index from a repath artifact (path or URL)
+  merge    build one read-only index from several repo artifacts
   status   report index state, refreshing it first
   find     symbol card: location, kind, caller and callee counts
   callers  who calls this symbol
@@ -95,6 +96,8 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		return indexCmd(args[1:], stdout, stderr)
 	case "pull":
 		return pullCmd(args[1:], stdout, stderr)
+	case "merge":
+		return mergeCmd(args[1:], stdout, stderr)
 	case "status":
 		return statusCmd(args[1:], stdout, stderr)
 	case "find":
