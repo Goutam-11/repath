@@ -11,7 +11,7 @@ SARIF, the TypeScript/Python/Rust SCIP adapters and the LSP facts seam,
 entrypoint flows, test-impact mapping and `--diff`, dual-era MCP, opt-in artifact
 compression, the read-only HTTP server, cross-language HTTP links, read-only
 trace evidence, and GoReleaser-based distribution (no tag yet; #81). Schema v6,
-24 locked decisions. This document is the contract for v1 and its v1.1–v1.3
+25 locked decisions. This document is the contract for v1 and its v1.1–v1.3
 slices. Scope changes require editing the decision table, not just the code.
 
 ---
@@ -98,6 +98,7 @@ Two hard constraints inherited from the field:
 | 22 | Diagnostics | Structural `check`; opt-in SARIF 2.1.0 ingestion attaches external diagnostics and never runs the compiler (amended in v1.2) | The compiler already did the work; reading its log is a bridge, not a language frontend |
 | 23 | Cross-language | Low-confidence links between symbols in different languages, emitted as `REFERENCES` at 0.45 with `xlang.<protocol>.*` rules and rebuilt from the `xlang_anchors` dimension; first transport HTTP route literals (v1.3) | Full-stack "what breaks" without a runtime; below the default floor like ambiguity, so default answers are unchanged |
 | 24 | Runtime evidence | Optional read-only trace import: a V8/Chrome CPU profile becomes observed caller→callee evidence (`dyn.trace`, 0.60) classified as static-confirmed or observed-only; nothing is persisted and default graph answers are unchanged | Dynamic dispatch/framework magic the static graph cannot prove, without a daemon, instrumentation, or required runtime data |
+| 25 | Multi-repo | A read-only merged index built from single-repo artifacts: file paths namespaced per repo, identical nodes never merged, cross-repo same-type links as `REFERENCES` at 0.45 (`xrepo.same_type_as`), deterministic bytes and no re-resolution | Cross-repo drift and "what breaks downstream" without a daemon; below the default floor, so single-repo answers are unchanged (added for #88) |
 
 Assumptions to veto if wrong: **MIT license**, **no config file** (flags only).
 
@@ -378,6 +379,7 @@ group (`go.package.ambiguous` / `go.typed.method.ambiguous`). Go adds the
 
 ```
 repath index  [--full] [--json] [--scope DIR ...]
+repath merge  <artifact>... --out DIR [--json]
 repath status [--json]
 repath find   <name>            [--module M] [--json]
 repath callers <sym>            [--depth 1] [--min-confidence 0.5] [--json]
@@ -1132,7 +1134,9 @@ overlay remain deferred.
 Runtime/model edges (routes, DB tables, env, queues) · test coverage
 collection · embeddings or any LLM in index or query · watch daemon · a mutable
 HTTP server or UI (the read-only `repath serve` landed in v1.2, §16.8) ·
-multi-repo · FFI/cross-language edges · UI/TUI/HTML · C/C++/Java/Go parsers ·
+multi-repo writes and cross-repo re-resolution (§16.12; the read-only merged
+index landed for #88) · FFI/cross-language edges · UI/TUI/HTML · C/C++/Java
+parsers ·
 config file. **Impact is structural, not test-aware**, and `repath tests` is structural
 reachability rather than runtime coverage. That remains the known ceiling.
 
@@ -1181,6 +1185,13 @@ reachability rather than runtime coverage. That remains the known ceiling.
     daemon or instrumentation, and the six answers are unchanged. speedscope/
     py-spy, OTel spans, persisted dynamic edges, and a query overlay remain
     deferred; see `docs/trace.md`.
+12. Merged cross-repo index (#88, landed read-only): `repath merge` copies
+    single-repo artifacts into one deterministic snapshot, namespaces every
+    file path per repo, and links same-named types that are unique inside each
+    part at 0.45 (`xrepo.same_type_as`). Nothing is re-resolved and no node is
+    merged. Cross-repo `calls` need the referring symbol, which `pending` does
+    not carry; they remain deferred, as do writes and a per-repo resolver. See
+    `docs/merge.md`.
 
 ## 17. Decision log
 
@@ -1190,11 +1201,13 @@ languages (Rust added by request). Round 2 — flagship explanation, command set
 agent surface, human output, freshness contract, ambiguity handling. Round 3 —
 node taxonomy, module boundaries, symbol identity, cold start, cut line, proof
 strategy. Round 4 — transport (CLI + MCP adapter + skill), worktree seeding,
-team artifact sharing, diagnostics scope. Output: the 22 decisions in §3;
+team artifact sharing, diagnostics scope. Output: the 22 decisions in §3 (plus
+23–25);
 decisions 23 (cross-language links) and 24 (runtime trace evidence) were added
-in v1.3. Decision 9 was amended for #79: a pnpm `packages:` list is a manifest
+in v1.3, and decision 25 (multi-repo) for #88. Decision 9 was amended for #79: a pnpm `packages:` list is a manifest
 source alongside package.json `workspaces`. Decision 13 was amended for #80:
-Go is a fourth language with its own pinned grammar.
+Go is a fourth language with its own pinned grammar. Decision 25 (merged
+cross-repo index) was added for #88.
 
 ---
 
@@ -1214,8 +1227,11 @@ imports read the pnpm `packages:` list, so Kibana @ `0551196` gains 2,156
 cold/incremental/full row sets agree). Go support (#80) landed the same day:
 the repo now self-dogfoods (281 files / 1,942 nodes, `impact Index.resolveGo`
 answers from the graph) and `gin-gonic/gin` @ `0f09c3a` indexes 99 files /
-1,755 nodes / 2,336 edges with exact cold/incremental/full parity. A merged
-cross-repo index (#88) is the remaining decision-gated item.
+1,755 nodes / 2,336 edges with exact cold/incremental/full parity. The merged
+cross-repo index (#88) also landed read-only: `repath merge` produces a
+deterministic snapshot with namespaced identity and opt-in `xrepo.same_type_as`
+links (gin + echo: 3,652 nodes, 8 links, byte-identical on a second run); see
+decision 25.
 The independent adoption features are #83 (`repath install` skill), #84
 (`impact --diff`), #85 (`map --md` + GraphML/DOT), #86 (`index --scope`), and
 #87 (token-savings benchmark). The largest remaining resolution quality gap is

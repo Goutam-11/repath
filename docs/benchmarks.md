@@ -440,6 +440,41 @@ of `internal/resolve`.
   annotation; cross-file return inference is not modelled, matching Rust.
 - One Linux host with a shared load (1.6–2.1); timings are not a budget.
 
+## Merged cross-repo index (2026-11-22, #88)
+
+`repath merge` joins single-repo artifacts into one deterministic read-only
+snapshot (PLAN decision 25). Each part's file paths are namespaced under its
+repo name; type-like symbols whose qname is unique inside each of two parts are
+linked at 0.45 (`xrepo.same_type_as`), below the default floor, so single-repo
+default answers do not change.
+
+| Pair | Files | Nodes | Edges | Pending | Entrypoints | Cross-repo links | Merge |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `gin-gonic/gin` @ `0f09c3a` + `labstack/echo` @ `59aacdd` | 214 | 3,652 | 4,962 | 3,372 | 1,492 | 8 | 0.22 s / 33 MiB |
+
+The eight links are `BindUnmarshaler`, `bindTestStruct`, `Context`,
+`HandlerFunc`, `Skipper`, `RouteInfo`, `node`, `testRoute` (echo → gin). A
+second merge of the same inputs produced a **byte-identical** `index.db`
+(sha256 `5cb67c23…`) and `manifest.json`. `export --dot --artifact merged/`
+emits the links only with `--min-confidence 0.4`, which is the intended opt-in.
+
+Fixture coverage (`internal/merge`): one link for a hand-written `Widget` on
+both sides, **no** link when the name is declared twice in one part, byte
+identity with a third part that carries entrypoints, missing input exit 3,
+existing output exit 2, and schema mismatch exit 1.
+
+### Not verified
+
+- The link is name-only: it does not compare type shape, and same-named types
+  in unrelated repos will be linked (at 0.45, below the floor).
+- Cross-repo `calls` are not derived; `pending` does not carry the enclosing
+  symbol. Merged indexes are not re-resolved, and imports/anchors are not
+  carried.
+- Only `export --graphml|--dot --artifact` and `map --md --artifact` consume a
+  merged artifact today; widening `--artifact` to the other read commands is a
+  separate plan change.
+- One host and one pair; the fixture is the correctness gate.
+
 ## Cold RSS: compacted references (#75)
 
 ### Why

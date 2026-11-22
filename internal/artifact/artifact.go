@@ -51,6 +51,28 @@ type Manifest struct {
 	// Scope is the `index --scope` set the snapshot was built with, recorded so
 	// a pulled index cannot silently describe a different file set.
 	Scope []string `json:"scope,omitempty"`
+	// Parts names the inputs of a merged artifact (see `repath merge`). A
+	// single-repo artifact leaves it empty.
+	Parts []MergePart `json:"parts,omitempty"`
+}
+
+// MergePart is one input of a merged artifact: its repo name, root, commit, and
+// the counts it contributed. It is provenance, never a node or an edge.
+type MergePart struct {
+	Name    string `json:"name"`
+	Root    string `json:"root,omitempty"`
+	Commit  string `json:"commit,omitempty"`
+	Files   int    `json:"files"`
+	Nodes   int    `json:"nodes"`
+	Edges   int    `json:"edges"`
+	Pending int    `json:"pending"`
+}
+
+// WriteManifest writes a manifest atomically in the artifact format. It is the
+// same writer Export uses; `merge` reuses it so a merged artifact is read by
+// `pull`, `export --artifact`, and `map --artifact` without a second format.
+func WriteManifest(path string, m Manifest) error {
+	return writeManifest(path, m)
 }
 
 // ExportResult names the files an export wrote.

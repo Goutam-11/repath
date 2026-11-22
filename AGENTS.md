@@ -21,7 +21,7 @@ The measured 10k and 50k budgets live in PLAN §12 and are reproducible with
 
 | File | Why |
 | --- | --- |
-| [`PLAN.md`](PLAN.md) | The contract: 24 locked decisions (§3), schema (§4), CLI/MCP contracts (§6–7), milestones and gates (§12) |
+| [`PLAN.md`](PLAN.md) | The contract: 25 locked decisions (§3), schema (§4), CLI/MCP contracts (§6–7), milestones and gates (§12) |
 | [`docs/resolution.md`](docs/resolution.md) | The confidence ladder and the resolution gaps |
 | [`docs/development.md`](docs/development.md) | Branch, commit, PR, definition of done |
 
@@ -98,7 +98,8 @@ internal/query    shared answer layer: open, resolve, six answers, status
 internal/output   the MCP envelope and provenance cap
 internal/mcp      hand-rolled stdio JSON-RPC adapter
 internal/serve    read-only HTTP handlers over query/output
-internal/artifact export/pull, manifest, schema gate
+internal/artifact export/pull/merge inputs, manifest, schema gate
+internal/merge    cross-repo snapshot: namespaced identity, xrepo links
 internal/check    cycles, dead code, boundaries, hotspots, unresolved rate, SARIF
 internal/adapter  SCIP and LSP-facts ingestion, group-guarded edge merge
 internal/trace   read-only V8 CPU profile evidence (observed calls, no writes)
@@ -328,6 +329,21 @@ the database.
   files and breaks cold/incremental parity (#49). `goPackages` is built from
   `byQName` plus `paths`, and the gin parity check (2,336 edges / 877 pending,
   identical cold/incremental/full) is the regression gate.
+- **A merged cross-repo index is a projection, not a resolver.** `repath merge`
+  copies single-repo artifacts into one snapshot: every file path is prefixed
+  with its repo name (identity stays per repo; identical qnames are never
+  merged), and type-like symbols whose qname is unique inside each of two parts
+  become `REFERENCES` at **0.45** with rule `xrepo.same_type_as` — below the
+  default floor like xlang (decision 23), so single-repo answers are unchanged.
+  Imports and anchors are not copied, nothing is re-resolved, entrypoints are
+  re-anchored to the new node ids, and pending rows keep their new file ids.
+  Cross-repo `calls` stay deferred because `pending` carries no enclosing
+  symbol. Output must be byte-identical on a second run: parts, files, nodes,
+  pending rows, and entrypoints are copied in sorted order and the manifest has
+  no timestamp (`TestMergeIsByteIdentical` covers a repo with entrypoints). The
+  output directory is never overwritten (exit 2), a missing part is exit 3, and
+  a schema mismatch is exit 1. Do not add an implicit merged read to a command;
+  `export`/`map --md --artifact` are the read-only seams.
 - **Module cycles** are computed on cross-module edges at ≥0.5; one noisy edge
   can merge modules into one SCC. Treat cycles as hints.
 - **Artifacts default to uncompressed SQLite; zstd is opt-in.** `--compress`

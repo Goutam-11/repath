@@ -29,7 +29,7 @@ depth 1
 - **Latest release:** [v1.3.0](https://github.com/Goutam-11/repath/releases/tag/v1.3.0)
   (Linux amd64/arm64, SHA-256 checksums).
 - **Status:** the first tagged release. TypeScript/JavaScript, Python, Rust,
-  and Go are indexed. The contract (schema v6, 24 locked decisions) lives in
+  and Go are indexed. The contract (schema v6, 25 locked decisions) lives in
   [`PLAN.md`](PLAN.md).
 
 ---
@@ -329,9 +329,12 @@ Symbol references accept a qualified name, a bare name, `file:line`, or
   namespace packages, or `__getattr__` re-exports); Rust macro bodies are blind
   and generic containers are not inferred; Go receiver typing is file-local and
   implicit interface implementation is not inferred.
-- **One repository per index.** No merged cross-repo index yet
-  ([#88](https://github.com/Goutam-11/repath/issues/88)); a scoped index is per
-  worktree.
+- **A merged index is read-only and name-only.** `repath merge` joins
+  single-repo artifacts into one deterministic snapshot and links same-named
+  types that are unique inside each part (`xrepo.same_type_as`, 0.45, below the
+  default floor). It never merges nodes or re-resolves code, and cross-repo
+  calls are deferred because a pending row does not carry its enclosing symbol.
+  A scoped index is still per worktree.
 - **No UI, auth, config file, or seventh MCP tool.** `serve` is read-only and
   loopback by default; widening `--addr` is unauthenticated and warns.
 - **No LLM and no embeddings**, by design. Answers are structural and
