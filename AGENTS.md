@@ -362,8 +362,9 @@ the database.
 - **The cache schema is sidecar-checked.** `<sha>.db` is trusted only when
   `<sha>.db.schema` matches `store.SchemaVersion`; bumping the schema rebuilds
   old caches instead of seeding them.
-- **Release is tag-triggered and draft.** `v1.3.0` (2026-11-20) is the first
-  tagged release; its notes live in `docs/releases/v1.3.0.md`. `.goreleaser.yaml` builds Linux
+- **Release is tag-triggered and draft.** `v1.3.0` (2026-11-20) was the first
+  tagged release and `v1.4.0` (2026-11-22) the second (Go, pnpm workspaces,
+  `export type *`, cross-repo merge); their notes live in `docs/releases/`. `.goreleaser.yaml` builds Linux
   amd64/arm64 with cgo and injects `internal/cli.version`; arm64 needs
   `CC=aarch64-linux-gnu-gcc`, never a pure-Go cross-compile. The
   `.github/workflows/release.yml` workflow runs only on a `v*` tag, installs
