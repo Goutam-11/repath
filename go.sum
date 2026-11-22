@@ -1,3 +1,5 @@
+github.com/alexaandru/go-sitter-forest/go v1.9.4 h1:Xpq8HijvTp2+AHL4UplLLiCOdIAA20u0JyM8NGBIBWs=
+github.com/alexaandru/go-sitter-forest/go v1.9.4/go.mod h1:jCpJr1AOFPGq1DrAJevuurB04NJVk8jw3hYW3Mxc7G8=
 github.com/alexaandru/go-sitter-forest/javascript v1.9.2 h1:b8ZWUk/1bXLmGXN/tL26PQf0EQ6vSM7J6pnNjN8by2Q=
 github.com/alexaandru/go-sitter-forest/javascript v1.9.2/go.mod h1:cWOFBHR7EffqM4sdVQ70WtTnFKPZxt5sAm1zS1tWaL8=
 github.com/alexaandru/go-sitter-forest/python v1.9.10 h1:qKbso5wI4vlkQ0EjZBO5hRrxwqf0tmGLVdbzasZCcrg=

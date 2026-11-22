@@ -1,0 +1,13 @@
+[
+  { "src": "main.go:main", "dst": "store/store.go:New", "kind": "CALLS" },
+  { "src": "main.go:main", "dst": "service/service.go:NewService", "kind": "CALLS" },
+  { "src": "main.go:main", "dst": "service/service.go:Service.Run", "kind": "CALLS" },
+  { "src": "main_util.go:localHelper", "dst": "main.go:helper", "kind": "CALLS" },
+  { "src": "store/store.go:New", "dst": "store/store.go:Store", "kind": "REFERENCES" },
+  { "src": "service/service.go:NewService", "dst": "service/service.go:Service", "kind": "REFERENCES" },
+  { "src": "service/service.go:Service", "dst": "store/store.go:Store", "kind": "REFERENCES" },
+  { "src": "service/service.go:Service.Run", "dst": "models/models.go:User", "kind": "REFERENCES" },
+  { "src": "service/service.go:Service.Run", "dst": "models/models.go:Reader.Get", "kind": "CALLS" },
+  { "src": "store/store_test.go:TestStoreGet", "dst": "store/store.go:New", "kind": "CALLS" },
+  { "src": "store/store_test.go:TestStoreGet", "dst": "store/store.go:Store.Get", "kind": "CALLS" }
+]

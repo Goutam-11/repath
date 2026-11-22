@@ -365,6 +365,52 @@ style module members); one name stays at 0.60 because it is a deprecated
 `__getattr__` re-export the static export lookup cannot see. Precision evidence
 is in [`docs/benchmarks.md`](benchmarks.md#star-re-exports-2026-11-20-102).
 
+### Go
+
+Go packages are directories, not single entry files. The root `go.mod` supplies
+the module path; an import path is local when it equals that module path, starts
+with it plus `/`, or names a local `replace` target (`replace old => ./dir`).
+Everything else — the standard library and every registry dependency — is
+external, so `fmt.Println` never becomes pending. Build tags are not evaluated:
+every `.go` file is indexed, and two declarations of one name under different
+tags (for example `binding.go` and `binding_nomsgpack.go`) become a 0.40
+ambiguous group rather than one silent winner.
+
+| Rule id | Confidence | When |
+| --- | --- | --- |
+| `go.import.member` | 0.95 | `store.New()` with `import "example.com/app/store"` and `New` declared in that package directory |
+| `go.local` | 0.95 | a package-level name declared in the same file (unique by name/arity) |
+| `go.package` | 0.90 | a package-level name declared in another file of the same directory |
+| `go.typed.method` | 0.90 | `s.Get()` with `s`'s type inferred in this file, and `Type.Get` in the same package |
+| `go.interface.method` | 0.85 | the receiver's type is an interface that declares the method (the static target) |
+| `go.type.ref` | 0.90 | a composite literal `T{}` / `&T{}` / `new(T)` resolved to the type |
+| `go.embed` | 0.80 | a struct embeds `T` or `*T` (`REFERENCES`, composition) |
+| `go.embed.interface` | 0.90 | an interface embeds another interface (`EXTENDS`, the method set is inherited) |
+| `go.package.ambiguous` / `go.typed.method.ambiguous` | 0.40 | several declarations of one name (build tags, tests); candidates stay visible |
+| `go.global.unique` | 0.40 | one repo-wide declaration with no package context (below the default floor) |
+
+Receiver types are inferred **in the declaring file only**: parameters, `var`
+with a named type, `:=` from a composite literal, `new(T)`, or a call to a
+same-file function whose single result is a named type. A constructor declared
+in another file of the same package is not followed, and neither is a
+cross-package constructor's result, so those receivers need an explicit type:
+
+```go
+var svc *service.Service = service.NewService(s) // typed
+svc := service.NewService(s)                      // untyped in v1
+```
+
+Interface implementation is implicit in Go, and v1 does not infer it. A call
+through an interface resolves to the interface's own method declaration (the
+static target); which concrete types satisfy the interface is not derived, and
+interface method sets are not expanded through embedded interfaces for that
+lookup. A method promoted from an embedded struct is reached only through the
+struct's declared methods, not through the embedding edge. Function-local type
+declarations are symbol-scoped by their enclosing function and resolve inside
+the file; function literals attach their references to the enclosing function.
+Dot imports (`. "pkg"`), struct fields as callable targets, and method values
+are not modelled.
+
 ## Known gaps
 
 ### All languages
@@ -504,3 +550,18 @@ name resolution. The cross-language pass links them with a derived `REFERENCES`
 edge at confidence **0.45** (`xlang.http.route`), below the default floor, from
 literal route anchors; it is not a ladder row and never replaces a resolved
 edge. See [`docs/xlang.md`](xlang.md).
+
+### Go
+
+- **Implicit interface implementation.** Not inferred (see above). The bounded
+  contract — same-package unexported methods only, every embedded base declared
+  locally, a cap on implementers — is the next step, not a same-name guess.
+- **Build tags.** Every `.go` file is indexed; mutually exclusive build-tagged
+  files therefore duplicate symbols (0.40 group, visible).
+- **Generics.** Type parameters and instantiations are parsed but not inferred;
+  a type parameter is not a receiver type.
+- **Cross-file constructor returns and method values.** A receiver initialised
+  from another file's constructor needs an explicit type; `f := x.Method` is not
+  modelled.
+- **Field references.** Fields are not symbols, so a field access is not an edge;
+  only calls, type references, and embedding are.

@@ -1,8 +1,8 @@
 // Package eval measures the graph against hand-labelled expectations.
 //
 // The fixtures are the gate from PLAN.md §12: TS CALLS precision ≥ 0.90 and
-// recall ≥ 0.75; Python precision ≥ 0.88 and recall ≥ 0.80, at the default 0.5
-// confidence. It is not a benchmark; it is a regression net for resolution
+// recall ≥ 0.75; Python precision ≥ 0.88 and recall ≥ 0.80; Rust 0.85/0.70;
+// Go 0.85/0.70, at the default 0.5 confidence. It is not a benchmark; it is a regression net for resolution
 // rules.
 package eval
 
@@ -101,6 +101,7 @@ func TestFixturePrecisionAndRecall(t *testing.T) {
 		{name: "ts-type-star", precision: 0.90, recall: 0.75, maxUnresolved: 0},
 		{name: "py", precision: 0.88, recall: 0.80, maxUnresolved: 2},
 		{name: "rs", precision: 0.85, recall: 0.70, maxUnresolved: 2},
+		{name: "go", precision: 0.85, recall: 0.70, maxUnresolved: 0},
 	}
 
 	for _, spec := range specs {

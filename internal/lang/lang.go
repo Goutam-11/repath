@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Goutam-11/repath/internal/lang/facts"
+	"github.com/Goutam-11/repath/internal/lang/golang"
 	"github.com/Goutam-11/repath/internal/lang/py"
 	"github.com/Goutam-11/repath/internal/lang/rs"
 	"github.com/Goutam-11/repath/internal/lang/tsx"
@@ -27,6 +28,8 @@ const (
 	Python
 	// Rust parses .rs files.
 	Rust
+	// Go parses .go files.
+	Go
 )
 
 // For reports the dialect and language name for path. ok is false for files
@@ -54,6 +57,8 @@ func For(path string) (dialect Dialect, name string, ok bool) {
 		return Python, "python", true
 	case ".rs":
 		return Rust, "rust", true
+	case ".go":
+		return Go, "go", true
 	}
 
 	return 0, "", false
@@ -65,11 +70,12 @@ type Extractor struct {
 	tsx *tsx.Extractor
 	py  *py.Extractor
 	rs  *rs.Extractor
+	go_ *golang.Extractor
 }
 
 // NewExtractor builds an extractor for every registered language.
 func NewExtractor() *Extractor {
-	return &Extractor{tsx: tsx.New(), py: py.New(), rs: rs.New()}
+	return &Extractor{tsx: tsx.New(), py: py.New(), rs: rs.New(), go_: golang.New()}
 }
 
 // Extract parses src and returns its definitions, references, and imports.
@@ -85,6 +91,8 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) facts.Result {
 		return e.py.Extract(src, py.Python)
 	case Rust:
 		return e.rs.Extract(src, rs.Rust)
+	case Go:
+		return e.go_.Extract(src, golang.Go)
 	}
 	return facts.Result{Err: "unsupported dialect"}
 }

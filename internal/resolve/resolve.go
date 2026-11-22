@@ -92,6 +92,15 @@ type Index struct {
 	// resolves, so a run whose imports are all relative pays nothing.
 	workspaces       map[string]workspacePackage
 	workspacesLoaded bool
+
+	// Go package resolution. A package is a directory of .go files, so byFile
+	// is regrouped by directory on the first Go reference; go.mod supplies the
+	// module path and local replace targets. A non-Go run never pays for either.
+	goPkgs      map[string]map[string][]store.NodeRow
+	goDirs      map[string]bool
+	goPkgsReady bool
+	goMod       goModule
+	goModReady  bool
 }
 
 // lazyImportBulkThreshold bounds the per-file reads a warm run does before one
@@ -329,6 +338,8 @@ func (ix *Index) Resolve(fromFile int64, fromPath string, ref facts.Ref) Resolut
 		return ix.resolvePython(fromFile, fromPath, ref)
 	case "rust":
 		return ix.resolveRust(fromFile, fromPath, ref)
+	case "go":
+		return ix.resolveGo(fromFile, fromPath, ref, ix.importsOf(fromFile))
 	}
 	return ix.resolveTS(fromFile, fromPath, ref, ix.imports[fromFile])
 }
@@ -1735,6 +1746,8 @@ func (ix *Index) language(fileID int64) string {
 		return "python"
 	case strings.HasSuffix(path, ".rs"):
 		return "rust"
+	case strings.HasSuffix(path, ".go"):
+		return "go"
 	}
 	return "typescript"
 }

@@ -201,7 +201,7 @@ func LooksLikeFile(arg string) bool {
 	if strings.Contains(arg, "/") {
 		return true
 	}
-	for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rs"} {
+	for _, ext := range []string{".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".rs", ".go"} {
 		if strings.HasSuffix(arg, ext) {
 			return true
 		}
