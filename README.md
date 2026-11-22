@@ -28,9 +28,9 @@ depth 1
 
 - **Latest release:** [v1.3.0](https://github.com/Goutam-11/repath/releases/tag/v1.3.0)
   (Linux amd64/arm64, SHA-256 checksums).
-- **Status:** the first tagged release. TypeScript/JavaScript, Python, and Rust
-  are indexed; Go is [planned](https://github.com/Goutam-11/repath/issues/80).
-  The contract (schema v6, 24 locked decisions) lives in [`PLAN.md`](PLAN.md).
+- **Status:** the first tagged release. TypeScript/JavaScript, Python, Rust,
+  and Go are indexed. The contract (schema v6, 24 locked decisions) lives in
+  [`PLAN.md`](PLAN.md).
 
 ---
 
@@ -157,10 +157,12 @@ with a reason (`missing-definition`, `scope-gap`, `member-scope`,
 `parse-failure`).
 
 **Languages.** TypeScript/JavaScript (`.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`,
-`.cjs`), Python (`.py`), Rust (`.rs`). Import and module resolution, package
-re-exports (including TypeScript barrels, `package.json` workspaces, and Python
-star re-exports), inheritance/MRO, typed receivers, Rust module trees and
-generic bounds. Grammar versions are pinned per language and differ on purpose.
+`.cjs`), Python (`.py`), Rust (`.rs`), Go (`.go`). Import and module
+resolution, package re-exports (including TypeScript barrels, `package.json`
+workspaces, and Python star re-exports), inheritance/MRO, typed receivers,
+Rust module trees and generic bounds, and Go package directories with
+`go.mod` + local `replace` targets. Grammar versions are pinned per language
+and differ on purpose.
 
 **Compiler adapters, opt-in.** `repath adapter --scip` merges TypeScript/Python/Rust
 compiler facts into unresolved references without overwriting tree-sitter edges;
@@ -310,8 +312,11 @@ Symbol references accept a qualified name, a bare name, `file:line`, or
 
 ## Limitations and non-goals
 
-- **No Go support yet** ([#80](https://github.com/Goutam-11/repath/issues/80),
-  decision-gated).
+- **Go has no implicit interface inference.** A call through an interface
+  resolves to the interface's method; `check` does not decide which concrete
+  types implement it. Go build tags are ignored (every `.go` file is indexed,
+  so build-tagged duplicates become a visible 0.40 group), and a receiver
+  initialised by another file's constructor needs an explicit type annotation.
 - **Workspace manifests are read from the repo root only.** A pnpm
   `packages:` list or package.json `workspaces` field resolves `@scope/*`
   imports to local package sources; lockfiles, registries, `lerna.json`,
@@ -322,7 +327,8 @@ Symbol references accept a qualified name, a bare name, `file:line`, or
   TypeScript fails to parse (stored with `parse_ok=0` and counted); Python
   imports search the repo root, `src/`, and `lib/` only (no `sys.path`,
   namespace packages, or `__getattr__` re-exports); Rust macro bodies are blind
-  and generic containers are not inferred.
+  and generic containers are not inferred; Go receiver typing is file-local and
+  implicit interface implementation is not inferred.
 - **One repository per index.** No merged cross-repo index yet
   ([#88](https://github.com/Goutam-11/repath/issues/88)); a scoped index is per
   worktree.

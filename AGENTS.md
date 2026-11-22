@@ -6,7 +6,7 @@ humans and coding agents. One static binary, SQLite, no LLM, no daemon; the
 optional read-only `repath serve` is the only HTTP surface.
 
 **Current state: M5 + v1.1 + the v1.2 wave (SARIF, Python and Rust SCIP adapters, test `--diff`, real-repo evidence across TypeScript, Python, and Rust, real-client MCP verification, read-only HTTP serve, and GoReleaser distribution) plus the v1.3 LSP facts seam, cross-language HTTP links, and read-only runtime trace evidence.**
-TypeScript/JS, Python, and Rust are indexed; the MCP adapter + skill, artifact
+TypeScript/JS, Python, Rust, and Go are indexed; the MCP adapter + skill, artifact
 export/pull, and worktree seeding are in, `repath check` adds graph-native CI
 diagnostics, `repath check --sarif` attaches external compiler/linter SARIF 2.1.0
 findings to enclosing symbols (it never runs the compiler), `repath adapter --scip` merges TypeScript/Python/Rust compiler facts into unresolved
@@ -90,7 +90,7 @@ skills            embedded Agent Skill (skills/repath/SKILL.md)
 internal/agentskill user-scope skill install/uninstall (pure file copy)
 internal/cli      commands, text renderers, JSON, exit codes
 internal/index    discovery, hashing, batching, module detection, orchestration, xlang pass
-internal/lang     path → dialect; lang/{tsx,py,rs} extract symbols + refs + imports
+internal/lang     path → dialect; lang/{tsx,py,rs,golang} extract symbols + refs + imports
 internal/resolve  global name index, confidence ladder, language-specific module rules
 internal/store    SQLite schema and queries only
 internal/graph    impact / path / map / flows walkers over store queries
@@ -157,7 +157,8 @@ the database.
 - **cgo is required.** There is no maintained pure-Go tree-sitter (decision 15,
   amended in M0). Builds need a C toolchain; cross-compiles need a target one.
 - **Grammar versions are pinned per module and they differ** (typescript
-  `v1.9.4`, tsx and javascript `v1.9.2`, python `v1.9.10`, rust `v1.9.13`).
+  `v1.9.4`, tsx and javascript `v1.9.2`, python `v1.9.10`, rust `v1.9.13`,
+  go `v1.9.4`).
   Bumping one with
   `@latest` can drag the binding API and break the others; change them
   deliberately and rebuild.
@@ -303,6 +304,30 @@ the database.
 - **Rust enum variants are a heuristic.** A CamelCase associated call on a known
   enum becomes REFERENCES at 0.90; an associated constant with the same shape
   can be misclassified.
+- **Go resolution is package-directory based, and implicit interfaces are not
+  inferred.** A package is a directory of `.go` files; `go.mod` supplies the
+  module path and local `replace` targets, and every other import path is
+  external. Package-level names resolve across the directory (`go.package`
+  0.90) and an imported symbol is exact (`go.import.member` 0.95). A member
+  call needs a receiver type inferred **in the declaring file** from a
+  parameter, `var`, `:=` composite literal, `new(T)`, or a same-file
+  constructor's single named result (`go.typed.method` 0.90); a cross-file or
+  cross-package constructor result needs an explicit type annotation, like
+  Rust's same-file return typing. An interface receiver resolves to the
+  interface's own method (`go.interface.method` 0.85), which is the static
+  target; which concrete types implement an interface is **not** inferred (the
+  next wave, bounded by the Graphify contract, not a same-name guess). Struct
+  embedding is a `REFERENCES` at 0.80, interface embedding `EXTENDS` at 0.90.
+  Build tags are ignored — every `.go` file is indexed — so build-tagged
+  duplicate declarations are a visible 0.40 group, and `go.typed.method`
+  duplicates are the same. Go adds the `const` and `var` node kinds for
+  package-level declarations; no edge kind, schema, or rule id changed shape.
+  Do not add a receiver-less member guess or collapse an ambiguity group.
+- **Go package lookups must use the global name index.** `byFile` is partial on
+  an incremental run by design; a package map built from it loses unchanged
+  files and breaks cold/incremental parity (#49). `goPackages` is built from
+  `byQName` plus `paths`, and the gin parity check (2,336 edges / 877 pending,
+  identical cold/incremental/full) is the regression gate.
 - **Module cycles** are computed on cross-module edges at ≥0.5; one noisy edge
   can merge modules into one SCC. Treat cycles as hints.
 - **Artifacts default to uncompressed SQLite; zstd is opt-in.** `--compress`

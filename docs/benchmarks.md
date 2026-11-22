@@ -386,6 +386,60 @@ happens because no Kibana pattern uses `**`.
 - Timings are one Linux host with a shared load (1.5–3.1); they are not a
   budget.
 
+## Go support (2026-11-22, #80)
+
+Go is the fourth language: the pinned `go-sitter-forest/go` v1.9.4 grammar, a
+package-directory resolver (`go.mod` module path plus local `replace` targets),
+and receiver typing inferred in the declaring file. The hand-labelled fixture
+gate is `testdata/fixtures/go`: **11/11 edges at precision 1.00 / recall 1.00,
+0 unresolved** (package calls, cross-file package names, typed methods,
+interface methods, struct and interface embedding, entrypoints).
+
+Two binaries, before (main, TypeScript/Python/Rust only) and after, same tree:
+
+| Corpus | Files | Nodes | Edges | Pending | Ambiguous | Parse failures |
+| --- | --- | --- | --- | --- | --- | --- |
+| this repository (self-dogfood) | 158 → **281** | 358 → **1,942** | 236 → **3,030** | 348 → **1,684** | — | 0 → 0 |
+| `gin-gonic/gin` @ `0f09c3a` | **99** | **1,755** | **2,336** | **877** | 86 | 0 |
+
+Gin cold: **0.21 s / 43.4 MiB** at host load 1.59 (one core; the repo is 99
+`.go` files). Rule split on gin: `go.typed.method` 742, `go.package` 676,
+`go.local` 409, `go.type.ref` 376, `go.interface.method` 24,
+`go.import.member` 14, `go.embed` 9, plus 46 `go.typed.method.ambiguous` and
+36 `go.package.ambiguous` groups at 0.40. The ambiguity is real and expected:
+gin builds mutually exclusive files such as `binding/binding.go` and
+`binding/binding_nomsgpack.go` that declare the same constants, and build tags
+are not evaluated (every `.go` file is indexed). Unresolved reasons on gin:
+731 `member-scope`, 146 `missing-definition`, 0 `parse-failure`, 0 `scope-gap`.
+
+Cold / incremental / second-`--full` row sets are **identical** on gin:
+**2,336 edge rows and 877 pending rows** after a ten-file comment edit
+(59 ms incremental) and after a second `index --full` (161 ms). This is the
+regression gate for the package index: it must be built from the global name
+index (`byQName`), because `byFile` is deliberately partial on an incremental
+run.
+
+Self-dogfood is the #80 acceptance target, and the graph answers:
+`repath find resolveGo` reports 1 caller and 9 callees, and
+`repath impact resolveGo` returns `resolve.Index.Resolve` from the real edges
+of `internal/resolve`.
+
+### Not verified
+
+- **Implicit interface implementation is not inferred.** A call through an
+  interface resolves to the interface's own method (the static target); which
+  concrete types implement it is not derived. The bounded Graphify contract is
+  the next step, not a same-name guess.
+- **No Go compiler ground truth.** Go has no SCIP adapter here, so the fixture
+  gate is hand-labelled and the real-repo numbers are structural counts, not an
+  accuracy measurement.
+- **Generics and build tags.** Type parameters are parsed but not inferred;
+  every `.go` file is indexed regardless of build constraints.
+- **File-local receiver typing.** A receiver initialised from another file's
+  constructor (or a cross-package constructor) needs an explicit type
+  annotation; cross-file return inference is not modelled, matching Rust.
+- One Linux host with a shared load (1.6–2.1); timings are not a budget.
+
 ## Cold RSS: compacted references (#75)
 
 ### Why

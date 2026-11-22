@@ -86,7 +86,7 @@ Two hard constraints inherited from the field:
 | 10 | Identity | Scoped qname + kind + arity; lines for display | Survives edits, disambiguates overloads |
 | 11 | Fidelity | tree-sitter + scope heuristics + confidence; optional compiler-fact merge via SCIP (v1.1) or an LSP facts file (v1.3) | Zero setup; compiler facts are opt-in and never required |
 | 12 | Ambiguity | Emit at low confidence with candidates + rule id | Complete answers; precision is the user's choice |
-| 13 | Languages | TypeScript/JS, Python, Rust | Modern web + AI + systems coverage |
+| 13 | Languages | TypeScript/JS, Python, Rust, Go (amended for #80) | Modern web + AI + systems + backend coverage |
 | 14 | Storage | Single SQLite file, recursive CTEs | Zero infra, incremental writes, one shippable file |
 | 15 | Stack | Go; cgo only for tree-sitter (amended in M0) | No maintained pure-Go tree-sitter exists; cgo is confined to `internal/lang/*` |
 | 16 | Freshness | Hash + git-diff incremental; <1s/10 files; 50k in <3 min | Monorepo-viable without a daemon |
@@ -351,6 +351,28 @@ Per-language rules that must exist before that language ships:
   `Self`/`self`, associated functions, `pub` visibility, enum-variant
   construction, trait method dispatch ambiguity, and explicit blind spots
   around macro token trees. Workspace cross-crate imports stay external.
+- **Go:** package directories from `go.mod` (module path plus local `replace`
+  targets), import bindings, `func`/`method`/`struct`/`interface`/`type`/
+  `const`/`var` symbols, receiver typing from parameters, `var`, and `:=`
+  (composite literal, `new(T)`, or a same-file constructor return), typed
+  method calls, interface method calls, struct and interface embedding, and
+  `main` / `TestXxx` entrypoints. Implicit interface implementation is not
+  inferred in v1; build tags are ignored (every `.go` file is indexed), so
+  build-tagged duplicate declarations are a 0.40 group.
+
+Go (#80) resolves packages by directory. An import path is local only when it
+is the `go.mod` module path or a local `replace` target; everything else is a
+dependency and external. An imported symbol is exact (`go.import.member`
+0.95); a package-level name is `go.local` 0.95 inside one file and
+`go.package` 0.90 across the directory. A member call needs a receiver type
+inferred in the same file and resolves to `Type.Method` (`go.typed.method`
+0.90), or to an interface's own method when the receiver is an interface
+(`go.interface.method` 0.85); an untyped receiver stays pending. Composite
+literals are `go.type.ref` 0.90, struct embedding `go.embed` 0.80, interface
+embedding `go.embed.interface` 0.90. The bare-name fallback is 0.40
+(`go.global.unique`), and duplicate declarations from build tags are a 0.40
+group (`go.package.ambiguous` / `go.typed.method.ambiguous`). Go adds the
+`const` and `var` node kinds for package-level declarations; no new edge kind.
 
 ## 6. CLI contract
 
@@ -1171,7 +1193,8 @@ strategy. Round 4 — transport (CLI + MCP adapter + skill), worktree seeding,
 team artifact sharing, diagnostics scope. Output: the 22 decisions in §3;
 decisions 23 (cross-language links) and 24 (runtime trace evidence) were added
 in v1.3. Decision 9 was amended for #79: a pnpm `packages:` list is a manifest
-source alongside package.json `workspaces`.
+source alongside package.json `workspaces`. Decision 13 was amended for #80:
+Go is a fourth language with its own pinned grammar.
 
 ---
 
@@ -1188,9 +1211,11 @@ The two large bets are alternatives, not a queue. `pnpm-workspace.yaml`
 workspace resolution (#79) landed on main: module boundaries and `@scope/*`
 imports read the pnpm `packages:` list, so Kibana @ `0551196` gains 2,156
 `ts.import.workspace*` edges over 562 target files (62,489 → 64,797 edges; the
-cold/incremental/full row sets agree). Go support (#80) remains the largest bet
-and still needs a decision-13 amendment and explicit approval before code. A
-merged cross-repo index (#88) is the third decision-gated item.
+cold/incremental/full row sets agree). Go support (#80) landed the same day:
+the repo now self-dogfoods (281 files / 1,942 nodes, `impact Index.resolveGo`
+answers from the graph) and `gin-gonic/gin` @ `0f09c3a` indexes 99 files /
+1,755 nodes / 2,336 edges with exact cold/incremental/full parity. A merged
+cross-repo index (#88) is the remaining decision-gated item.
 The independent adoption features are #83 (`repath install` skill), #84
 (`impact --diff`), #85 (`map --md` + GraphML/DOT), #86 (`index --scope`), and
 #87 (token-savings benchmark). The largest remaining resolution quality gap is

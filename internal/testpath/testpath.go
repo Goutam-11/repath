@@ -24,6 +24,9 @@ func IsTest(path string) bool {
 			return true
 		}
 	}
+	if strings.HasSuffix(base, "_test.go") {
+		return true
+	}
 	for _, suffix := range []string{
 		".test.ts", ".test.tsx", ".test.js", ".test.jsx",
 		".spec.ts", ".spec.tsx", ".spec.js", ".spec.jsx",
