@@ -52,11 +52,15 @@ The check skips:
   `*.spec.py`, `test_*.py`, `conftest.py`);
 - files with `parse_ok=0` (partial facts);
 - framework/entrypoint names (`main`, `constructor`, `setUp`, `tearDown`,
-  lowercase `setup`/`teardown`, `__init__`, and any other `__x__` dunder).
+  lowercase `setup`/`teardown`, `__init__`, and any other `__x__` dunder, plus
+  Go's `init`, which the runtime calls implicitly and which is special only in
+  Go).
 
 Top-level references have no source symbol, so a private function referenced
 only from module top level can still be reported. That is the documented v1
-graph limitation, not a hidden guess.
+graph limitation, not a hidden guess. A function value passed as an argument,
+returned, or assigned to a variable *is* a reference (Go: `REFERENCES`), so it
+counts as a use; only a reference from a package-level initializer is top-level.
 
 ## Boundary checks need no config
 

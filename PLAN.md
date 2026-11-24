@@ -375,6 +375,20 @@ embedding `go.embed.interface` 0.90. The bare-name fallback is 0.40
 group (`go.package.ambiguous` / `go.typed.method.ambiguous`). Go adds the
 `const` and `var` node kinds for package-level declarations; no new edge kind.
 
+**#130 amendment (Go reference gaps).** Four bounded shapes are part of the
+contract now, with no new rule id, edge kind, schema, or gate. (1) A bare
+identifier in value position (argument, `return`, assignment, `:=` right-hand
+side) is a `REFERENCES` reference resolved by the same `go.local` / `go.package`
+rows when it is not a name bound in the function; it never falls back to a
+repo-wide unique-name guess. (2) A function literal's references belong to the
+enclosing function (Go has no closure symbols), including an immediately
+invoked literal. (3) `x.f.M()` is typed from `f`'s declared field type when the
+field and `x`'s type are both declared in the same file; otherwise it stays
+pending, never name-matched. (4) Parenthesized `var ( … )` blocks are symbols.
+`check` treats Go `init` as an implicit runtime entrypoint (not dead code). The
+#130 gate is `testdata/fixtures/go-refs` at precision 1.00 / recall 1.00 with 0
+unresolved; the original `testdata/fixtures/go` gate is unchanged.
+
 ## 6. CLI contract
 
 ```
@@ -601,7 +615,7 @@ internal/
   serve/      read-only HTTP answers over the shared query/output layer
   output/     text renderer, JSON envelope, token budgeting
 skills/repath/SKILL.md       agent instructions for the CLI
-testdata/fixtures/{ts,py,rs}/{src,expected.json}
+testdata/fixtures/{ts,py,rs,go}/{src,expected.json}
 docs/         resolution.md, mcp.md, sharing.md, worktrees.md, check.md
 ```
 
@@ -1103,8 +1117,9 @@ overlay remain deferred.
 
 ## 13. Evaluation harness
 
-- `testdata/fixtures/{ts,py,rs}` — one small but realistic repo per language,
-  with `expected.json` hand-labeled by kind.
+- `testdata/fixtures/{ts,py,rs,go}` — one small but realistic repo per language
+  (plus focused regression fixtures such as `ts-pnpm`, `ts-type-star`, and
+  `go-refs`), with `expected.json` hand-labeled by kind.
 - `go test ./internal/eval` computes precision/recall at the default confidence
   plus the unresolved and ambiguous counts; CI fails on regression.
   Per-language gates live in the test table, so adding a language cannot

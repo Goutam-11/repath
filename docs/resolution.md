@@ -407,7 +407,41 @@ interface method sets are not expanded through embedded interfaces for that
 lookup. A method promoted from an embedded struct is reached only through the
 struct's declared methods, not through the embedding edge. Function-local type
 declarations are symbol-scoped by their enclosing function and resolve inside
-the file; function literals attach their references to the enclosing function.
+the file.
+
+Three bounded shapes keep `check` from reporting real code as dead (#130); none
+of them adds a rule id, edge kind, or gate:
+
+- **Function values.** A bare identifier in value position — an argument, a
+  `return`, an assignment or `:=` right-hand side, or a keyed composite-literal
+  field (`sync.Pool{New: newBuf}`) — is a `REFERENCES` reference attached to the
+  enclosing function, resolved by the same `go.local` 0.95 / `go.package` 0.90
+  rows. A name bound in the function (parameter, receiver,
+  `:=`, `var`, range or type-switch alias) is a variable, not a symbol, and is
+  skipped; a name that is not visible in the file or package stays pending
+  rather than becoming a repo-wide unique-name guess. A method value
+  (`f := x.Method`) is still not modelled.
+- **Function literals and chained callees.** Go has no closure symbols, so a
+  reference inside a literal belongs to the function that lexically contains it
+  — including an immediately invoked literal such as
+  `defer func() { cleanup() }()`, whose body is walked. The whole callee subtree
+  is walked, so `newEngine().start()` records the inner `newEngine` call; the
+  outer call is not typed (a method call on a constructor result is a documented
+  gap). A literal in a package-level `var` initializer has no containing function
+  and follows the top-level rule (skipped).
+- **One-hop chained receivers.** `x.f.M()` is typed from `f`'s declared field
+  type when the field and `x`'s type are both declared in this file
+  (`go.typed.method` / `go.interface.method` apply as for `x.M()`). A deeper
+  chain, a field of another package, or an unknown base type stays pending
+  (`member-scope`); it is never matched by method name. A promoted field reached
+  through embedding is not resolved by this rule.
+
+Package-level `var ( … )` blocks are symbols like single `var` declarations
+(the grammar wraps their specs in `var_spec_list`); before #130 those
+declarations were invisible, which made value references to them permanently
+pending. `check` also treats a Go `init` function as an implicit entrypoint:
+the runtime calls it, no caller edge can exist, and it is not dead code.
+
 Dot imports (`. "pkg"`), struct fields as callable targets, and method values
 are not modelled.
 
@@ -562,6 +596,8 @@ edge. See [`docs/xlang.md`](xlang.md).
   a type parameter is not a receiver type.
 - **Cross-file constructor returns and method values.** A receiver initialised
   from another file's constructor needs an explicit type; `f := x.Method` is not
-  modelled.
+  modelled (a function *name* used as a value is, as a `REFERENCES` edge).
 - **Field references.** Fields are not symbols, so a field access is not an edge;
-  only calls, type references, and embedding are.
+  only calls, type references, and embedding are. A one-hop chained receiver
+  uses a declared field type when both declarations are in the same file; a
+  deeper chain and a promoted field stay pending.

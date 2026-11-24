@@ -76,6 +76,7 @@ func (e *Extractor) Extract(src []byte, dialect Dialect) Result {
 		vars:    make(map[string]string),
 		globals: make(map[string]string),
 		returns: make(map[string]string),
+		fields:  make(map[string]string),
 	}
 	for i := uint32(0); i < root.NamedChildCount(); i++ {
 		w.top(root.NamedChild(i))
@@ -94,6 +95,15 @@ type walker struct {
 	vars    map[string]string
 	globals map[string]string
 	returns map[string]string
+
+	// fields maps "Type.field" to a named field type so a one-hop chained
+	// receiver (`x.f.M()`) can be typed when both declarations live in this
+	// file. bound is the set of names bound in the current function
+	// (parameters, receiver, `:=`, `var`, range and type-switch names); a bare
+	// identifier in value position is a reference only when it is not one of
+	// them, which keeps local variables out of the graph.
+	fields map[string]string
+	bound  map[string]bool
 }
 
 func scopeKey(enclosing, name string) string { return enclosing + ":" + name }
@@ -198,7 +208,7 @@ func (w *walker) typeSpec(n sitter.Node, scope string) {
 	}
 	switch typ.Type() {
 	case "struct_type":
-		w.structFields(typ, qname)
+		w.structFields(typ, qname, id)
 	case "interface_type":
 		w.interfaceBody(typ, qname)
 	}
@@ -206,8 +216,9 @@ func (w *walker) typeSpec(n sitter.Node, scope string) {
 
 // structFields records embedded types as composition references. Fields are not
 // symbols (there is no field node kind), so a field access stays unresolved
-// instead of becoming a guess.
-func (w *walker) structFields(typ sitter.Node, owner string) {
+// instead of becoming a guess; a named field's type is remembered for a bounded
+// one-hop chained receiver only.
+func (w *walker) structFields(typ sitter.Node, owner, name string) {
 	for i := uint32(0); i < typ.NamedChildCount(); i++ {
 		list := typ.NamedChild(i)
 		if list.Type() != "field_declaration_list" {
@@ -218,7 +229,20 @@ func (w *walker) structFields(typ sitter.Node, owner string) {
 			if field.Type() != "field_declaration" {
 				continue
 			}
-			if !field.ChildByFieldName("name").IsNull() {
+			var names []string
+			for k := uint32(0); k < field.NamedChildCount(); k++ {
+				switch child := field.NamedChild(k); child.Type() {
+				case "field_identifier", "identifier":
+					names = append(names, child.Content(w.src))
+				}
+			}
+			if len(names) > 0 {
+				fieldType := typeName(field.ChildByFieldName("type"), w.src)
+				if fieldType != "" {
+					for _, fieldName := range names {
+						w.fields[name+"."+fieldName] = fieldType
+					}
+				}
 				continue
 			}
 			typeNode := field.ChildByFieldName("type")
@@ -256,7 +280,9 @@ func (w *walker) function(n sitter.Node) {
 	}
 	fn := name.Content(w.src)
 	w.add("function", fn, fn, w.arity(n.ChildByFieldName("parameters")), n, exported(fn))
+	w.bound = make(map[string]bool)
 	w.recordParams(n.ChildByFieldName("parameters"), fn)
+	w.markBoundList(n.ChildByFieldName("result"))
 	if result := namedResult(n.ChildByFieldName("result"), w.src); result != "" {
 		w.returns[fn] = result
 	}
@@ -281,11 +307,14 @@ func (w *walker) method(n sitter.Node) {
 	m := name.Content(w.src)
 	qname := recvType + "." + m
 	w.add("method", m, qname, w.arity(n.ChildByFieldName("parameters")), n, exported(m))
+	w.bound = make(map[string]bool)
 	if recvName != "" {
+		w.markBound(recvName)
 		w.vars[scopeKey(qname, recvName)] = recvType
 		w.vars[scopeKey("", recvName)] = recvType
 	}
 	w.recordParams(n.ChildByFieldName("parameters"), qname)
+	w.markBoundList(n.ChildByFieldName("result"))
 	if result := namedResult(n.ChildByFieldName("result"), w.src); result != "" {
 		w.returns[qname] = result
 	}
@@ -319,16 +348,21 @@ func (w *walker) recordParams(list sitter.Node, enclosing string) {
 			continue
 		}
 		typ := typeName(param.ChildByFieldName("type"), w.src)
-		if typ == "" {
-			continue
-		}
 		for j := uint32(0); j < param.NamedChildCount(); j++ {
 			child := param.NamedChild(j)
 			if child.Type() != "identifier" {
 				continue
 			}
-			w.vars[scopeKey(enclosing, child.Content(w.src))] = typ
-			w.vars[scopeKey("", child.Content(w.src))] = typ
+			name := child.Content(w.src)
+			// A parameter is bound even when its type is not a named type
+			// (`cb func()`): value-position detection must not treat it as a
+			// package-level reference.
+			w.markBound(name)
+			if typ == "" {
+				continue
+			}
+			w.vars[scopeKey(enclosing, name)] = typ
+			w.vars[scopeKey("", name)] = typ
 		}
 	}
 }
@@ -354,31 +388,46 @@ func (w *walker) constDeclaration(n sitter.Node) {
 func (w *walker) varDeclaration(n sitter.Node, enclosing string, topLevel bool) {
 	for i := uint32(0); i < n.NamedChildCount(); i++ {
 		spec := n.NamedChild(i)
-		if spec.Type() != "var_spec" {
+		switch spec.Type() {
+		case "var_spec":
+			w.varSpec(spec, enclosing, topLevel)
+		case "var_spec_list":
+			// `var ( … )` wraps its specs; walking only direct children would
+			// silently drop every package-level variable in a block.
+			for j := uint32(0); j < spec.NamedChildCount(); j++ {
+				if inner := spec.NamedChild(j); inner.Type() == "var_spec" {
+					w.varSpec(inner, enclosing, topLevel)
+				}
+			}
+		}
+	}
+}
+
+func (w *walker) varSpec(spec sitter.Node, enclosing string, topLevel bool) {
+	typ := typeName(spec.ChildByFieldName("type"), w.src)
+	var names []string
+	for j := uint32(0); j < spec.NamedChildCount(); j++ {
+		child := spec.NamedChild(j)
+		if child.Type() == "identifier" {
+			names = append(names, child.Content(w.src))
+		}
+	}
+	values := spec.ChildByFieldName("value")
+	if typ == "" && !values.IsNull() && values.NamedChildCount() > 0 {
+		typ = w.inferredType(values.NamedChild(0), enclosing)
+	}
+	for _, name := range names {
+		if topLevel {
+			w.add("var", name, name, 0, spec, exported(name))
+			w.globals[name] = typ
 			continue
 		}
-		typ := typeName(spec.ChildByFieldName("type"), w.src)
-		var names []string
-		for j := uint32(0); j < spec.NamedChildCount(); j++ {
-			child := spec.NamedChild(j)
-			if child.Type() == "identifier" {
-				names = append(names, child.Content(w.src))
-			}
+		w.markBound(name)
+		if typ != "" {
+			w.vars[scopeKey(enclosing, name)] = typ
 		}
-		values := spec.ChildByFieldName("value")
-		if typ == "" && !values.IsNull() && values.NamedChildCount() > 0 {
-			typ = w.inferredType(values.NamedChild(0), enclosing)
-		}
-		for _, name := range names {
-			if topLevel {
-				w.add("var", name, name, 0, spec, exported(name))
-				w.globals[name] = typ
-			} else if typ != "" {
-				w.vars[scopeKey(enclosing, name)] = typ
-			}
-		}
-		w.walk(values, enclosing)
 	}
+	w.walk(values, enclosing)
 }
 
 // walk visits an expression/statement subtree, emitting calls, conversions,
@@ -413,6 +462,14 @@ func (w *walker) walk(n sitter.Node, enclosing string) {
 			}
 		}
 		return
+	case "range_clause":
+		w.markBoundList(n.ChildByFieldName("left"))
+	case "type_switch_statement":
+		w.markBoundList(n.ChildByFieldName("alias"))
+	case "return_statement":
+		w.valueRefs(n, enclosing)
+	case "assignment_statement":
+		w.valueRefs(n.ChildByFieldName("right"), enclosing)
 	case "selector_expression":
 		// A selector is either a call target (handled by call_expression) or a
 		// field access; fields are not symbols, so it emits no reference.
@@ -443,20 +500,63 @@ func (w *walker) call(n sitter.Node, enclosing string) {
 				})
 			}
 		case "selector_expression":
-			operand := fn.ChildByFieldName("operand")
-			field := fn.ChildByFieldName("field")
-			if operand.Type() == "identifier" && field.Type() == "field_identifier" {
-				recv := operand.Content(w.src)
-				name := field.Content(w.src)
-				w.res.Refs = append(w.res.Refs, Ref{
-					Kind: "call", Name: name, Form: "member", Receiver: recv,
-					ReceiverType: w.lookupType(enclosing, recv),
-					Line:         int(n.StartPoint().Row) + 1, Enclosing: enclosing,
-				})
-			}
+			w.callSelector(fn, n, enclosing)
+		}
+		// Walk the callee subtree: an immediately invoked literal
+		// (`func() { … }()`, `defer func() { … }()`) and a chained call
+		// (`f(x).m()`) both keep references that the callee node itself does not
+		// carry. A selector walk stops at the selector, so its operand is walked
+		// instead; an identifier walk is a no-op.
+		if fn.Type() == "selector_expression" {
+			w.walk(fn.ChildByFieldName("operand"), enclosing)
+		} else {
+			w.walk(fn, enclosing)
 		}
 	}
-	w.walk(n.ChildByFieldName("arguments"), enclosing)
+	args := n.ChildByFieldName("arguments")
+	w.walk(args, enclosing)
+	w.valueRefs(args, enclosing)
+}
+
+// callSelector records one member call. A plain `x.M()` is typed from x; a
+// one-hop chain `x.f.M()` is typed from field f's declared type when both the
+// receiver and the field are declared in this file, and stays unresolved
+// otherwise (no name-only guess, no deeper chain).
+func (w *walker) callSelector(sel, at sitter.Node, enclosing string) {
+	operand := sel.ChildByFieldName("operand")
+	field := sel.ChildByFieldName("field")
+	if operand.IsNull() || field.IsNull() || field.Type() != "field_identifier" {
+		return
+	}
+	name := field.Content(w.src)
+	line := int(at.StartPoint().Row) + 1
+
+	switch operand.Type() {
+	case "identifier":
+		recv := operand.Content(w.src)
+		w.res.Refs = append(w.res.Refs, Ref{
+			Kind: "call", Name: name, Form: "member", Receiver: recv,
+			ReceiverType: w.lookupType(enclosing, recv),
+			Line:         line, Enclosing: enclosing,
+		})
+	case "selector_expression":
+		inner := operand.ChildByFieldName("operand")
+		innerField := operand.ChildByFieldName("field")
+		if inner.IsNull() || inner.Type() != "identifier" || innerField.IsNull() || innerField.Type() != "field_identifier" {
+			return
+		}
+		base := inner.Content(w.src)
+		fieldName := innerField.Content(w.src)
+		fieldType := ""
+		if baseType := w.lookupType(enclosing, base); baseType != "" {
+			fieldType = w.fields[baseType+"."+fieldName]
+		}
+		w.res.Refs = append(w.res.Refs, Ref{
+			Kind: "call", Name: name, Form: "member", Receiver: base + "." + fieldName,
+			ReceiverType: fieldType,
+			Line:         line, Enclosing: enclosing,
+		})
+	}
 }
 
 func (w *walker) composite(n sitter.Node, enclosing string) {
@@ -467,6 +567,8 @@ func (w *walker) composite(n sitter.Node, enclosing string) {
 	w.typeRef(typ, "new", enclosing, n)
 	if body := n.ChildByFieldName("body"); !body.IsNull() {
 		w.walk(body, enclosing)
+		// A keyed field can hold a function value: `sync.Pool{New: newBuf}`.
+		w.valueRefs(body, enclosing)
 	}
 }
 
@@ -527,13 +629,15 @@ func (w *walker) shortVar(n sitter.Node, enclosing string) {
 			rights = append(rights, lists[1].NamedChild(i))
 		}
 		for i, left := range lefts {
+			w.markBound(left)
 			if i >= len(rights) {
-				break
+				continue
 			}
 			if typ := w.inferredType(rights[i], enclosing); typ != "" {
 				w.vars[scopeKey(enclosing, left)] = typ
 			}
 		}
+		w.valueRefs(n.ChildByFieldName("right"), enclosing)
 	}
 	w.walk(n.ChildByFieldName("right"), enclosing)
 	for i := uint32(0); i < n.NamedChildCount(); i++ {
@@ -544,11 +648,83 @@ func (w *walker) shortVar(n sitter.Node, enclosing string) {
 }
 
 func (w *walker) funcLiteral(n sitter.Node, enclosing string) {
-	if enclosing == "" {
-		enclosing = "(closure)"
-	}
+	// Go has no closure symbols: a reference inside a function literal belongs
+	// to the function that lexically contains the literal, so the walk keeps the
+	// enclosing qname rather than inventing a "(closure)" owner.
 	w.recordParams(n.ChildByFieldName("parameters"), enclosing)
 	w.walk(n.ChildByFieldName("body"), enclosing)
+}
+
+// valueRef emits a REFERENCES reference for a bare identifier in value position
+// (a function value, a package-level var or const). A locally bound name is a
+// variable, not a symbol, so it is skipped instead of producing a guessed
+// reference; a builtin or a predeclared constant is external by definition.
+func (w *walker) valueRef(n sitter.Node, enclosing string) {
+	// Top-level references have no source symbol (the same policy as a call
+	// outside any function).
+	if enclosing == "" {
+		return
+	}
+	name := n.Content(w.src)
+	if name == "" || name == "_" || w.bound[name] || isBuiltin(name) || isPredeclaredValue(name) {
+		return
+	}
+	w.res.Refs = append(w.res.Refs, Ref{
+		Kind: "ref", Name: name, Form: "ident",
+		Line: int(n.StartPoint().Row) + 1, Enclosing: enclosing,
+	})
+}
+
+// valueRefs visits the direct children of a value list, emitting a reference
+// for each bare identifier. It does not recurse into selectors, calls, or
+// literals: those are handled by walk and are not bare names.
+func (w *walker) valueRefs(n sitter.Node, enclosing string) {
+	if n.IsNull() {
+		return
+	}
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		switch child.Type() {
+		case "identifier":
+			w.valueRef(child, enclosing)
+		case "expression_list":
+			w.valueRefs(child, enclosing)
+		case "keyed_element":
+			value := child.ChildByFieldName("value")
+			if value.Type() == "identifier" {
+				w.valueRef(value, enclosing)
+			} else if !value.IsNull() {
+				w.valueRefs(value, enclosing)
+			}
+		}
+	}
+}
+
+// markBound records a name bound in the current function. A nil set means no
+// function is open (a package-level initializer), where every reference is
+// top-level and skipped anyway.
+func (w *walker) markBound(name string) {
+	if w.bound == nil || name == "" || name == "_" {
+		return
+	}
+	w.bound[name] = true
+}
+
+// markBoundList records every identifier in a binding site: a parameter list, a
+// result list, a range clause's left side, or a type switch's alias.
+func (w *walker) markBoundList(n sitter.Node) {
+	if n.IsNull() {
+		return
+	}
+	for i := uint32(0); i < n.NamedChildCount(); i++ {
+		child := n.NamedChild(i)
+		switch child.Type() {
+		case "identifier":
+			w.markBound(child.Content(w.src))
+		case "parameter_declaration", "variadic_parameter_declaration", "expression_list":
+			w.markBoundList(child)
+		}
+	}
 }
 
 // inferredType reduces a right-hand expression to a named type the resolver can
@@ -762,6 +938,16 @@ func isBuiltin(name string) bool {
 	case "append", "cap", "clear", "close", "complex", "copy", "delete", "imag",
 		"len", "make", "max", "min", "new", "panic", "print", "println", "real",
 		"recover":
+		return true
+	}
+	return false
+}
+
+// isPredeclaredValue lists Go's predeclared constants: a bare `nil` or `true`
+// in argument position is not a package-level reference.
+func isPredeclaredValue(name string) bool {
+	switch name {
+	case "nil", "true", "false", "iota":
 		return true
 	}
 	return false

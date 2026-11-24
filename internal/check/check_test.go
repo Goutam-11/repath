@@ -269,6 +269,35 @@ def _unused_helper():
 	}
 }
 
+func TestGoRuntimeAndValueReferencesAreNotDead(t *testing.T) {
+	report := runCheck(t, map[string]string{
+		"pkg/start.go": `package pkg
+
+func init() { helper() }
+
+func helper() {}
+
+func register(f func()) {}
+
+func handler() {}
+
+func run() {
+	register(handler)
+	defer func() { helper() }()
+}
+
+func main() { run() }
+
+func unused() {}
+`,
+	}, Options{MinConfidence: 0.5})
+
+	dead := find(report, "dead-code", "dead.unreferenced")
+	if len(dead) != 1 || dead[0].QName != "unused" {
+		t.Fatalf("dead code = %+v, want only unused (init, a function value, and a closure call all count as references)", dead)
+	}
+}
+
 func TestTestPathClassifier(t *testing.T) {
 	cases := map[string]bool{
 		"src/a.ts":             false,

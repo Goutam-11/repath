@@ -424,6 +424,79 @@ Self-dogfood is the #80 acceptance target, and the graph answers:
 `repath impact resolveGo` returns `resolve.Index.Resolve` from the real edges
 of `internal/resolve`.
 
+### Go reference gaps (2026-11-24, #130)
+
+Four extractor gaps produced false `check` dead-code findings; none of them was
+a resolver ladder change (no rule id, edge kind, schema, or gate was touched):
+
+- `init` is called by the Go runtime, so `check` treats it like `main` for Go
+  only (an ordinary `init` in another language is still judged).
+- A bare identifier in **value position** — an argument, `return`, assignment,
+  `:=` right-hand side, or a keyed composite-literal field — is a `REFERENCES`
+  reference resolved by the same `go.local` / `go.package` rows when the name is
+  not locally bound. It is never guessed from a repo-wide unique name.
+- A function literal keeps the enclosing function as its source, including an
+  immediately invoked one (`defer func() { … }()`). The walker now descends into
+  the whole callee subtree, so a chained call such as `f(x).m()` records the
+  inner `f` call too; before this change the callee of a call expression was
+  never walked.
+- A one-hop chained receiver `x.f.M()` is typed from `f`'s declared field type
+  when both the field and `x`'s type are declared in the same file; deeper
+  chains and unknown fields stay pending.
+- Parenthesized `var ( … )` blocks (package-level and function-local) are now
+  extracted (`var_spec_list`); previously only single `var` declarations
+  produced symbols.
+
+The new `testdata/fixtures/go-refs` gate is **13/13 edges at precision 1.00 /
+recall 1.00, 0 unresolved** (init body, function value in argument position,
+function value in a keyed field, call inside a deferred literal, one-hop chained
+receiver, a callee that is itself a call, composite-literal type references).
+The original `testdata/fixtures/go` gate is unchanged at 11/11.
+
+| Gin @ `0f09c3a` | Before (#80) | After (#130) |
+| --- | --- | --- |
+| Files / nodes | 99 / 1,755 | 99 / **1,807** |
+| Edges (CALLS + REFERENCES) | 2,336 (1,947 + 389) | **2,978** (2,038 + 940) |
+| Pending | 877 | **1,390** |
+| Ambiguous | 86 (3.7%) | **248** (8.3%) |
+| `check` dead-code findings | **12** | **2** |
+| `check` warnings | 13 | **3** (2 build-tag duplicates + 1 unresolved-rate) |
+| Cold wall / max RSS | 0.21 s / 43.4 MiB | 0.25 s / 45.1 MiB |
+
+The two remaining dead-code findings are exactly the build-tag `validate`
+duplicates (`binding/binding.go` and `binding/binding_nomsgpack.go`), which the
+issue excludes from the claim. Each fixed shape was verified with `callers`:
+
+| Symbol | Caller found | Rule / confidence |
+| --- | --- | --- |
+| `timeFormat` (closure call) | `CustomRecoveryWithWriter` | `go.local` 0.95 |
+| `defaultHandleRecovery` (function value) | `RecoveryWithWriter` | `go.local` 0.95, `REFERENCES` |
+| `Engine.validateHeader` (`c.engine.…`) | `Context.ClientIP` | `go.typed.method` 0.90 |
+| `methodTrees.get` (`engine.trees.…`) | `Engine.addRoute` | `go.typed.method` 0.90 |
+
+Cold / incremental (ten-file comment edit, **80 ms**) / second-`--full`
+(**0.24 s**) row sets are **identical**: the same 2,978 edge rows (including
+candidate ids) and 1,390 pending rows. The pending growth (+513) is the honest
+half of the chained-receiver contract: a chain whose base or field type is not
+declared in the file is reported as pending (`member-scope`) instead of guessed,
+and one small module (`codec`, 15/19 references) crosses the
+`unresolved.module-rate` warning line as a result. The ambiguity growth is the
+`var ( … )` fix making the build-tagged `binding.go` / `binding_nomsgpack.go`
+duplicates visible as 0.40 groups; the same-file `go.local` row still wins
+inside each file.
+
+A second Go corpus, `labstack/echo` @ `59aacdd`: nodes **1,897 → 1,930**,
+edges **2,618 → 3,334**, pending 2,495 → 3,612, ambiguous 13, 0 parse failures;
+`check` dead-code findings **18 → 10** and warnings **20 → 11**, with no new
+finding of any kind. The remaining echo findings are method values
+(`e.serveHTTP`, `config.defaultAllowOriginFunc`) and implicit interface
+implementation — the documented gaps, not reference bugs.
+
+Self-dogfood on this repository: nodes **1,995 → 2,004**, edges **3,097 →
+3,368**, pending **1,754 → 1,855**, ambiguous 65, 0 parse failures; `check`
+warnings **13 → 11** (two false dead-code findings, `gitTrackedChanges` and
+`parseOne`, disappear) with no new finding of any kind.
+
 ### Not verified
 
 - **Implicit interface implementation is not inferred.** A call through an

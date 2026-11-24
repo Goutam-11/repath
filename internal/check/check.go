@@ -255,7 +255,7 @@ func deadCodeFindings(nodes []store.NodeRow, edges []store.EdgeOut, paths map[in
 		if node.Kind != "function" && node.Kind != "method" {
 			continue
 		}
-		if !isPrivate(node) || isSpecial(node.Name) || incoming[node.ID] > 0 {
+		if !isPrivate(node) || isSpecial(node) || incoming[node.ID] > 0 {
 			continue
 		}
 		path := paths[node.FileID]
@@ -332,7 +332,7 @@ func boundaryFindings(edges []store.EdgeOut, fileModules map[int64]int64, module
 			continue
 		}
 
-		if isPrivate(edge.DstNode) && !isSpecial(edge.DstNode.Name) {
+		if isPrivate(edge.DstNode) && !isSpecial(edge.DstNode) {
 			k := key{rule: "private-crossing", from: srcModule, to: edge.DstNode.QName}
 			add(k, Finding{
 				Kind:     "module-boundary",
@@ -502,19 +502,22 @@ func moduleName(fileModules map[int64]int64, moduleNames map[int64]string, fileI
 // the underscore convention.
 func isPrivate(node store.NodeRow) bool {
 	if node.Lang == "python" {
-		return strings.HasPrefix(node.Name, "_") && !isSpecial(node.Name)
+		return strings.HasPrefix(node.Name, "_") && !isSpecial(node)
 	}
 	return !node.Exported
 }
 
 // isSpecial excludes framework/entrypoint names that cannot be judged dead from
-// the static graph.
-func isSpecial(name string) bool {
-	switch name {
+// the static graph. `init` is special only in Go, where the runtime calls every
+// package-level init function implicitly and no caller edge can exist.
+func isSpecial(node store.NodeRow) bool {
+	switch node.Name {
 	case "main", "constructor", "setUp", "tearDown", "setup", "teardown", "__init__":
 		return true
+	case "init":
+		return node.Lang == "go"
 	}
-	return len(name) > 4 && strings.HasPrefix(name, "__") && strings.HasSuffix(name, "__")
+	return len(node.Name) > 4 && strings.HasPrefix(node.Name, "__") && strings.HasSuffix(node.Name, "__")
 }
 
 func sortFindings(findings []Finding) {

@@ -102,6 +102,7 @@ func TestFixturePrecisionAndRecall(t *testing.T) {
 		{name: "py", precision: 0.88, recall: 0.80, maxUnresolved: 2},
 		{name: "rs", precision: 0.85, recall: 0.70, maxUnresolved: 2},
 		{name: "go", precision: 0.85, recall: 0.70, maxUnresolved: 0},
+		{name: "go-refs", precision: 1.00, recall: 1.00, maxUnresolved: 0},
 	}
 
 	for _, spec := range specs {

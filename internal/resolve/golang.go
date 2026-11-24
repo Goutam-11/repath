@@ -68,6 +68,13 @@ func (ix *Index) resolveGo(fromFile int64, fromPath string, ref facts.Ref, impor
 		} else if len(rows) > 1 {
 			return goAmbiguous(rows, "go.package.ambiguous")
 		}
+		if ref.Kind == "ref" {
+			// A bare identifier in value position (a function value, a var, a
+			// const) can only name something visible in this file or package
+			// without a qualifier. A repo-wide unique name is not evidence, so
+			// the reference stays pending instead of becoming a guessed edge.
+			return Resolution{}
+		}
 		return ix.byUnique(ref.Name, ref.Arity, ix.global[ref.Name], "go.global", 0.40)
 	}
 	return Resolution{}
