@@ -32,6 +32,16 @@ type ID string
 
 var Global = 1
 
+var (
+	BlockA, BlockB = 1, 2
+	BlockC         string
+)
+
+const (
+	KindB = iota
+	KindC
+)
+
 const KindA = iota
 
 func (u *User) Greet(prefix string) string { return prefix }
@@ -56,7 +66,12 @@ func NewUser(name string) *User { return &User{Name: name} }
 		{"User", "struct", 0, true},
 		{"ID", "type", 0, true},
 		{"Global", "var", 0, true},
+		{"BlockA", "var", 0, true},
+		{"BlockB", "var", 0, true},
+		{"BlockC", "var", 0, true},
 		{"KindA", "const", 0, true},
+		{"KindB", "const", 0, true},
+		{"KindC", "const", 0, true},
 		{"User.Greet", "method", 1, true},
 		{"User.Label", "method", 0, true},
 		{"NewUser", "function", 1, true},
@@ -147,6 +162,148 @@ func run() {
 	}
 	if typed["u"] != "User" || typed["v"] != "User" {
 		t.Fatalf("receiver types = %+v, want u and v typed User", typed)
+	}
+}
+
+func TestExtractValueAndChainedRefs(t *testing.T) {
+	src := `package demo
+
+type Engine struct{ protocol string }
+
+func (e *Engine) start() {}
+
+type Holder struct{ engine *Engine }
+
+func helper() {}
+
+func register(f func()) {}
+
+func init() { helper() }
+
+func run(h *Holder) {
+	register(helper)
+	defer func() { helper() }()
+	h.engine.start()
+	local := 1
+	register2(local)
+}
+
+func register2(f func()) {}
+`
+	res := New().Extract([]byte(src), Go)
+	if !res.OK {
+		t.Fatalf("parse failed: %s", res.Err)
+	}
+
+	var values, calls, chained []Ref
+	for _, ref := range res.Refs {
+		switch {
+		case ref.Name == "helper" && ref.Kind == "ref":
+			values = append(values, ref)
+		case ref.Name == "helper" && ref.Kind == "call" && ref.Enclosing == "run":
+			calls = append(calls, ref)
+		case ref.Name == "start":
+			chained = append(chained, ref)
+		}
+		if ref.Name == "local" || ref.Name == "f" {
+			t.Fatalf("bound parameter or variable %q emitted a reference: %+v", ref.Name, ref)
+		}
+	}
+
+	// A function value passed as an argument is a REFERENCES reference attached
+	// to the enclosing function.
+	if len(values) != 1 || values[0].Enclosing != "run" || values[0].Form != "ident" {
+		t.Fatalf("function value refs = %+v, want one ident ref enclosed in run", values)
+	}
+	// A call inside a deferred function literal keeps the enclosing function as
+	// its source (no "(closure)" pseudo-symbol).
+	if len(calls) != 1 || calls[0].Enclosing != "run" {
+		t.Fatalf("closure call refs = %+v, want one call enclosed in run", calls)
+	}
+	// A one-hop chained receiver is typed from the declared field.
+	if len(chained) != 1 || chained[0].Form != "member" || chained[0].Receiver != "h.engine" ||
+		chained[0].ReceiverType != "Engine" || chained[0].Enclosing != "run" {
+		t.Fatalf("chained refs = %+v, want h.engine typed Engine", chained)
+	}
+
+	// The init body is walked like any other function.
+	found := false
+	for _, ref := range res.Refs {
+		if ref.Name == "helper" && ref.Kind == "call" && ref.Enclosing == "init" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no call ref enclosed in init; init body was not walked")
+	}
+}
+
+func TestExtractCallCalleeAndKeyedValue(t *testing.T) {
+	src := `package demo
+
+type Engine struct{}
+
+func (e *Engine) start() {}
+
+func makeEngine() *Engine { return &Engine{} }
+
+type Registry struct{ handler func() }
+
+func handler() {}
+
+func build() Registry { return Registry{handler: handler} }
+
+func run() { makeEngine().start() }
+`
+	res := New().Extract([]byte(src), Go)
+	if !res.OK {
+		t.Fatalf("parse failed: %s", res.Err)
+	}
+	var keyed, chained bool
+	for _, ref := range res.Refs {
+		if ref.Name == "handler" && ref.Kind == "ref" && ref.Enclosing == "build" {
+			keyed = true
+		}
+		if ref.Name == "makeEngine" && ref.Kind == "call" && ref.Enclosing == "run" {
+			chained = true
+		}
+	}
+	if !keyed {
+		t.Error("no value ref for a function value in a keyed composite-literal field")
+	}
+	if !chained {
+		t.Error("no call ref for the callee of a chained call (makeEngine().start())")
+	}
+}
+
+func TestExtractUnresolvedChainedReceiverStaysUntyped(t *testing.T) {
+	src := `package demo
+
+type Holder struct{ engine *Engine }
+
+func run(h *Holder) {
+	h.engine.start()
+	h.missing.stop()
+}
+`
+	res := New().Extract([]byte(src), Go)
+	if !res.OK {
+		t.Fatalf("parse failed: %s", res.Err)
+	}
+	types := map[string]string{}
+	for _, ref := range res.Refs {
+		if ref.Kind == "call" && ref.Form == "member" {
+			types[ref.Receiver] = ref.ReceiverType
+		}
+	}
+	// The field exists: Engine is not declared here, so the extractor still
+	// records the declared field type and the resolver decides it is unknown.
+	if types["h.engine"] != "Engine" {
+		t.Fatalf("h.engine type = %q, want Engine", types["h.engine"])
+	}
+	// The field does not exist: no type, and no name-only guess.
+	if types["h.missing"] != "" {
+		t.Fatalf("h.missing type = %q, want empty", types["h.missing"])
 	}
 }
 

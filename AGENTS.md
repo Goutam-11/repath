@@ -323,12 +323,25 @@ the database.
   duplicate declarations are a visible 0.40 group, and `go.typed.method`
   duplicates are the same. Go adds the `const` and `var` node kinds for
   package-level declarations; no edge kind, schema, or rule id changed shape.
+  **#130 reference shapes are bounded too:** a bare identifier in value
+  position (argument, `return`, assignment, `:=` right-hand side, keyed
+  composite-literal field) is a `REFERENCES` edge resolved by the same
+  `go.local`/`go.package` rows when the name is not bound in the function —
+  never a repo-wide unique-name guess; the whole callee subtree is walked, so a
+  function literal's references belong to the enclosing function (Go has no
+  closure symbols) and `f(x).m()` records the inner `f` call; `x.f.M()` is typed
+  from `f`'s declared field type only when
+  both the field and `x`'s type are declared in the same file, and otherwise
+  stays pending (never name-matched); parenthesized `var ( … )` blocks are
+  symbols (`var_spec_list`). `check` treats Go `init` as an implicit runtime
+  entrypoint, not dead code. The gate is `testdata/fixtures/go-refs` (13/13) plus
+  gin parity at 2,978 edges / 1,390 pending.
   Do not add a receiver-less member guess or collapse an ambiguity group.
 - **Go package lookups must use the global name index.** `byFile` is partial on
   an incremental run by design; a package map built from it loses unchanged
   files and breaks cold/incremental parity (#49). `goPackages` is built from
-  `byQName` plus `paths`, and the gin parity check (2,336 edges / 877 pending,
-  identical cold/incremental/full) is the regression gate.
+  `byQName` plus `paths`, and the gin parity check (2,978 edges / 1,390 pending
+  since #130, identical cold/incremental/full) is the regression gate.
 - **A merged cross-repo index is a projection, not a resolver.** `repath merge`
   copies single-repo artifacts into one snapshot: every file path is prefixed
   with its repo name (identity stays per repo; identical qnames are never

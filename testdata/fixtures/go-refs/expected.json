@@ -1,0 +1,15 @@
+[
+  { "src": "main.go:main", "dst": "main.go:newHolder", "kind": "CALLS" },
+  { "src": "main.go:main", "dst": "main.go:run", "kind": "CALLS" },
+  { "src": "main.go:run", "dst": "main.go:register", "kind": "CALLS" },
+  { "src": "main.go:run", "dst": "handlers.go:handler", "kind": "REFERENCES" },
+  { "src": "main.go:run", "dst": "handlers.go:cleanup", "kind": "CALLS" },
+  { "src": "main.go:run", "dst": "main.go:Engine.start", "kind": "CALLS" },
+  { "src": "main.go:run", "dst": "main.go:newEngine", "kind": "CALLS" },
+  { "src": "main.go:buildRegistry", "dst": "handlers.go:handler", "kind": "REFERENCES" },
+  { "src": "main.go:buildRegistry", "dst": "main.go:Registry", "kind": "REFERENCES" },
+  { "src": "setup.go:init", "dst": "main.go:prepare", "kind": "CALLS" },
+  { "src": "main.go:newHolder", "dst": "main.go:Holder", "kind": "REFERENCES" },
+  { "src": "main.go:newHolder", "dst": "main.go:newEngine", "kind": "CALLS" },
+  { "src": "main.go:newEngine", "dst": "main.go:Engine", "kind": "REFERENCES" }
+]
