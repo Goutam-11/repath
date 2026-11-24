@@ -29,19 +29,13 @@ func testsCmd(args []string, stdout, stderr io.Writer) int {
 	}
 
 	ctx := context.Background()
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	st, done, root, code := openAnswerStore(ctx, opts, false, stderr)
+	if code != 0 {
+		return code
 	}
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
-	}
-	defer st.Close()
+	defer done()
 
-	answer, code, err := query.Tests(ctx, st.Store, positional[0], opts.depth, opts.minConfidence, opts.limit)
+	answer, code, err := query.Tests(ctx, st, positional[0], opts.depth, opts.minConfidence, opts.limit)
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve: %v\n", err)
 		return 1
@@ -91,19 +85,13 @@ func testsDiffCmd(opts options, stdout, stderr io.Writer) int {
 		return writeTestsDiff(stdout, stderr, root, result, opts.json)
 	}
 
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
+	st, done, code := openDiffStore(ctx, opts, root, stderr)
+	if code != 0 {
+		return code
 	}
-	defer st.Close()
-	// Diff answers must describe the current tree, not a stale snapshot.
-	if _, err := query.Status(ctx, st.Store, root, true, false); err != nil {
-		fmt.Fprintf(stderr, "refresh: %v\n", err)
-		return 1
-	}
+	defer done()
 
-	result, err := query.TestsDiff(ctx, st.Store, base, changed, opts.depth, opts.minConfidence, opts.limit)
+	result, err := query.TestsDiff(ctx, st, base, changed, opts.depth, opts.minConfidence, opts.limit)
 	if err != nil {
 		fmt.Fprintf(stderr, "tests --diff: %v\n", err)
 		return 1

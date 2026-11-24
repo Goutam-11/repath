@@ -2,17 +2,14 @@ package cli
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/Goutam-11/repath/internal/artifact"
 	"github.com/Goutam-11/repath/internal/graph"
 	"github.com/Goutam-11/repath/internal/query"
-	"github.com/Goutam-11/repath/internal/store"
 )
 
 func impactCmd(args []string, stdout, stderr io.Writer) int {
@@ -34,19 +31,13 @@ func impactCmd(args []string, stdout, stderr io.Writer) int {
 	}
 
 	ctx := context.Background()
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	st, done, root, code := openAnswerStore(ctx, opts, false, stderr)
+	if code != 0 {
+		return code
 	}
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
-	}
-	defer st.Close()
+	defer done()
 
-	answer, code, err := query.Impact(ctx, st.Store, positional[0], opts.depth, opts.minConfidence, opts.limit)
+	answer, code, err := query.Impact(ctx, st, positional[0], opts.depth, opts.minConfidence, opts.limit)
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve: %v\n", err)
 		return 1
@@ -85,19 +76,13 @@ func pathCmd(args []string, stdout, stderr io.Writer) int {
 	}
 
 	ctx := context.Background()
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	st, done, root, code := openAnswerStore(ctx, opts, false, stderr)
+	if code != 0 {
+		return code
 	}
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
-	}
-	defer st.Close()
+	defer done()
 
-	answer, code, err := query.Path(ctx, st.Store, positional[0], positional[1], opts.depth, opts.minConfidence, 3)
+	answer, code, err := query.Path(ctx, st, positional[0], positional[1], opts.depth, opts.minConfidence, 3)
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve: %v\n", err)
 		return 1
@@ -145,44 +130,12 @@ func mapCmd(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "--md writes files; --json prints the answer. Pick one\n\n%s", usage)
 		return 2
 	}
-	if opts.artifact != "" && !opts.md {
-		fmt.Fprintf(stderr, "--artifact is only used with map --md\n\n%s", usage)
-		return 2
-	}
-
 	ctx := context.Background()
-	var (
-		st   *store.Store
-		root string
-	)
-	if opts.artifact != "" {
-		// A read-only artifact, opened in place: the bundle is rendered from
-		// the artifact's snapshot, never from a pulled or refreshed index.
-		opened, done, _, openErr := artifact.OpenReadOnly(ctx, opts.artifact)
-		if openErr != nil {
-			fmt.Fprintf(stderr, "map: %v\n", openErr)
-			if errors.Is(openErr, artifact.ErrNotFound) {
-				return 3
-			}
-			return 1
-		}
-		st = opened
-		defer done()
-	} else {
-		var err error
-		root, err = query.ResolveRoot(opts.root)
-		if err != nil {
-			fmt.Fprintf(stderr, "resolve root: %v\n", err)
-			return 1
-		}
-		opened, err := query.Open(ctx, root, false)
-		if err != nil {
-			fmt.Fprintf(stderr, "%v\n", err)
-			return 1
-		}
-		defer opened.Close()
-		st = opened.Store
+	st, done, root, code := openAnswerStore(ctx, opts, false, stderr)
+	if code != 0 {
+		return code
 	}
+	defer done()
 
 	if opts.md {
 		budget := opts.maxTokens

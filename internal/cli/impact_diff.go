@@ -38,19 +38,13 @@ func impactDiffCmd(opts options, stdout, stderr io.Writer) int {
 		return writeImpactDiff(stdout, stderr, root, result, opts.json)
 	}
 
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
+	st, done, code := openDiffStore(ctx, opts, root, stderr)
+	if code != 0 {
+		return code
 	}
-	defer st.Close()
-	// Diff answers must describe the current tree, not a stale snapshot.
-	if _, err := query.Status(ctx, st.Store, root, true, false); err != nil {
-		fmt.Fprintf(stderr, "refresh: %v\n", err)
-		return 1
-	}
+	defer done()
 
-	result, err := query.ImpactDiff(ctx, st.Store, base, changed, opts.depth, opts.minConfidence, opts.limit)
+	result, err := query.ImpactDiff(ctx, st, base, changed, opts.depth, opts.minConfidence, opts.limit)
 	if err != nil {
 		fmt.Fprintf(stderr, "impact --diff: %v\n", err)
 		return 1

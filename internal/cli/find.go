@@ -21,19 +21,13 @@ func findCmd(args []string, stdout, stderr io.Writer) int {
 	}
 
 	ctx := context.Background()
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	st, done, _, code := openAnswerStore(ctx, opts, false, stderr)
+	if code != 0 {
+		return code
 	}
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
-	}
-	defer st.Close()
+	defer done()
 
-	answer, code, err := query.Find(ctx, st.Store, positional[0], opts.module, opts.minConfidence)
+	answer, code, err := query.Find(ctx, st, positional[0], opts.module, opts.minConfidence)
 	if err != nil {
 		fmt.Fprintf(stderr, "search: %v\n", err)
 		return 1
@@ -82,19 +76,13 @@ func callersCmd(args []string, stdout, stderr io.Writer) int {
 	}
 
 	ctx := context.Background()
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	st, done, _, code := openAnswerStore(ctx, opts, false, stderr)
+	if code != 0 {
+		return code
 	}
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
-	}
-	defer st.Close()
+	defer done()
 
-	answer, code, err := query.Callers(ctx, st.Store, positional[0], opts.minConfidence, 0)
+	answer, code, err := query.Callers(ctx, st, positional[0], opts.minConfidence, 0)
 	if err != nil {
 		fmt.Fprintf(stderr, "read callers: %v\n", err)
 		return 1

@@ -15,7 +15,7 @@ it; queries do not.
 ```sh
 repath impact <symbol|file:line> --json   # reverse closure: what breaks
 repath path <from> <to> --json            # shortest chain + alternates
-repath callers <symbol> --json            # direct reverse edges
+repath callers <symbol|file:line> --json  # direct reverse edges
 repath find <symbol> --json               # card: location, caller/callee counts
 repath map --max-tokens 1200 --json       # modules, cycles, ranked hubs
 repath status --json                      # counts, unresolved, ambiguity, parse failures
@@ -28,11 +28,15 @@ repath check --sarif tsc.sarif --json     # attach external SARIF 2.1.0 diagnost
 repath adapter --scip index.scip --json    # optional TS/Python compiler facts for unresolved refs
 repath adapter --lsp-facts facts.json --json # optional external LSP facts (same merge policy)
 repath trace --file profile.cpuprofile --json # read-only observed calls from a V8 CPU profile
+repath impact <symbol|file:line> --artifact DIR --json # answer from a shared snapshot
 ```
 
 `--min-confidence` (default 0.5) is the precision/completeness dial: 0.9 keeps
 import/`this`/local edges, 0.4 adds ambiguous candidates with their rule id.
-`--depth` defaults to 8 for impact/path.
+`--depth` defaults to 8 for impact/path. Every answer command accepts
+`--artifact DIR|FILE` to read an exported snapshot in place (no pull, no
+refresh); a merged cross-repo index needs `--min-confidence 0.4`, and a
+duplicate qname is disambiguated with `file:line`.
 
 Read the JSON: `dependents[]` carries `depth`, `confidence`, `rule`, `call_line`;
 `path` returns `hops[]` with per-edge `rule`; `impact` and `map` report

@@ -124,7 +124,15 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 		scopeFiles = counts.Files
 	}
 
-	currentHead := gitHead(ctx, root)
+	// An artifact without a recorded root (a merged index, or one exported
+	// before the field existed) has no checkout to probe: reporting the caller's
+	// cwd HEAD as the artifact's would be a lie.
+	currentHead := ""
+	dirtyFiles := 0
+	if root != "" {
+		currentHead = gitHead(ctx, root)
+		dirtyFiles = gitDirtyCount(ctx, root)
+	}
 	gitHead := meta["git_head"]
 	return StatusReport{
 		Root:                 root,
@@ -151,7 +159,7 @@ func Status(ctx context.Context, st *store.Store, root string, refresh, full boo
 		GitHead:              gitHead,
 		CurrentHead:          currentHead,
 		Stale:                gitHead != "" && currentHead != "" && gitHead != currentHead,
-		DirtyFiles:           gitDirtyCount(ctx, root),
+		DirtyFiles:           dirtyFiles,
 		Adapters:             adapters,
 		Refresh: RefreshReport{
 			FilesIndexed: refreshed.Indexed,

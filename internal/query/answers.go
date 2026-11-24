@@ -82,10 +82,20 @@ type CallersAnswer struct {
 // Callers resolves one symbol and returns its direct reverse edges. A limit of
 // zero means no cap (the CLI); the MCP tool passes DefaultCallersLimit.
 func Callers(ctx context.Context, st *store.Store, name string, minConfidence float64, limit int) (CallersAnswer, int, error) {
-	target, code, err := ResolveSymbol(ctx, st, name, "")
+	// A name, a file, or a file:line target: file:line is how a duplicate qname
+	// is disambiguated (for example the two halves of a merged cross-repo
+	// index). A whole file maps to several symbols, which is ambiguous for a
+	// single-caller answer rather than a silent first pick.
+	target, code, err := ResolveTarget(ctx, st, name)
 	answer := CallersAnswer{Target: target}
 	if err != nil || code != 0 {
 		return answer, code, err
+	}
+	if len(target.Nodes) != 1 {
+		target.Candidates = target.Nodes
+		target.Nodes = nil
+		answer.Target = target
+		return answer, 4, nil
 	}
 
 	node := target.Nodes[0]

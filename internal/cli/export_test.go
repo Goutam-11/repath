@@ -483,8 +483,9 @@ func TestExportArtifactExitCodes(t *testing.T) {
 	if code, _, _ := run(t, "export", "--graphml", "--dot", "--artifact", artifactDir); code != 2 {
 		t.Fatalf("format conflict exit = %d, want 2", code)
 	}
-	if code, _, _ := run(t, "map", "--artifact", artifactDir); code != 2 {
-		t.Fatalf("map without --md exit = %d, want 2", code)
+	// map is a read answer too, so --artifact works without --md (#129).
+	if code, _, stderr := run(t, "map", "--artifact", artifactDir, "--json"); code != 0 {
+		t.Fatalf("map --artifact exit = %d, want 0: %s", code, stderr)
 	}
 }
 

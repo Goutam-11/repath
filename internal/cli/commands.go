@@ -27,21 +27,19 @@ func statusCmd(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	if opts.artifact != "" && opts.full {
+		fmt.Fprintf(stderr, "status --full needs a live index; --artifact is read-only\n\n%s", usage)
+		return 2
 	}
 
 	ctx := context.Background()
-	st, err := query.Open(ctx, root, true)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
+	st, done, root, code := openAnswerStore(ctx, opts, true, stderr)
+	if code != 0 {
+		return code
 	}
-	defer st.Close()
+	defer done()
 
-	report, err := query.Status(ctx, st.Store, root, !opts.noRefresh, opts.full)
+	report, err := query.Status(ctx, st, root, !opts.noRefresh && opts.artifact == "", false)
 	if err != nil {
 		fmt.Fprintf(stderr, "status: %v\n", err)
 		return 1
@@ -61,7 +59,13 @@ func statusCmd(args []string, stdout, stderr io.Writer) int {
 }
 
 func printStatus(out io.Writer, r statusReport) {
-	fmt.Fprintf(out, "repath %s · %s\n", r.Version, r.Root)
+	root := r.Root
+	if root == "" {
+		// A merged artifact (or one exported before the manifest recorded a
+		// root) describes no single checkout.
+		root = "artifact snapshot"
+	}
+	fmt.Fprintf(out, "repath %s · %s\n", r.Version, root)
 	fmt.Fprintf(out, "%d files · %d nodes · %d parse failures\n", r.Files, r.Nodes, r.ParseFailures)
 	if len(r.Scope) > 0 {
 		fmt.Fprintf(out, "scope %s (%d files)\n", strings.Join(r.Scope, ", "), r.ScopeFiles)

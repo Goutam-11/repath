@@ -356,7 +356,7 @@ the database.
   no timestamp (`TestMergeIsByteIdentical` covers a repo with entrypoints). The
   output directory is never overwritten (exit 2), a missing part is exit 3, and
   a schema mismatch is exit 1. Do not add an implicit merged read to a command;
-  `export`/`map --md --artifact` are the read-only seams.
+  `--artifact` stays an explicit flag on the read commands.
 - **Module cycles** are computed on cross-module edges at ≥0.5; one noisy edge
   can merge modules into one SCC. Treat cycles as hints.
 - **Artifacts default to uncompressed SQLite; zstd is opt-in.** `--compress`
@@ -537,6 +537,21 @@ the database.
   GraphML 1.0 schema set under `testdata/export/graphml/` is **test-only**:
   `REPATH_XSD=1` opts into `xmllint` validation and `make check` needs neither
   `xmllint` nor a viewer. See `docs/export.md`.
+- **Read commands can answer from an artifact.** `find`, `callers`, `impact`,
+  `path`, `map`, `status`, `flows`, and `tests` accept `--artifact DIR|FILE`,
+  opened read-only (`store.OpenReadOnly`, no pull, no refresh, nothing written
+  beside it; a zstd artifact is decoded to a temp file). The manifest records
+  the source `root` and the answer reports it, so a single-repo artifact answers
+  byte-identically to the live index — compare `status` with `--no-refresh`,
+  because an artifact never refreshes. A merged artifact (or one exported
+  before `root` existed) reports no root and no checkout staleness; never probe
+  the caller's cwd for it. `impact --diff`/`tests --diff` take the
+  change set from the checkout and only the graph from the artifact (§4.3 CI
+  path). Missing artifact is exit `3`, stale manifest/database schema `1`, and
+  `--artifact` on a command with no read meaning (including `status --full`) is
+  `2`; there is no implicit artifact read, and no MCP/HTTP change. A duplicate
+  qname in a merged index is disambiguated by `file:line` — `callers` accepts
+  the same target forms as `impact`.
 - **Entrypoints are a dimension, not nodes.** The `entrypoints` table (schema
   v6) anchors rules such as `ts.route.express`, `py.route.fastapi`, and
   `rs.main` to existing symbols. Do not turn them into a node kind or let
