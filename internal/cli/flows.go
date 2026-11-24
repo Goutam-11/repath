@@ -21,17 +21,11 @@ func flowsCmd(args []string, stdout, stderr io.Writer) int {
 	}
 
 	ctx := context.Background()
-	root, err := query.ResolveRoot(opts.root)
-	if err != nil {
-		fmt.Fprintf(stderr, "resolve root: %v\n", err)
-		return 1
+	st, done, root, code := openAnswerStore(ctx, opts, false, stderr)
+	if code != 0 {
+		return code
 	}
-	st, err := query.Open(ctx, root, false)
-	if err != nil {
-		fmt.Fprintf(stderr, "%v\n", err)
-		return 1
-	}
-	defer st.Close()
+	defer done()
 
 	depth := opts.depth
 	if depth <= 0 {
@@ -41,7 +35,7 @@ func flowsCmd(args []string, stdout, stderr io.Writer) int {
 	if limit <= 0 {
 		limit = 20
 	}
-	answer, code, err := query.Flows(ctx, st.Store, positional[0], depth, opts.minConfidence, limit)
+	answer, code, err := query.Flows(ctx, st, positional[0], depth, opts.minConfidence, limit)
 	if err != nil {
 		fmt.Fprintf(stderr, "resolve: %v\n", err)
 		return 1

@@ -21,19 +21,26 @@ Usage:
   repath index   [--root DIR] [--full] [--json] [--artifact DIR] [--compress]
                  [--scope DIR ...]
   repath pull    <path|url> [--root DIR] [--json]
-  repath status  [--root DIR] [--json] [--no-refresh]
+  repath status  [--root DIR] [--json] [--no-refresh] [--artifact DIR|FILE]
   repath find    <symbol> [--root DIR] [--json] [--min-confidence N]
-  repath callers <symbol> [--root DIR] [--json] [--min-confidence N]
+                 [--artifact DIR|FILE]
+  repath callers <symbol|file:line> [--root DIR] [--json] [--min-confidence N]
+                 [--artifact DIR|FILE]
   repath impact  <symbol|file:line> [--depth N] [--limit N] [--json]
+                 [--artifact DIR|FILE]
   repath impact  --diff [base] [--depth N] [--limit N] [--json]
+                 [--artifact DIR|FILE]
   repath tests   <symbol|file:line> [--depth N] [--limit N] [--json]
+                 [--artifact DIR|FILE]
   repath tests   --diff [base] [--depth N] [--limit N] [--json]
-  repath path    <from> <to> [--max-depth N] [--json]
-  repath map     [--max-tokens N] [--json]
+                 [--artifact DIR|FILE]
+  repath path    <from> <to> [--max-depth N] [--json] [--artifact DIR|FILE]
+  repath map     [--max-tokens N] [--json] [--artifact DIR|FILE]
   repath map     --md [--out DIR] [--max-tokens N] [--artifact DIR|FILE]
   repath export  --graphml|--dot [--modules] [--out FILE] [--min-confidence N]
                  [--artifact DIR|FILE]
   repath flows   <entrypoint> [--depth N] [--limit N] [--json]
+                 [--artifact DIR|FILE]
   repath check   [--root DIR] [--json] [--min-confidence N]
                  [--fail-on none|error|warning|info] [--max-findings N]
                  [--sarif FILE|DIR ...]
@@ -83,6 +90,9 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprint(stderr, usage)
 		return 2
+	}
+	if code := rejectUnsupportedArtifact(args, stderr); code != 0 {
+		return code
 	}
 
 	switch args[0] {
@@ -214,12 +224,19 @@ func parseOptions(args []string) (options, []string, error) {
 			}
 		case arg == "--artifact":
 			if i+1 >= len(args) {
-				return o, nil, fmt.Errorf("--artifact needs a directory")
+				return o, nil, fmt.Errorf("--artifact needs a directory or database path")
 			}
 			i++
+			if strings.TrimSpace(args[i]) == "" {
+				return o, nil, fmt.Errorf("--artifact needs a directory or database path")
+			}
 			o.artifact = args[i]
 		case strings.HasPrefix(arg, "--artifact="):
-			o.artifact = strings.TrimPrefix(arg, "--artifact=")
+			value := strings.TrimPrefix(arg, "--artifact=")
+			if strings.TrimSpace(value) == "" {
+				return o, nil, fmt.Errorf("--artifact needs a directory or database path")
+			}
+			o.artifact = value
 		case arg == "--scip":
 			if i+1 >= len(args) {
 				return o, nil, fmt.Errorf("--scip needs a SCIP file")

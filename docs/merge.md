@@ -66,18 +66,27 @@ The database `meta` also records `repo=merged`, `merge.parts`,
 
 ## Reading a merged index
 
-Merged artifacts are read-only, so they are consumed through the existing
-read-only artifact path:
+Merged artifacts are read-only, and every read command can answer from one
+with `--artifact merged/` (#129):
 
-- `repath export --graphml|--dot --artifact merged/ [--min-confidence 0.4]` —
-  the full symbol graph, including `xrepo.same_type_as` links when the floor is
-  lowered;
-- `repath map --md --artifact merged/` — the module rollup.
+```sh
+repath callers producer/types.ts:1 --min-confidence 0.4 --artifact merged/ --json
+repath impact  producer/types.ts:1 --min-confidence 0.4 --artifact merged/ --json
+repath find    Widget --artifact merged/ --json          # both halves, as candidates
+repath map --md --artifact merged/                       # module rollup
+repath export --dot --artifact merged/ --min-confidence 0.4 --out merged.dot
+```
 
-`repath pull merged/` seeds a checkout's `.repath/index.db` only as a snapshot;
-any later `index`/`status` refresh re-indexes that checkout and drops the merged
-parts. Use `--artifact` for durable cross-repo reads. Widening `--artifact` to
-every read command is a separate plan change.
+- The `xrepo.same_type_as` link is at **0.45**, so it is invisible at the
+  default 0.5 floor and `--min-confidence 0.4` opts in — the same trade as
+  xlang.
+- Two repos that declare the same qname keep two nodes, so a name lookup is
+  ambiguous (exit `4`). Disambiguate with `file:line` (which the namespaced
+  path makes unique); `find` lists both halves. `callers` accepts the same
+  forms as `impact`.
+- `repath pull merged/` seeds a checkout's `.repath/index.db` only as a
+  snapshot; any later `index`/`status` refresh re-indexes that checkout and
+  drops the merged parts. Use `--artifact` for durable cross-repo reads.
 
 ## Evidence
 

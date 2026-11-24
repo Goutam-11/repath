@@ -177,8 +177,9 @@ with its own exit code `5`. `check --sarif` attaches an external tool's SARIF
 (trimmed to a token budget, byte-identical across runs); `export --graphml|--dot`
 writes the graph for Gephi, yEd, Obsidian, or Graphviz, with `--modules` for the
 module-level view. Both are read-only projections — no new nodes or edges — and
-both accept `--artifact DIR|FILE` to read an exported snapshot in place instead
-of the local index.
+every read command (`find`, `callers`, `impact`, `path`, `status`, `flows`,
+`tests`, `map`, and `export`) accepts `--artifact DIR|FILE` to answer from an
+exported snapshot in place instead of the local index (no pull, no refresh).
 
 **Monorepos and CI.** `index --scope DIR` limits discovery to a subtree while
 keeping the repo root for module detection and git invalidation (Kibana:
@@ -269,17 +270,18 @@ host load; graph structure does not.
 # index and state
 repath index [--full] [--json] [--artifact DIR] [--compress] [--scope DIR ...]
 repath pull <path|url> [--json]
-repath status [--json] [--no-refresh]
+repath status [--json] [--no-refresh] [--artifact DIR|FILE]
 
-# answers
-repath impact <symbol|file:line> [--depth 8] [--limit 50] [--min-confidence 0.5] [--json]
-repath impact --diff [base]
-repath path <from> <to> [--max-depth 8] [--json]
-repath find <symbol> [--module M] [--json]
-repath callers <symbol> [--min-confidence 0.5] [--json]
-repath tests <symbol|file:line> [--diff [base]] [--json]
-repath map [--max-tokens 2000] [--json] | repath map --md [--out DIR] [--artifact DIR|FILE]
-repath flows <entrypoint> [--depth 6] [--limit 20] [--json]
+# answers (every read accepts --artifact DIR|FILE)
+repath impact <symbol|file:line> [--depth 8] [--limit 50] [--min-confidence 0.5] [--json] [--artifact DIR|FILE]
+repath impact --diff [base] [--artifact DIR|FILE]
+repath path <from> <to> [--max-depth 8] [--json] [--artifact DIR|FILE]
+repath find <symbol> [--module M] [--json] [--artifact DIR|FILE]
+repath callers <symbol|file:line> [--min-confidence 0.5] [--json] [--artifact DIR|FILE]
+repath tests <symbol|file:line> [--diff [base]] [--json] [--artifact DIR|FILE]
+repath map [--max-tokens 2000] [--json] [--artifact DIR|FILE]
+repath map --md [--out DIR] [--artifact DIR|FILE]
+repath flows <entrypoint> [--depth 6] [--limit 20] [--json] [--artifact DIR|FILE]
 
 # projections and checks
 repath export --graphml|--dot [--modules] [--out FILE] [--min-confidence 0.5] [--artifact DIR|FILE]

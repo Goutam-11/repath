@@ -242,8 +242,11 @@ out/repath-<sha>.sqlite + manifest.json       CI artifact, read-only
 - An artifact contains structure (names, paths, kinds, line refs), never source
   text. Still internal: symbol names leak intent, so no public caches.
 - `manifest.json`: `schema_version, tool_version, commit, file_count,
-  node_count, edge_count, unresolved_rate, indexed_at`. A binary refuses an
-  artifact whose `schema_version` it does not know, with a one-line upgrade hint.
+  node_count, edge_count, unresolved_rate, indexed_at, root` (`root` is the
+  checkout the snapshot was built from; a read answer reports it as its `root`,
+  so a single-repo artifact answers byte-identically to its source index). A
+  binary refuses an artifact whose `schema_version` it does not know, with a
+  one-line upgrade hint.
 
 > **M5 amendment — artifact compression.** The sketch above named
 > `.sqlite.zst`. M5 shipped an uncompressed `.sqlite` instead: zstd would add a
@@ -394,18 +397,26 @@ unresolved; the original `testdata/fixtures/go` gate is unchanged.
 ```
 repath index  [--full] [--json] [--scope DIR ...]
 repath merge  <artifact>... --out DIR [--json]
-repath status [--json]
-repath find   <name>            [--module M] [--json]
-repath callers <sym>            [--depth 1] [--min-confidence 0.5] [--json]
+repath status [--json] [--artifact DIR|FILE]
+repath find   <name>            [--module M] [--json] [--artifact DIR|FILE]
+repath callers <sym|file:line>  [--depth 1] [--min-confidence 0.5] [--json]
+                                [--artifact DIR|FILE]
 repath impact <sym|file:line>   [--depth 8] [--limit 50] [--json] [--module M]
+                                [--artifact DIR|FILE]
 repath impact --diff [base]     [--depth 8] [--limit 50] [--json]
+                                [--artifact DIR|FILE]
 repath tests  <sym|file:line>   [--depth 8] [--limit 50] [--json]
+                                [--artifact DIR|FILE]
 repath tests  --diff [base]     [--depth 8] [--limit 50] [--json]
+                                [--artifact DIR|FILE]
 repath flows  <entrypoint>      [--depth 6] [--limit 20] [--json]
+                                [--artifact DIR|FILE]
 repath path   <A> <B>           [--max-depth 8] [--alternates 3] [--json]
-repath map    [--max-tokens 2000] [--json]
-repath map    --md [--out DIR] [--max-tokens 2000]
+                                [--artifact DIR|FILE]
+repath map    [--max-tokens 2000] [--json] [--artifact DIR|FILE]
+repath map    --md [--out DIR] [--max-tokens 2000] [--artifact DIR|FILE]
 repath export --graphml|--dot [--modules] [--out FILE] [--min-confidence 0.5]
+                                [--artifact DIR|FILE]
 repath check  [--min-confidence 0.5] [--fail-on error|warning|info|none]
               [--max-findings 200] [--sarif FILE|DIR ...] [--json]
 repath adapter --scip FILE      [--json]
@@ -417,6 +428,23 @@ repath serve  [--addr 127.0.0.1:0] [--root DIR]
 ```
 
 Symbol references accept `qname`, `name`, `file:line`, or `file:name`.
+
+**#129 amendment (read commands over an artifact).** `find`, `callers`,
+`impact`, `path`, `map`, `status`, `flows`, and `tests` accept
+`--artifact DIR|FILE` and answer from that snapshot through
+`store.OpenReadOnly`: no pull, no refresh, and nothing written beside it (a zstd
+artifact is decoded to a temporary file). A single-repo artifact answers
+byte-identically to the live index it was exported from, because the manifest
+records the checkout `root` the answer reports; an artifact with no recorded
+root (a merged index, or an older export) reports no root and no checkout
+staleness. `impact --diff` and
+`tests --diff` keep the checkout as the change-set source and take only the
+graph from the artifact, which is the §4.3 CI scenario. Exit codes: a missing
+artifact is `3`, a stale manifest or database schema is `1`, and `--artifact` on
+a command with no read meaning (including `status --full`) is `2`. A merged
+artifact exposes `xrepo.*` links at `--min-confidence 0.4`, and a duplicate
+qname is disambiguated with `file:line`. This is CLI-only: the six MCP tools and
+six HTTP answers are unchanged, and there is no implicit artifact read.
 
 `index --scope DIR` (repeatable) restricts discovery to a subtree while keeping
 the repository root for module detection and git invalidation. The scope is

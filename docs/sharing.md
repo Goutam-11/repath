@@ -40,13 +40,45 @@ and a sidecar. With `--compress`, the snapshot is zstd-encoded after
   "unresolved_rate": 0,
   "indexed_at": "2026-11-12T13:02:00Z",
   "format": "sqlite+zstd",
-  "db_file": "repath-dev.sqlite.zst"
+  "db_file": "repath-dev.sqlite.zst",
+  "root": "/home/dev/app"
 }
 ```
 
 `format` is `sqlite` or `sqlite+zstd`; `pull` reads both. The database is chmod
 `0444`: a CI artifact is evidence, not a working index. `pull` copies and
-decompresses before opening, so the read-only mode is not a problem.
+decompresses before opening, so the read-only mode is not a problem. `root` is
+the checkout the snapshot was built from; it is provenance for display (the
+`root` of a read answer), never an identity key.
+
+## Read an artifact in place
+
+`find`, `callers`, `impact`, `path`, `map`, `status`, `flows`, and `tests` can
+answer directly from an artifact, without `pull` and without touching `.repath/`:
+
+```sh
+repath index --artifact out/ --json          # in CI, from the PR checkout
+repath impact add --artifact out/ --json     # answers from the snapshot
+repath check --fail-on none --json           # live check still reads .repath/
+repath impact --diff origin/main --artifact out/ --json   # graph from the artifact, diff from the checkout
+```
+
+- The artifact is opened read-only through `store.OpenReadOnly`; nothing is
+  written beside it (a zstd artifact is decoded to a temporary file). A missing
+  artifact is exit `3`, a stale manifest or database schema is exit `1`.
+- `--artifact` on a command that has no read meaning (`pull`, `merge`,
+  `check`, `adapter`, `trace`, `install`, `serve`, `status --full`) is usage
+  exit `2`; there is no implicit artifact read.
+- Answers are byte-identical to the live index the artifact was exported from,
+  including `status`: the manifest's `root` is reported, and an artifact read
+  never refreshes, so compare against `status --no-refresh`. An artifact with no
+  recorded root (a merged index, or one exported before the field existed)
+  reports an empty `root` and no checkout staleness instead of probing the
+  caller's directory.
+- `impact --diff` / `tests --diff` still need the checkout (the change set) and
+  use the artifact only as the graph — that is the §4.3 CI annotation path.
+- A merged artifact answers cross-repo `callers`/`impact` with
+  `--min-confidence 0.4`; see [`merge.md`](merge.md#reading-a-merged-index).
 
 **Compression decision (v1.1, #18).** M5 deliberately shipped uncompressed
 SQLite because zstd would have been a third dependency. #18 evaluated the

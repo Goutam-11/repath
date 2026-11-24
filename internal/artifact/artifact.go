@@ -48,6 +48,10 @@ type Manifest struct {
 	IndexedAt      string  `json:"indexed_at"`
 	Format         string  `json:"format"`
 	DBFile         string  `json:"db_file"`
+	// Root is the checkout the snapshot was built from. It is provenance for
+	// display (the `root` field of a read answer), never an identity key: a
+	// pulled or merged index keeps its own paths.
+	Root string `json:"root,omitempty"`
 	// Scope is the `index --scope` set the snapshot was built with, recorded so
 	// a pulled index cannot silently describe a different file set.
 	Scope []string `json:"scope,omitempty"`
@@ -207,6 +211,7 @@ func ExportWithOptions(ctx context.Context, st *store.Store, root, outDir, versi
 		IndexedAt:      indexedAt,
 		Format:         format,
 		DBFile:         name,
+		Root:           root,
 		Scope:          index.ScopeFromMeta(meta),
 	}
 	manifestPath := filepath.Join(outDir, ManifestName)
