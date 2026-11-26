@@ -116,6 +116,11 @@ repath pull https://ci.example/repath-abc.sqlite.zst
   checkout patches only changed and untracked files.
 - If the directory is empty, the snapshot is kept intact so an artifact can be
   inspected without the source tree.
+- A snapshot built by a **different repath revision** is re-read in full during
+  the pull: the graph is trusted only under the revision that produced it
+  (`meta.build_revision`, see `docs/worktrees.md`). A same-revision pull keeps
+  the incremental path. Reading with `--artifact` is unaffected — it never
+  refreshes and never writes.
 
 A stale `-wal`/`-shm` beside a replaced database is removed first; sharing a
 mutable database over a network filesystem is still forbidden (SQLite locking

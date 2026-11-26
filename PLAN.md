@@ -110,7 +110,7 @@ PRAGMA synchronous = NORMAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE meta    (key TEXT PRIMARY KEY, value TEXT);
--- schema_version, repath_version, git_head, indexed_at, root
+-- schema_version, repath_version, git_head, indexed_at, root, build_revision
 
 CREATE TABLE modules (id INTEGER PRIMARY KEY, name TEXT, kind TEXT, root TEXT);
 -- kind: workspace | package | crate | dir
@@ -269,7 +269,8 @@ same commit.
 
 1. Build/keep an immutable DB per commit in the **git common dir**, never in the
    worktree: `$GIT_COMMON_DIR/repath/commits/<sha>.db`.
-2. On query in a worktree: if HEAD is cached and `git status --porcelain` is
+2. On query in a worktree: if HEAD is cached, the cache's schema **and** build
+   revision match this binary, and `git status --porcelain` is
    empty → **copy** the base DB. If dirty → copy, then patch only changed and
    untracked files through the normal incremental path.
 3. Active DB lives at `<worktree>/.repath/index.db`, so two agents never contend

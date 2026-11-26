@@ -79,6 +79,11 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	if !opts.Full && meta["xlang_indexed"] != "1" {
 		opts.Full = true
 	}
+	// A binary upgrade can change extraction or resolution without a schema
+	// bump, so an index built by another revision is re-read in full (#134).
+	if !opts.Full && meta["build_revision"] != BuildRevision {
+		opts.Full = true
+	}
 	indexed, err := st.IndexedPaths(ctx)
 	if err != nil {
 		return Result{}, err
@@ -308,11 +313,12 @@ func Run(ctx context.Context, st *store.Store, root string, opts Options) (Resul
 	res.Unresolved, _ = st.CountPending(ctx)
 
 	for key, value := range map[string]string{
-		"root":          root,
-		"indexed_at":    time.Now().UTC().Format(time.RFC3339),
-		"file_count":    strconv.Itoa(len(sources)),
-		"git_head":      head,
-		"xlang_indexed": "1",
+		"root":           root,
+		"indexed_at":     time.Now().UTC().Format(time.RFC3339),
+		"file_count":     strconv.Itoa(len(sources)),
+		"git_head":       head,
+		"xlang_indexed":  "1",
+		"build_revision": BuildRevision,
 	} {
 		if err := st.SetMeta(ctx, key, value); err != nil {
 			return res, err

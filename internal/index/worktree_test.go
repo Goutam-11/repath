@@ -6,9 +6,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Goutam-11/repath/internal/store"
 )
 
 func gitCmd(t *testing.T, dir string, args ...string) string {
@@ -283,5 +286,296 @@ func TestCleanStatusIgnoresRepathDir(t *testing.T) {
 	}
 	if cleanStatus("?? src/new.ts\n") {
 		t.Fatal("an untracked source file was reported clean")
+	}
+}
+
+func TestCacheValidRequiresSchemaAndBuildRevision(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "abc.db")
+	if err := os.WriteFile(cache, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	schema := strconv.Itoa(store.SchemaVersion) + "\n"
+
+	cases := []struct {
+		name   string
+		schema string
+		rev    string // empty: no revision sidecar at all
+		want   bool
+	}{
+		{"schema and revision match", schema, "rev-b\n", true},
+		{"revision mismatch", schema, "rev-a\n", false},
+		{"missing revision sidecar", schema, "", false},
+		{"schema mismatch", "4\n", "rev-b\n", false},
+	}
+
+	old := BuildRevision
+	t.Cleanup(func() { BuildRevision = old })
+	BuildRevision = "rev-b"
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, suffix := range []string{".schema", ".rev"} {
+				if err := os.Remove(cache + suffix); err != nil && !os.IsNotExist(err) {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(cache+".schema", []byte(tc.schema), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if tc.rev != "" {
+				if err := os.WriteFile(cache+".rev", []byte(tc.rev), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := cacheValid(cache); got != tc.want {
+				t.Fatalf("cacheValid = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCommitCacheRecordsBuildRevision(t *testing.T) {
+	ctx := context.Background()
+	repo := initGitRepo(t, map[string]string{
+		"src/a.ts": "export function a() {}\n",
+	})
+
+	old := BuildRevision
+	t.Cleanup(func() { BuildRevision = old })
+	BuildRevision = "rev-a"
+
+	st, err := Prepare(ctx, repo, false)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	st.Close()
+
+	head := gitCmd(t, repo, "rev-parse", "HEAD")
+	cache := filepath.Join(commitCacheDir(commonDir(t, repo)), head+".db")
+	data, err := os.ReadFile(cache + ".rev")
+	if err != nil {
+		t.Fatalf("revision sidecar missing: %v", err)
+	}
+	if got := strings.TrimSpace(string(data)); got != "rev-a" {
+		t.Fatalf("revision sidecar = %q, want %q", got, "rev-a")
+	}
+	if !cacheValid(cache) {
+		t.Fatal("cache is not valid under the revision that wrote it")
+	}
+}
+
+func TestPrepareNeverSeedsAcrossBuildRevisions(t *testing.T) {
+	ctx := context.Background()
+	repo := initGitRepo(t, map[string]string{
+		"src/a.ts": "export function a() {}\n",
+		"src/b.ts": "export function b() {}\n",
+	})
+	other := initGitRepo(t, map[string]string{
+		"src/only.ts": "export function only() {}\n",
+	})
+
+	old := BuildRevision
+	t.Cleanup(func() { BuildRevision = old })
+	BuildRevision = "rev-a"
+
+	st, err := Prepare(ctx, repo, false)
+	if err != nil {
+		t.Fatalf("prepare repo: %v", err)
+	}
+	st.Close()
+
+	stOther, err := Prepare(ctx, other, false)
+	if err != nil {
+		t.Fatalf("prepare other: %v", err)
+	}
+	stOther.Close()
+
+	// Substitute another graph for this repo's cache bytes, keeping this repo's
+	// sidecars (schema and rev-a). A same-revision seed must consume it.
+	otherHead := gitCmd(t, other, "rev-parse", "HEAD")
+	otherCache := filepath.Join(commitCacheDir(commonDir(t, other)), otherHead+".db")
+	substitute, err := os.ReadFile(otherCache)
+	if err != nil {
+		t.Fatalf("read other cache: %v", err)
+	}
+	head := gitCmd(t, repo, "rev-parse", "HEAD")
+	cache := filepath.Join(commitCacheDir(commonDir(t, repo)), head+".db")
+	if err := os.Remove(cache); err != nil {
+		t.Fatalf("remove cache: %v", err)
+	}
+	if err := os.WriteFile(cache, substitute, 0o444); err != nil {
+		t.Fatalf("substitute cache: %v", err)
+	}
+
+	// Control: the matching revision seeds the substituted one-file graph.
+	control := addWorktree(t, repo)
+	stControl, err := Prepare(ctx, control, false)
+	if err != nil {
+		t.Fatalf("prepare control: %v", err)
+	}
+	controlCounts, err := stControl.Counts(ctx)
+	stControl.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if controlCounts.Files != 1 {
+		t.Fatalf("control seed files = %d, want 1 (the substituted cache)", controlCounts.Files)
+	}
+
+	// A different revision must rebuild from the worktree, never seed the
+	// one-file graph above.
+	BuildRevision = "rev-b"
+	wt := addWorktree(t, repo)
+	stNew, err := Prepare(ctx, wt, false)
+	if err != nil {
+		t.Fatalf("prepare revised worktree: %v", err)
+	}
+	counts, err := stNew.Counts(ctx)
+	stNew.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if counts.Files != 2 {
+		t.Fatalf("revised worktree files = %d, want 2 (rebuilt, not seeded)", counts.Files)
+	}
+
+	rev, err := os.ReadFile(cache + ".rev")
+	if err != nil {
+		t.Fatalf("read revision sidecar: %v", err)
+	}
+	if got := strings.TrimSpace(string(rev)); got != "rev-b" {
+		t.Fatalf("cache revision = %q, want rev-b (the worktree must rebuild it)", got)
+	}
+}
+
+func TestEvictCommitCachesRemovesRevisionSidecar(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Now()
+	for i := 0; i < 7; i++ {
+		path := filepath.Join(dir, fmt.Sprintf("%02d.db", i))
+		for _, suffix := range []string{"", ".schema", ".rev"} {
+			if err := os.WriteFile(path+suffix, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		stamp := base.Add(time.Duration(i) * time.Minute)
+		if err := os.Chtimes(path, stamp, stamp); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	evict(dir, 5)
+
+	for _, gone := range []string{"00", "01"} {
+		if _, err := os.Stat(filepath.Join(dir, gone+".db.rev")); !os.IsNotExist(err) {
+			t.Fatalf("revision sidecar for %s was not evicted", gone)
+		}
+	}
+}
+
+func TestRunRebuildsActiveIndexWhenBuildRevisionChanges(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	write(t, root, "src/a.ts", "export function a() {}\n")
+	write(t, root, "src/b.ts", "export function b() {}\n")
+
+	old := BuildRevision
+	t.Cleanup(func() { BuildRevision = old })
+
+	open := func() *store.Store {
+		st, err := store.Open(ctx, filepath.Join(root, ".repath", "index.db"))
+		if err != nil {
+			t.Fatalf("open index: %v", err)
+		}
+		if err := st.Migrate(ctx); err != nil {
+			st.Close()
+			t.Fatalf("migrate: %v", err)
+		}
+		return st
+	}
+
+	BuildRevision = "rev-a"
+	st := open()
+	first, err := Run(ctx, st, root, Options{})
+	if err != nil {
+		st.Close()
+		t.Fatal(err)
+	}
+	st.Close()
+	if first.Indexed != 2 || first.Unchanged != 0 {
+		t.Fatalf("cold run = %d indexed / %d unchanged, want 2/0", first.Indexed, first.Unchanged)
+	}
+
+	// The same revision keeps the incremental path: nothing changed.
+	st = open()
+	same, err := Run(ctx, st, root, Options{})
+	if err != nil {
+		st.Close()
+		t.Fatal(err)
+	}
+	st.Close()
+	if same.Indexed != 0 || same.Unchanged != 2 {
+		t.Fatalf("same-revision run = %d indexed / %d unchanged, want 0/2", same.Indexed, same.Unchanged)
+	}
+
+	// A new revision re-reads every file even though the tree is unchanged.
+	BuildRevision = "rev-b"
+	st = open()
+	revised, err := Run(ctx, st, root, Options{})
+	if err != nil {
+		st.Close()
+		t.Fatal(err)
+	}
+	meta, err := st.Meta(ctx)
+	st.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if revised.Indexed != 2 || revised.Unchanged != 0 {
+		t.Fatalf("revised run = %d indexed / %d unchanged, want a full 2/0 re-read", revised.Indexed, revised.Unchanged)
+	}
+	if meta["build_revision"] != "rev-b" {
+		t.Fatalf("meta build_revision = %q, want rev-b", meta["build_revision"])
+	}
+}
+
+func TestPrepareRebuildsActiveIndexAfterRevisionChange(t *testing.T) {
+	ctx := context.Background()
+	repo := initGitRepo(t, map[string]string{
+		"src/a.ts": "export function a() {}\n",
+	})
+
+	old := BuildRevision
+	t.Cleanup(func() { BuildRevision = old })
+
+	BuildRevision = "rev-a"
+	st, err := Prepare(ctx, repo, false)
+	if err != nil {
+		t.Fatalf("prepare rev-a: %v", err)
+	}
+	first, err := st.Meta(ctx)
+	st.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first["build_revision"] != "rev-a" {
+		t.Fatalf("first meta build_revision = %q, want rev-a", first["build_revision"])
+	}
+
+	// Same HEAD, new binary: the existing active database must be re-read, not
+	// served as current.
+	BuildRevision = "rev-b"
+	st, err = Prepare(ctx, repo, false)
+	if err != nil {
+		t.Fatalf("prepare rev-b: %v", err)
+	}
+	meta, err := st.Meta(ctx)
+	st.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta["build_revision"] != "rev-b" {
+		t.Fatalf("meta build_revision = %q, want rev-b (the index was not refreshed)", meta["build_revision"])
 	}
 }

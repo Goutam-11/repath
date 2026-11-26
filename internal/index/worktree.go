@@ -123,6 +123,7 @@ func PrepareScoped(ctx context.Context, root string, noBuild bool, scope []strin
 			_ = removeDB(active)
 			_ = os.Remove(cache)
 			_ = os.Remove(cache + ".schema")
+			_ = os.Remove(cache + ".rev")
 		} else {
 			touch(cache)
 			evict(cacheDir, commitCacheLimit)
@@ -241,7 +242,16 @@ func ensureIndexed(ctx context.Context, st *store.Store, root string, g gitState
 			return err
 		}
 		if counts.Files > 0 {
-			return nil
+			meta, err := st.Meta(ctx)
+			if err != nil {
+				return err
+			}
+			// A binary upgrade without a schema bump leaves a database that
+			// looks current but was built by other extraction code. Let Run
+			// decide (it forces a full re-read); do not short-circuit it (#134).
+			if meta["build_revision"] == BuildRevision {
+				return nil
+			}
 		}
 	}
 	if _, err := Run(ctx, st, root, opts); err != nil {
@@ -332,6 +342,11 @@ func storeCommitLocked(ctx context.Context, st *store.Store, g gitState, cacheDi
 	if err := writeAtomic(cache+".schema", []byte(strconv.Itoa(store.SchemaVersion)+"\n"), 0o644); err != nil {
 		return err
 	}
+	// The revision sidecar records the extraction/resolution code that built
+	// this graph, so the next binary does not seed from it (#134).
+	if err := writeAtomic(cache+".rev", []byte(BuildRevision+"\n"), 0o644); err != nil {
+		return err
+	}
 	touch(cache)
 	evict(cacheDir, commitCacheLimit)
 	return nil
@@ -345,7 +360,17 @@ func cacheValid(cache string) bool {
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(string(data)) == strconv.Itoa(store.SchemaVersion)
+	if strings.TrimSpace(string(data)) != strconv.Itoa(store.SchemaVersion) {
+		return false
+	}
+	// Schema version is a migration guard, not a behaviour guard: a binary
+	// upgrade can change extraction or resolution without a schema bump, so the
+	// cache is also keyed by the build revision that produced it (#134).
+	rev, err := os.ReadFile(cache + ".rev")
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(rev)) == BuildRevision
 }
 
 func commitCacheDir(commonDir string) string {
@@ -520,5 +545,6 @@ func evict(dir string, keep int) {
 	for i := keep; i < len(entries); i++ {
 		_ = os.Remove(entries[i].path)
 		_ = os.Remove(entries[i].path + ".schema")
+		_ = os.Remove(entries[i].path + ".rev")
 	}
 }
