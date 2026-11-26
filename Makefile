@@ -1,5 +1,6 @@
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS := -s -w -X github.com/Goutam-11/repath/internal/cli.version=$(VERSION)
+LDFLAGS := -s -w -X github.com/Goutam-11/repath/internal/cli.version=$(VERSION) \
+           -X github.com/Goutam-11/repath/internal/index.BuildRevision=$(VERSION)
 
 .PHONY: build test vet fmt check hooks hooks-check clean perf perf-10k perf-50k bench-real bench-real-langs bench-corpora release-snapshot
 

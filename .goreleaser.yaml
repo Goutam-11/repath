@@ -25,6 +25,9 @@ builds:
       # The tag carries the conventional `v`; `.Version` is the tag without it,
       # so prefix it here and `repath --version` matches the release exactly.
       - -X github.com/Goutam-11/repath/internal/cli.version=v{{ .Version }}
+      # Commit caches and active indexes are keyed by the build revision, so an
+      # upgrade never seeds a graph built by other extraction code (#134).
+      - -X github.com/Goutam-11/repath/internal/index.BuildRevision=v{{ .Version }}
     goos:
       - linux
     goarch:

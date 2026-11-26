@@ -372,9 +372,14 @@ the database.
   cache.
 - **`.repath/` must not count as dirty.** The worktree clean check filters it;
   a user repo may not have added it to `.gitignore` yet.
-- **The cache schema is sidecar-checked.** `<sha>.db` is trusted only when
-  `<sha>.db.schema` matches `store.SchemaVersion`; bumping the schema rebuilds
-  old caches instead of seeding them.
+- **The cache is keyed by schema and build revision.** `<sha>.db` is trusted
+  only when `<sha>.db.schema` matches `store.SchemaVersion` **and**
+  `<sha>.db.rev` matches `index.BuildRevision` (the binary version, injected by
+  `make build` and GoReleaser; tests set the package var). The active index
+  records the same key in `meta.build_revision`: `Run` forces `Full` on a
+  mismatch and `ensureIndexed` must not short-circuit one, so an upgrade never
+  serves a graph built by other extraction code (#134). Bumping either key
+  rebuilds old caches instead of seeding them.
 - **Release is tag-triggered and draft.** `v1.3.0` (2026-11-20) was the first
   tagged release and `v1.4.0` (2026-11-22) the second (Go, pnpm workspaces,
   `export type *`, cross-repo merge); their notes live in `docs/releases/`. `.goreleaser.yaml` builds Linux

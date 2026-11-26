@@ -9,6 +9,7 @@ worktree its own mutable index and shares only an immutable, commit-keyed cache
 <worktree>/.repath/index.db                     active, writable, per worktree
 $GIT_COMMON_DIR/repath/commits/<sha>.db         immutable snapshot, shared
 $GIT_COMMON_DIR/repath/commits/<sha>.db.schema  schema marker for that cache
+$GIT_COMMON_DIR/repath/commits/<sha>.db.rev     build/extractor revision marker
 $GIT_COMMON_DIR/repath/commits/<sha>.lock       O_EXCL build/seed lock
 ```
 
@@ -21,8 +22,9 @@ shared: SQLite has one writer, and every worktree's dirty state differs.
 `repath` calls the same `index.Prepare` path from every CLI query, `status`,
 `index`, and the MCP server:
 
-1. **Active database is current** (`meta.git_head == HEAD`, schema matches) →
-   open it. Queries do not re-hash; `status`/`index` refresh explicitly, as
+1. **Active database is current** (`meta.git_head == HEAD`, schema and
+   `meta.build_revision` match) → open it. A different revision re-reads every
+   file once; see "Upgrade." Queries do not re-hash; `status`/`index` refresh explicitly, as
    before.
 2. **Active database is missing, HEAD is clean, cache hits** → copy the `0444`
    cache to `<worktree>/.repath/index.db` and answer. This is the sub-second
@@ -36,6 +38,11 @@ shared: SQLite has one writer, and every worktree's dirty state differs.
    worktree at that commit builds the cache.
 6. **HEAD changed** in an existing worktree → the active database is discarded
    and reseeded from the new commit's cache, or rebuilt.
+7. **Binary upgraded, same HEAD** → the active database records the revision
+   that built it (`meta.build_revision`); a mismatch forces one full re-read
+   instead of answering from the previous binary's graph. The commit cache is
+   ignored for the same reason (its `.rev` sidecar differs), so the upgrade
+   rebuilds it once and later worktrees are warm again.
 
 An empty checkout after `repath pull` keeps the artifact snapshot; the overlay
 only runs when `index.Discover` finds indexable files.
@@ -52,7 +59,8 @@ local active database rather than failing the query.
 
 After a cache hit or write, the cache directory is sorted by mtime (touched on
 use) and the five most recent `<sha>.db` files are kept; older databases and
-their `.schema` sidecars are removed. The active database is never evicted.
+their `.schema` and `.rev` sidecars are removed. The active database is never
+evicted.
 
 ## Safety properties
 
@@ -62,8 +70,14 @@ their `.schema` sidecars are removed. The active database is never evicted.
 - `git status --porcelain` is filtered to ignore `.repath/`, so creating the
   active index never makes a clean worktree look dirty (a user repo may not have
   added `.repath/` to its `.gitignore` yet).
-- A cache whose `.schema` sidecar does not match the binary's schema is ignored
-  and rebuilt, so a binary upgrade cannot seed an old snapshot.
+- A cache is trusted only when **both** sidecars match: `.schema` equals
+  `store.SchemaVersion` and `.rev` equals `index.BuildRevision` (the binary
+  version, injected by `make build` and GoReleaser). Schema version is a
+  migration guard, not a behaviour guard: an extractor or resolver change
+  without a schema bump (#121–#130) still changes the graph, so a binary
+  upgrade at the same HEAD ignores and rebuilds the cache instead of seeding
+  the previous binary's graph (#134). A cache written before `.rev` existed is
+  therefore rebuilt once.
 - Nothing here puts a SQLite file on a network filesystem; the cache is a local
   copy source, not a shared live database.
 
@@ -76,7 +90,12 @@ their `.schema` sidecars are removed. The active database is never evicted.
 - a dirty worktree patches a modified file and an untracked file while a later
   clean worktree still sees the clean cache (no dirty leakage);
 - a new commit reseeds the active database and updates `meta.git_head`;
-- LRU keeps five caches and removes the two oldest plus their sidecars;
+- a binary revision change rebuilds both the active index (`meta.build_revision`)
+  and the commit cache (`.rev`), and a cache from another revision is never
+  seeded — the test substitutes a one-file graph for a two-file repo's cache and
+  proves the matching revision consumes it while a different one does not;
+- LRU keeps five caches and removes the two oldest plus their `.schema` and
+  `.rev` sidecars;
 - a stale lock is recovered;
 - `.repath/` is ignored by the clean check.
 
